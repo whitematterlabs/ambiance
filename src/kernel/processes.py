@@ -13,7 +13,12 @@ LIVE_DIR = Path(__file__).resolve().parent.parent.parent / "live"
 PROC_DIR = LIVE_DIR / "proc"
 EVENTS_DIR = LIVE_DIR / "events"
 
-VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled"}
+VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed"}
+
+# Resolutions that wake PAI after the fact. "cancelled" is excluded because
+# cancellation is typically initiated by PAI or the owner — the initiating
+# turn is the right place to react, not a follow-up nudge.
+NUDGE_ON_RESOLVE = {"completed", "expired", "failed"}
 
 
 class ProcessExists(Exception):
@@ -62,8 +67,6 @@ def spawn(slug: str, spec: dict) -> Path:
         yaml.safe_dump(spec, f, sort_keys=False)
     (proc / "status").write_text("running\n")
     (proc / "log.md").write_text(f"[{_now_hm()}] spawned\n")
-
-    emit_event({"source": "kernel", "kind": "process_spawned", "slug": slug})
     return proc
 
 
@@ -76,12 +79,48 @@ def resolve(slug: str, new_status: str) -> None:
     proc = _proc_dir(slug)
     if not proc.exists():
         raise ProcessNotFound(slug)
-    prev = (proc / "status").read_text().strip()
     (proc / "status").write_text(f"{new_status}\n")
     append_log(slug, f"kernel: resolved as {new_status}")
+    if new_status in NUDGE_ON_RESOLVE:
+        payload = {
+            "source": "kernel",
+            "kind": "proc_resolved",
+            "slug": slug,
+            "status": new_status,
+        }
+        try:
+            spec = read_spec(slug)
+        except ProcessNotFound:
+            spec = {}
+        if "parent" in spec:
+            payload["parent"] = spec["parent"]
+        emit_event(payload)
 
-    if prev == "running" and new_status != "running":
-        emit_event({"source": "kernel", "kind": "process_resolved", "slug": slug, "status": new_status})
+
+def alloc_pai_pid() -> int:
+    """Next free integer PID for a `kind: pai` proc. Default `1`."""
+    if not PROC_DIR.exists():
+        return 1
+    pids: list[int] = []
+    for child in PROC_DIR.iterdir():
+        if not child.is_dir() or not child.name.isdigit():
+            continue
+        spec_path = child / "spec.yaml"
+        if not spec_path.exists():
+            continue
+        try:
+            with spec_path.open() as f:
+                spec = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        if spec.get("kind") == "pai":
+            pids.append(int(child.name))
+    return max(pids) + 1 if pids else 1
+
+
+def spawn_pai(pid: int = 1, description: str = "Main PAI") -> Path:
+    """Spawn a `kind: pai` proc at integer PID slug."""
+    return spawn(str(pid), {"kind": "pai", "description": description})
 
 
 def read_spec(slug: str) -> dict:

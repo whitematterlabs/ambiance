@@ -5,7 +5,19 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "anthropic>=0.40.0",
     "croniter>=6.2.2",
+    "python-dotenv>=1.0",
+    "pyobjc-framework-Contacts>=10.0",
     "pyyaml>=6.0.3",
+    "textual>=0.80",
     "watchdog>=6.0.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kernel", "src/drivers", "src/tui"]
+

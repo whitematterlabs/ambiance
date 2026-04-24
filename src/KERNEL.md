@@ -106,55 +106,53 @@ live/proc/
 ### spec.yaml
 
 ```yaml
-type: plan                    # plan | follow-up | reminder | cron | subagent
-spawned: 2026-04-21T14:00:00
-deadline: 2026-04-22T20:00:00  # one-shot types
-schedule: "0 0 * * *"          # cron types — standard cron expression
-people:
-  - kaia
-  - engin
-description: Dinner at gyro project tomorrow at 8
-resolve_on: deadline           # deadline | confirmation | dependency | completion | schedule
-depends_on: null               # another process slug, if dependency type
+# Background service (forks immediately, supervised until exit or cancel)
+run: bin/subagent "research flights to istanbul"
+restart: never                     # never | on-failure | always (default: never)
+deadline: 2026-04-22T15:00:00      # optional; kernel auto-expires and kills subprocess
+spawned: 2026-04-22T14:00:00       # stamped by paictl
+description: "Research flights"    # optional; free text for humans
+people: [kaia]                     # optional; related people
+
+# Cron / timer service (fires on schedule)
+schedule: "0 9 * * *"              # cron expr (recurring) OR ISO datetime (one-shot)
+run: bin/morning-briefing          # optional; absent means "nudge PAI on fire"
+restart: always                    # applies to each per-fire subprocess
 ```
 
 ### status
 
-Single word, no YAML. Read with `cat`, write with `echo >`.
+Single word, no YAML. Read with `cat`, write with `echo >`. Values: `spawned | running | completed | expired | cancelled | failed`.
 
 ### log.md
 
 Append-only, same `[HH:MM]` format as messages:
 
 ```
-[14:00] spawned from kaia/2026-04-21.md
-[19:00] kernel: deadline in 1 hour, no confirmation seen
-[20:30] kernel: deadline passed, marked expired
+[14:00] spawned
+[14:00] kernel: subprocess started pid=24901 (bin/subagent 'flights')
+[14:03] stdout: {"status": "ok", "top": "THY 1234"}
+[14:03] kernel: subprocess exited rc=0
+[14:03] kernel: resolved as completed
 ```
 
-## Process Types
+## Service shapes
 
-**plan** — Something with a deadline and people. "Dinner tomorrow at 8."
-- Resolves: completed | expired | cancelled
-- Kernel actions: schedule deadline wakeup, check for confirmation in messages, update people wikis on resolution, optionally spawn follow-up
+There is no `type:` field. Shape is determined by which fields are present:
 
-**follow-up** — Triggered after another process resolves. "How was dinner?"
-- Resolves: completed (follow-up sent and response received) | expired (window passed)
-- Spawned by: kernel, when a parent plan completes or expires
+**Background service** — has `run:`, no `schedule:`. Kernel forks the command immediately, tees stdout/stderr into `log.md`, and supervises until exit or cancel. On exit, kernel resolves the proc (`completed` on rc=0, `failed` on non-zero) and emits an event that nudges PAI. Examples: research subagents, inbox watchers, long HTTP polls.
 
-**reminder** — Fire at a specific time. "Remind me to call mom Thursday."
-- Resolves: completed (reminder delivered)
-- Simplest type — just a deadline and a message
+**Reminder** — has `schedule:`, no `run:`. Kernel arms a timer. On fire: nudges PAI with `reason: schedule fired`. One-shot schedules resolve `completed` after firing; cron expressions keep running (the proc stays `running`, kernel re-arms the next fire).
 
-**cron** — PAI's internal recurring jobs. "Consolidate today's conversations at midnight."
-- Never resolves — status stays `running` indefinitely (or `cancelled` to disable)
-- `schedule` field instead of `deadline` — standard cron expression
-- After each fire, kernel calculates next fire time and re-inserts into timer heap
-- Examples: nightly consolidation, weekly stale-process sweep, periodic memory compaction
+**Cron job** — has both `schedule:` and `run:`. On each fire, kernel launches a *transient* per-fire subprocess whose output is logged; the parent proc stays `running` across fires. Use for PAI's internal recurring jobs (nightly consolidation, stale-process sweep).
 
-**subagent** — A spawned worker doing async work. "Research flights to Istanbul."
-- Resolves: completed (subagent writes result to process dir)
-- The subagent drops a file in `events/` when done; kernel wakes and resolves
+**Deferred background service** — `schedule:` is a one-shot ISO datetime and `run:` is set. At fire time, kernel starts the subprocess under supervision (same as a plain background service, just delayed).
+
+**Deadline-only** — has `deadline:`, no `schedule:`, no `run:`. The kernel auto-expires the proc at the deadline and nudges PAI. Deprecated shape — prefer `schedule:` with an ISO datetime for timed reminders; keep `deadline:` for capping the runtime of a running service.
+
+### Restart policy
+
+`restart: never` (default) — subprocess exit resolves the proc. `on-failure` re-forks on non-zero exit; `always` re-forks on every exit. Kernel restart counts as an implicit failure, so `on-failure`/`always` procs resume across kernel bounces; `never` procs get marked `failed` with a log line on boot.
 
 ## Kernel Loop
 
@@ -244,6 +242,16 @@ def resolve(proc_slug, new_status):
 
 ## Spawning
 
+Use `bin/paictl start` — the systemctl-shaped frontend. It writes the three files and hands off to the kernel via filesystem watch. No IPC.
+
+```
+bin/paictl start --slug research-flights \
+    --run "bin/subagent 'flights to istanbul'" \
+    --restart never
+```
+
+`paictl` appends `-YYYY-MM-DD` to the slug automatically (falls back to full timestamp on same-day collision). Under the hood it just calls `processes.spawn()`:
+
 ```python
 def spawn(slug, spec):
     proc_dir = LIVE_DIR / "proc" / slug
@@ -251,23 +259,22 @@ def spawn(slug, spec):
     write_yaml(proc_dir / "spec.yaml", spec)
     (proc_dir / "status").write_text("running\n")
     (proc_dir / "log.md").write_text(f"[{now()}] spawned\n")
-
-    if spec.get("deadline"):
-        heap_push(spec["deadline"], slug)
-    elif spec.get("schedule"):
-        next_fire = calc_next_cron(spec["schedule"])
-        heap_push(next_fire, slug)
 ```
 
+The kernel's `proc_watcher` picks up the new directory and:
+- Arms the timer heap if `deadline:` or `schedule:` is present.
+- Hands to the supervisor if `run:` is present without a `schedule:` (background service).
+
 Spawning happens from:
-1. **Extraction pipeline** (future) — identifies a plan in conversation, spawns process
-2. **Manual** — `uv run python src/kernel.py spawn --type plan --deadline ...`
-3. **The kernel itself** — spawning follow-ups when a plan resolves, or cron jobs on first boot
-4. **Subagent dispatch** — PAI decides to delegate work, spawns a subagent process
+1. **PAI itself** — runs `bin/paictl start ...` from its shell when it needs async work or a timed reminder.
+2. **The owner / humans** — same command, same surface.
+3. **The kernel itself** — spawning follow-ups when a service completes, or seeding internal cron jobs on first boot.
 
 ## TODO
 
 - **Context-limit compaction & session restart.** As PAI's conversation approaches the LLM's context window, the kernel is responsible for compacting the active session (summarize, dump state to `memory/`) and restarting the LLM with the compacted context. This is a kernel responsibility, not PAI's — PAI can't reliably reason about its own context budget while it's mid-thought. Likely shape: a monitor that tracks token usage per session, fires a `compact_needed` event past some threshold, kernel drives the summarize-and-restart flow. Revisit after Phase 3 (real `nudge()` with LLM calls).
+
+- **Session persistence across nudges.** Today each nudge is a cold LLM call — no state carries forward, PAI re-orients from scratch every wake. Eventually we want a persistent session so reasoning (prior decisions, in-flight drafts, "why I chose X") survives between nudges. Design rule: **session ≠ read cache.** The session carries reasoning; file reads re-run on every wake. Files are the source of truth and may change externally between nudges (watcher appends a new message, human edits directives, another process resolves), so cached file contents are unsafe to carry. Shape: LLM conversation history per-thread or per-slug, prepended to the user turn on subsequent nudges, with the operating instructions reminding PAI that the filesystem has likely changed since it last looked.
 
 ## Resolved Processes
 

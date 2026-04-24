@@ -10,6 +10,9 @@ Everything is a filesystem. The agent navigates its world using standard shell p
 live/
 ├── communication/
 │   └── messages/                        # iMessage
+│       ├── me/                          # PAI ↔ owner channel
+│       │   ├── meta.yaml
+│       │   └── 2026-04-20.md
 │       ├── {contact-name}/              # 1:1 thread
 │       │   ├── {contact-name} -> ../../../memory/people/{contact-name}/
 │       │   ├── meta.yaml                # thread metadata
@@ -45,14 +48,20 @@ live/
 │   │   ├── 2026-04-19/
 │   │   └── 2026-04-20/
 │   └── skills/                          # things the agent knows how to do
-├── proc/                                # running processes (kernel-managed)
-│   └── {process-slug}/
-│       ├── spec.yaml                    # process definition
-│       ├── status                       # spawned | running | completed | expired | cancelled
-│       └── log.md                       # append-only activity log
+├── proc/                                # running services (kernel-managed)
+│   └── {service-slug}/
+│       ├── spec.yaml                    # service definition (run: and/or schedule:)
+│       ├── status                       # spawned | running | completed | expired | cancelled | failed
+│       └── log.md                       # append-only activity log + subprocess output
+├── bin/                                 # executables
+│   ├── paictl                           # service control (systemctl-shaped)
+│   └── {tool-name}                      # sync tools PAI runs inline
 ├── events/                              # kernel inbox — consumed on read
 │   └── {timestamp}-{source}.yaml        # one event per file
 ├── tmp/                                 # ephemeral file storage
+│   └── drivers/                         # outbound driver state (cursors, etc.)
+│       └── {driver-name}/
+│           └── cursors.yaml             # {relative-path: byte-offset}
 └── workspace/                           # persistent file storage
 ```
 
@@ -72,6 +81,19 @@ Each day's file (e.g. `2026-04-18.md`) is a chronological, append-only message l
 - Sender is lowercase name or `me`
 - New messages always append to today's date file
 - Grepable, tailable, appendable
+
+## The `me/` thread
+
+`communication/messages/me/` is the direct channel between PAI and the owner. The agent writes here when it needs to surface something to the owner (reminders, follow-ups, questions, proactive notes), and the owner writes here to talk to PAI directly.
+
+Same file format as any other thread. Sender is `pai` for the agent and `me` for the owner:
+
+```
+[09:00] pai: heads up — alice's birthday is friday, want me to draft something?
+[09:02] me: yeah, keep it short
+```
+
+No participant symlinks — the thread is between the agent and `memory/myself/`.
 
 ## Symlink Conventions
 
@@ -174,6 +196,10 @@ Thread metadata file in YAML format. Present in every thread folder.
 description: College friend, we talk about music and climbing
 created: 2024-03-15
 group: false
+channel: imessage       # which outbound driver owns this thread
+handles:                # iMessage addresses routed to this thread
+  - "+15551234567"
+  - alice@example.com
 ```
 
 ### Group Chat
@@ -182,11 +208,24 @@ group: false
 description: Weekend planning group with close friends
 created: 2025-01-10
 group: true
+channel: imessage
+chat_guid: "iMessage;+;chat0000000000000000"   # macOS chat identifier
 members:
   - alice-smith
   - bob-jones
   - charlie-lee
 ```
+
+The `channel` field routes outbound messages: `imessage` goes through the
+iMessage-out driver, `tui` through the owner's terminal client, etc. A
+thread with no channel (or an unknown one) is silently skipped by all
+drivers — useful for drafts and tests.
+
+The `handles` field (1:1) and `chat_guid` field (group) are how the kernel's
+message router finds the right thread for an incoming iMessage. For 1:1
+threads the handle is a phone number (E.164-ish, normalized by stripping
+whitespace/dashes/parens) or an iMessage email. For groups, the `chat_guid`
+comes from macOS directly.
 
 Members listed here correspond to symlinks in the thread folder. The `description` field is agent-written — the agent summarizes what the thread is about and updates it over time.
 
@@ -230,29 +269,37 @@ The agent creates and maintains topics as it recognizes recurring themes across 
 
 ## proc/
 
-Processes are the kernel's unit of work — plans, reminders, follow-ups, cron jobs, subagents. Each process is a directory in `live/proc/` with three files. See `src/KERNEL.md` for the full spec.
+Processes are the kernel's unit of work. Every entry in `proc/` is a *service* the kernel supervises — either a background subprocess or a timer fire. There is no type taxonomy; shape is determined by which fields are present in `spec.yaml`. See `src/KERNEL.md` for the full spec.
 
 ### spec.yaml
 
 ```yaml
-type: plan                     # plan | follow-up | reminder | cron | subagent
-spawned: 2026-04-21T14:00:00
-deadline: 2026-04-22T20:00:00  # one-shot types
-schedule: "0 0 * * *"          # cron types
-people:
-  - kaia
-description: Dinner at gyro project tomorrow at 8
-resolve_on: deadline           # deadline | confirmation | dependency | completion | schedule
-depends_on: null
+# Background service — runs immediately, supervised until exit or cancel.
+run: bin/subagent "research flights"
+restart: never                     # never | on-failure | always
+deadline: 2026-04-22T20:00:00      # optional; kernel auto-expires and kills subprocess
+
+# OR: cron/timer — fires on schedule. With `run:`, fires a subprocess each time;
+# without `run:`, each fire nudges PAI (= classic reminder).
+schedule: "0 9 * * *"              # cron expr (recurring) OR ISO datetime (one-shot)
+
+# Metadata (optional)
+spawned: 2026-04-21T14:00:00       # stamped by paictl
+description: "Dinner with kaia at 8"
+people: [kaia]
 ```
 
 ### status
 
-Single word on one line: `spawned`, `running`, `completed`, `expired`, `cancelled`.
+Single word on one line: `spawned`, `running`, `completed`, `expired`, `cancelled`, `failed`.
 
 ### log.md
 
-Append-only, same `[HH:MM]` format as messages.
+Append-only, same `[HH:MM]` format as messages. Subprocess stdout/stderr are tee'd in, prefixed with `stdout:` / `stderr:`.
+
+### bin/
+
+`live/bin/` holds executables. Sync tools (e.g. `bin/slugify`, `bin/weather`) are run inline by PAI during a nudge. `bin/paictl` is the ergonomic frontend for spawning, stopping, and inspecting services.
 
 ## events/
 
@@ -267,6 +314,6 @@ path: live/communication/messages/kaia/2026-04-21.md
 
 ## Open Questions
 
-- `memory/skills/` structure — similar concept to Claude Code skills (reusable prompt fragments the agent can invoke). TBD.
+- `memory/skills/` — one markdown file per capability (e.g. `applescript.md`). Loaded on demand: the agent `ls`es the directory and `cat`s what looks relevant, rather than being auto-injected into the system prompt. Referenced from the operating instructions in `bootstrap.py` so the agent knows to look there.
 - Additional comm apps beyond iMessage — same pattern under `communication/{app}/`.
 - How the agent discovers new messages (polling vs push vs filesystem watch).

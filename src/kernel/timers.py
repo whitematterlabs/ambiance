@@ -58,6 +58,21 @@ def calc_next_cron(schedule: str, after: datetime) -> datetime:
     return croniter(schedule, after).get_next(datetime)
 
 
+def parse_schedule(schedule: str, now: datetime) -> tuple[Optional[datetime], bool]:
+    """Parse a `schedule:` field — either a cron expression or a one-shot ISO datetime.
+
+    Returns (next_fire, is_recurring):
+    - cron expression       → (next cron fire, True)
+    - ISO datetime in future → (that datetime, False)
+    - ISO datetime in past   → (None, False)        # already missed
+    """
+    try:
+        dt = datetime.fromisoformat(schedule)
+    except (ValueError, TypeError):
+        return (croniter(schedule, now).get_next(datetime), True)
+    return (dt if dt > now else None, False)
+
+
 def _parse_iso(value) -> Optional[datetime]:
     if value is None:
         return None
@@ -91,6 +106,8 @@ def rebuild_from_proc() -> list[TimerEntry]:
 
         schedule = spec.get("schedule")
         if schedule:
-            push(heap, calc_next_cron(schedule, now), slug)
+            next_fire, _ = parse_schedule(schedule, now)
+            if next_fire is not None:
+                push(heap, next_fire, slug)
 
     return heap
