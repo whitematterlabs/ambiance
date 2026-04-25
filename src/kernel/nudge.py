@@ -21,8 +21,8 @@ from . import processes as P
 from .processes import LIVE_DIR, ProcessNotFound, append_log
 
 
-def _history_path(pai: str) -> Path:
-    return LIVE_DIR / "proc" / str(pai) / "messages.jsonl"
+def _history_path(pai_slug: str) -> Path:
+    return LIVE_DIR / "proc" / pai_slug / "messages.jsonl"
 
 
 def _load_history(path: Path) -> list[dict]:
@@ -37,10 +37,10 @@ def _load_history(path: Path) -> list[dict]:
     return out
 
 
-def _append_to_me_thread(pai: str, text: str) -> None:
-    """Post PAI's reply to today's me/<pai>/<date>.md as `[HH:MM] pai: ...`."""
+def _append_to_me_thread(pai_pid: int, text: str) -> None:
+    """Post PAI's reply to today's me/<pid>/<date>.md as `[HH:MM] pai: ...`."""
     day = date.today().isoformat()
-    path = LIVE_DIR / "communication" / "messages" / "me" / str(pai) / f"{day}.md"
+    path = LIVE_DIR / "communication" / "messages" / "me" / str(pai_pid) / f"{day}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     hm = datetime.now().strftime("%H:%M")
     # Collapse internal newlines — one message = one line.
@@ -124,14 +124,21 @@ async def nudge(
     reason: str,
     slug: Optional[str] = None,
     context: Optional[dict] = None,
-    pai: str = "1",
+    to: int = 1,
+    from_: Optional[int] = None,
 ) -> None:
     header = f"[kernel] nudge: {reason}"
     if slug:
         header += f" ({slug})"
     print(header, flush=True)
 
-    pai_slug = str(pai)
+    pai_pid = int(to)
+    try:
+        pai_slug = P.find_pai_slug(pai_pid)
+    except ProcessNotFound:
+        print(f"[kernel] nudge: no PAI with pid={pai_pid}", flush=True)
+        return
+
     log_line = f"nudge: {reason}" + (f" ({slug})" if slug else "")
     try:
         append_log(pai_slug, log_line)
@@ -149,15 +156,21 @@ async def nudge(
     except ProcessNotFound:
         pai_spec = {}
     parent = pai_spec.get("parent")
-    parent_str = str(parent) if parent is not None else None
+    parent_pid = int(parent) if parent is not None else None
+    parent_str = str(parent_pid) if parent_pid is not None else None
 
-    system = bootstrap.build_system_prompt(pai=pai_slug, parent=parent_str)
-    user = bootstrap.build_user_turn(reason, slug, context)
+    system = bootstrap.build_system_prompt(pai=pai_pid, parent=parent_pid)
+    sender = str(from_) if from_ is not None else None
+    user = bootstrap.build_user_turn(reason, slug, context, sender=sender)
 
     history_path = _history_path(pai_slug)
     history = _load_history(history_path)
 
-    env = {"PAI_SLUG": pai_slug, "PAI_PARENT": parent_str or ""}
+    env = {
+        "PAI_SLUG": pai_slug,
+        "PAI_PID": str(pai_pid),
+        "PAI_PARENT": parent_str or "",
+    }
 
     try:
         reply, new_history = await llm.run_turn(system, user, history=history, env=env)
@@ -203,7 +216,7 @@ async def nudge(
     if reply:
         print(f"[pai:{pai_slug}] {reply}", flush=True)
         if not parent_str:
-            _append_to_me_thread(pai_slug, reply)
+            _append_to_me_thread(pai_pid, reply)
     print("[kernel] nudge complete", flush=True)
     try:
         append_log(pai_slug, "nudge complete")

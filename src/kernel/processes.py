@@ -97,13 +97,12 @@ def resolve(slug: str, new_status: str) -> None:
         emit_event(payload)
 
 
-def alloc_pai_pid() -> int:
-    """Next free integer PID for a `kind: pai` proc. Default `1`."""
+def _iter_pai_specs():
+    """Yield (slug, spec) for every kind:pai proc on disk."""
     if not PROC_DIR.exists():
-        return 1
-    pids: list[int] = []
+        return
     for child in PROC_DIR.iterdir():
-        if not child.is_dir() or not child.name.isdigit():
+        if not child.is_dir() or child.name.startswith("."):
             continue
         spec_path = child / "spec.yaml"
         if not spec_path.exists():
@@ -114,13 +113,52 @@ def alloc_pai_pid() -> int:
         except Exception:
             continue
         if spec.get("kind") == "pai":
-            pids.append(int(child.name))
+            yield child.name, spec
+
+
+def alloc_pai_pid() -> int:
+    """Next free PID across kind:pai procs. Reads `pid` from each spec; for
+    legacy specs lacking the field, falls back to int(slug) when the slug is
+    all digits. Default 1 if no PAIs exist."""
+    pids: list[int] = []
+    for slug, spec in _iter_pai_specs():
+        pid = spec.get("pid")
+        if isinstance(pid, int):
+            pids.append(pid)
+        elif slug.isdigit():
+            pids.append(int(slug))
     return max(pids) + 1 if pids else 1
 
 
-def spawn_pai(pid: int = 1, description: str = "Main PAI") -> Path:
-    """Spawn a `kind: pai` proc at integer PID slug."""
-    return spawn(str(pid), {"kind": "pai", "description": description})
+def find_pai_slug(pid: int) -> str:
+    """Return the proc-dir slug for the kind:pai proc with this PID.
+
+    Matches `spec["pid"] == pid`, or the legacy slug==str(pid) shape for
+    PAIs whose spec was written before the pid field existed."""
+    for slug, spec in _iter_pai_specs():
+        if spec.get("pid") == pid:
+            return slug
+        if "pid" not in spec and slug == str(pid):
+            return slug
+    raise ProcessNotFound(f"no kind:pai proc with pid={pid}")
+
+
+def read_pai_pid(slug: str) -> int | None:
+    """Return the PID recorded in this proc's spec, if any."""
+    try:
+        spec = read_spec(slug)
+    except ProcessNotFound:
+        return None
+    pid = spec.get("pid")
+    return pid if isinstance(pid, int) else None
+
+
+def spawn_pai(pid: int = 1, slug: str | None = None, description: str = "Main PAI") -> Path:
+    """Spawn a `kind: pai` proc with an explicit PID. Slug defaults to
+    str(pid) for the main PAI / back-compat; subagents pass a name."""
+    if slug is None:
+        slug = str(pid)
+    return spawn(slug, {"kind": "pai", "pid": pid, "description": description})
 
 
 def read_spec(slug: str) -> dict:

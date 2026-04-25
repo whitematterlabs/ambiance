@@ -108,6 +108,7 @@ class MeThreadWatcher:
 @dataclass
 class ProcRow:
     slug: str
+    pid: str  # only set for kind:pai procs; "" otherwise
     type: str
     parent: str
     when: str  # deadline ISO or cron schedule, for display
@@ -170,8 +171,10 @@ class ProcWatcher:
             desc = str(spec.get("description", ""))
             parent = spec.get("parent")
             parent_str = str(parent) if parent is not None else ""
+            pid_val = spec.get("pid")
+            pid_str = str(pid_val) if isinstance(pid_val, int) else ""
             rows.append(ProcRow(
-                slug=slug, type=ptype, parent=parent_str,
+                slug=slug, pid=pid_str, type=ptype, parent=parent_str,
                 when=when, description=desc, status=status,
             ))
         return rows

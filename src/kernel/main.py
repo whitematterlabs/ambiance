@@ -33,33 +33,39 @@ from .nudge import nudge
 # by 'interrupt' events (ESC from the TUI). One PAI may have multiple
 # in-flight nudges if events arrive faster than they resolve; interrupt
 # cancels all of them so the next owner message starts clean.
-_active_nudges: dict[str, set[asyncio.Task]] = defaultdict(set)
+_active_nudges: dict[int, set[asyncio.Task]] = defaultdict(set)
 
 # Per-PAI lock so concurrent nudges don't race on messages.jsonl
 # (load → mutate → save). Cancellation propagates through acquire()
 # cleanly — a task waiting on the lock will just raise CancelledError.
-_pai_locks: dict[str, asyncio.Lock] = {}
+_pai_locks: dict[int, asyncio.Lock] = {}
 
 
-def _pai_lock(pai: str) -> asyncio.Lock:
-    lock = _pai_locks.get(pai)
+def _pai_lock(to: int) -> asyncio.Lock:
+    lock = _pai_locks.get(to)
     if lock is None:
         lock = asyncio.Lock()
-        _pai_locks[pai] = lock
+        _pai_locks[to] = lock
     return lock
 
 
-def _dispatch_nudge(pai: str, *args, **kwargs) -> asyncio.Task:
-    """Fire a nudge as a background task, serialized per PAI, cancellable."""
-    pai = str(pai)
+def _dispatch_nudge(
+    to: int, *args, from_: int | None = None, **kwargs
+) -> asyncio.Task:
+    """Fire a nudge as a background task, serialized per PAI, cancellable.
+
+    `to` is the target PAI's integer PID. `from_` is the sender's PID
+    (None = kernel/system)."""
+    to = int(to)
+    sender = int(from_) if from_ is not None else None
 
     async def _run() -> None:
-        async with _pai_lock(pai):
-            await nudge(*args, pai=pai, **kwargs)
+        async with _pai_lock(to):
+            await nudge(*args, to=to, from_=sender, **kwargs)
 
-    task = asyncio.create_task(_run(), name=f"nudge-{pai}")
-    _active_nudges[pai].add(task)
-    task.add_done_callback(lambda t: _active_nudges[pai].discard(t))
+    task = asyncio.create_task(_run(), name=f"nudge-{to}")
+    _active_nudges[to].add(task)
+    task.add_done_callback(lambda t: _active_nudges[to].discard(t))
     return task
 
 
@@ -74,7 +80,7 @@ async def _handle_timer(entry: T.TimerEntry, heap: list[T.TimerEntry]) -> None:
     if status != "running":
         return  # stale timer; process was resolved
 
-    pai = str(spec.get("parent", "1"))
+    pai = int(spec.get("parent", 1))
     schedule = spec.get("schedule")
     has_run = "run" in spec
 
@@ -128,7 +134,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
     kind = event.get("kind")
 
     if kind == "interrupt":
-        pai = str(event.get("pai", "1"))
+        pai = int(event.get("pai", 1))
         tasks = list(_active_nudges.get(pai, ()))
         if not tasks:
             print(f"[kernel] interrupt: no active nudge for pai={pai}", flush=True)
@@ -151,7 +157,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
                 return
             day = date.today().isoformat()
             _dispatch_nudge(
-                "1",
+                1,
                 "owner message",
                 context={
                     "thread": "me",
@@ -186,7 +192,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         if result.created_thread:
             tag += " (new thread)"
         _dispatch_nudge(
-            "1",
+            1,
             tag,
             context={
                 "thread": result.slug,
@@ -249,7 +255,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         ]
         since = earliest_ts.isoformat(timespec="seconds") if earliest_ts else None
         _dispatch_nudge(
-            "1",
+            1,
             "messages backlog",
             context={
                 "since": since,
@@ -264,20 +270,21 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         if not slug:
             print(f"[kernel] dropping malformed proc_resolved event: {event!r}", flush=True)
             return
-        pai = str(event.get("parent", "1"))
+        pai = int(event.get("parent", 1))
         _dispatch_nudge(pai, f"proc {status}", slug=slug, context={"status": status})
 
     elif kind == "pai_kickoff":
-        target = event.get("target")
+        target_pid = event.get("target_pid")
         text = event.get("text") or ""
-        sender = event.get("sender")
-        if not target:
+        sender_pid = event.get("sender_pid")
+        if target_pid is None:
             print(f"[kernel] dropping malformed pai_kickoff event: {event!r}", flush=True)
             return
         _dispatch_nudge(
-            str(target),
+            int(target_pid),
             "subagent kickoff",
-            context={"sender": sender, "text": text},
+            from_=int(sender_pid) if sender_pid is not None else None,
+            context={"text": text},
         )
 
     elif kind == "send_failed":
@@ -288,7 +295,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             print(f"[kernel] dropping malformed send_failed event: {event!r}", flush=True)
             return
         _dispatch_nudge(
-            "1",
+            1,
             "send failed",
             context={"thread": thread, "text": text, "reason": reason},
         )
@@ -299,11 +306,11 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         if not slug:
             print(f"[kernel] dropping malformed cron_fired event: {event!r}", flush=True)
             return
-        pai = str(event.get("parent", "1"))
+        pai = int(event.get("parent", 1))
         _dispatch_nudge(pai, f"cron fired (rc={rc})", slug=slug, context={"rc": rc})
 
     else:
-        pai = str(event.get("parent", "1"))
+        pai = int(event.get("parent", 1))
         _dispatch_nudge(pai, f"event: {kind or 'unknown'}", context=event)
 
 
@@ -377,9 +384,15 @@ def _ensure_pai_1() -> None:
                     spec = yaml.safe_load(f) or {}
             except Exception:
                 continue
-            if spec.get("kind") == "pai":
-                have_pai = True
-                break
+            if spec.get("kind") != "pai":
+                continue
+            have_pai = True
+            # Backfill pid on legacy specs whose slug is the implicit PID.
+            if "pid" not in spec and child.name.isdigit():
+                spec["pid"] = int(child.name)
+                with spec_path.open("w") as f:
+                    yaml.safe_dump(spec, f, sort_keys=False)
+                print(f"[kernel] backfilled pid={spec['pid']} on {child.name}/spec.yaml", flush=True)
     if not have_pai:
         pid = P.alloc_pai_pid()
         P.spawn_pai(pid)

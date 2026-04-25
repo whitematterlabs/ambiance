@@ -161,14 +161,14 @@ def _read_or_empty(path: Path) -> str:
 
 
 @lru_cache(maxsize=32)
-def build_system_prompt(pai: str = "1", parent: Optional[str] = None) -> str:
+def build_system_prompt(pai: int = 1, parent: Optional[int] = None) -> str:
     identity = _read_or_empty(IDENTITY_PATH)
     directives = _read_or_empty(DIRECTIVES_PATH)
     world = _read_or_empty(WORLD_PATH)
 
-    parent_label = parent if parent else "kernel"
+    parent_label = str(parent) if parent is not None else "kernel"
     pai_line = (
-        f"You are PAI instance {pai}. Parent: {parent_label}. "
+        f"You are PAI pid {pai}. Parent: {parent_label}. "
         f"Subprocesses you spawn should declare parent: {pai}.\n"
     )
 

@@ -65,7 +65,7 @@ class ProcList(DataTable):
     def on_mount(self) -> None:
         self.cursor_type = "row"
         self.zebra_stripes = True
-        self.add_columns("slug", "type", "parent", "when")
+        self.add_columns("slug", "pid", "type", "parent", "when")
 
     def render_rows(self, rows: list[ProcRow]) -> None:
         self.clear()
@@ -75,7 +75,7 @@ class ProcList(DataTable):
 
         for r in sorted(rows, key=key):
             when = _short_when(r.when)
-            self.add_row(r.slug, r.type, r.parent or "-", when)
+            self.add_row(r.slug, r.pid or "-", r.type, r.parent or "-", when)
 
 
 class EventStrip(RichLog):

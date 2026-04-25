@@ -178,5 +178,5 @@ class TuiApp(App):
         self.query_one("#status", Static).update("sent → waiting for kernel…")
 
     async def action_interrupt(self) -> None:
-        emit_event({"source": "tui", "kind": "interrupt", "pai": "1"})
+        emit_event({"source": "tui", "kind": "interrupt", "pai": 1})
         self.query_one("#status", Static).update("interrupt sent → cancelling…")
