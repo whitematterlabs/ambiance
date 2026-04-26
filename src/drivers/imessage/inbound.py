@@ -196,17 +196,14 @@ def _drain_live(last_rowid: int) -> int:
     for row in rows:
         rowid = int(row["rowid"])
         new_last = max(new_last, rowid)
-        if bool(row["is_from_me"]):
-            continue
         payload = _row_payload(row)
         if payload is None:
             ab_len = len(row["attributed_body"] or b"")
             print(f"[imessage-in] skipped rowid={rowid} (undecodable body or no handle, ab_len={ab_len})", flush=True)
             continue
         payload = {"source": "imessage", "kind": "new_message", **payload}
-        payload.pop("is_from_me", None)
         P.emit_event(payload)
-        print(f"[imessage-in] emitted rowid={rowid} → {payload['handle']}", flush=True)
+        print(f"[imessage-in] emitted rowid={rowid} → {payload['handle']} (from_me={payload.get('is_from_me')})", flush=True)
 
     if new_last != last_rowid:
         _save_cursor(new_last)

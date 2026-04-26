@@ -1,7 +1,7 @@
 """Process primitives — spawn, resolve, read, log.
 
 Every process is a directory in live/proc/{slug}/ containing spec.yaml,
-status, and log.md. See src/KERNEL.md for the full spec.
+status, and log.md. See src/guides/KERNEL.md for the full spec.
 """
 
 from datetime import datetime

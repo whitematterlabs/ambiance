@@ -1,5 +1,5 @@
 """
-Reset live/ to an empty scaffold matching SCAFFOLDING.md.
+Reset live/ to an empty scaffold matching guides/SCAFFOLDING.md.
 
 Default: nuke everything under live/ except PAI.md, then re-scaffold.
 --messages: only clear message threads + the iMessage inbound cursor

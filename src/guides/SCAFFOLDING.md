@@ -269,7 +269,7 @@ The agent creates and maintains topics as it recognizes recurring themes across 
 
 ## proc/
 
-Processes are the kernel's unit of work. Every entry in `proc/` is a *service* the kernel supervises — either a background subprocess or a timer fire. There is no type taxonomy; shape is determined by which fields are present in `spec.yaml`. See `src/KERNEL.md` for the full spec.
+Processes are the kernel's unit of work. Every entry in `proc/` is a *service* the kernel supervises — either a background subprocess or a timer fire. There is no type taxonomy; shape is determined by which fields are present in `spec.yaml`. See `KERNEL.md` for the full spec.
 
 ### spec.yaml
 

@@ -1,18 +1,20 @@
 """iMessage outbound driver.
 
-Tails threads with `channel: imessage` in their meta.yaml and sends new
-`me:` lines via Messages.app (osascript). Two ergonomics extensions:
+Tails threads with `channel: imessage` in their meta.yaml. PAI signals a
+send by appending a *bare* line (no `[HH:MM] sender:` prefix) to a
+day-file: we send it via Messages.app (osascript), then append the
+canonical `[HH:MM] me: <text>` record to the same file. That canonical
+line is one-shot suppressed on the tailer so we don't re-read it.
 
-1. Bare lines — if PAI appends a plain line (no `[HH:MM] me:` prefix) to
-   a day-file, we treat it as an outbound draft: send it, then append
-   the canonical `[HH:MM] me: <text>` record to the same file. That
-   canonical line is one-shot suppressed on the tailer so we don't re-send
-   it on the next wake.
+Bracketed lines (`[HH:MM] sender: ...`) are *log entries only* — never
+sends. This includes `me:` lines the kernel writes when chat.db echoes
+back a message Arda sent from his phone: those lines are the record of
+the send, not a request to re-send.
 
-2. New thread dirs — when `communication/messages/{slug}/` appears with
-   no meta.yaml, we materialize one from `memory/people/{slug}/about.yaml`
-   (or, for a raw phone/email slug, from the slug itself). PAI's workflow
-   collapses to `mkdir messages/{slug} && echo "text" >> messages/{slug}/$(date +%F).md`.
+New thread dirs — when `communication/messages/{slug}/` appears with no
+meta.yaml, we materialize one from `memory/people/{slug}/about.yaml` (or,
+for a raw phone/email slug, from the slug itself). PAI's workflow
+collapses to `mkdir messages/{slug} && echo "text" >> messages/{slug}/$(date +%F).md`.
 
 Tries iMessage first, falls back to SMS if iMessage errors (covers
 Android contacts when "Send as SMS" isn't doing the fallback itself).
@@ -33,6 +35,7 @@ from typing import Optional
 
 import yaml
 
+from kernel import outbound_echo
 from kernel import processes as P
 
 from ..tailer import LIVE_DIR, Tailer
@@ -40,10 +43,8 @@ from ..tailer import LIVE_DIR, Tailer
 MESSAGES_ROOT = LIVE_DIR / "communication" / "messages"
 PEOPLE_ROOT = LIVE_DIR / "memory" / "people"
 
-# [HH:MM] me: rest of text
-ME_LINE = re.compile(r"^\[\d{2}:\d{2}\]\s+me:\s*(.*)$")
-# Any other bracketed prefix — inbound lines, kernel notes, etc. We never
-# treat these as drafts.
+# Bracketed prefix — log entries (inbound, canonical me:, kernel notes).
+# Never treated as send requests; only bare lines are.
 BRACKET_LINE = re.compile(r"^\[")
 # Phone slug = all digits (after earlier `h`-prefix removal); email slug
 # contains `@` (unusual but handled).
@@ -265,18 +266,8 @@ def build() -> Tailer:
                 await tailer._drain_file(child)  # noqa: SLF001
 
     async def on_line(path: Path, line: str) -> None:
-        m = ME_LINE.match(line)
-        if m:
-            # Canonical `[HH:MM] me:` — PAI's old workflow, or a line we
-            # were about to suppress but didn't (shouldn't happen — suppress
-            # check runs earlier in Tailer). Send as-is.
-            text = m.group(1).rstrip()
-            if not text:
-                return
-            await _process_send(path, text)
-            return
         if BRACKET_LINE.match(line):
-            return  # inbound line, kernel note, or other bracketed prefix
+            return  # log entry — inbound, canonical me:, kernel note, etc.
         text = line.rstrip()
         if not text:
             return
@@ -287,6 +278,7 @@ def build() -> Tailer:
             return
         canonical = _append_canonical(path, text)
         tailer.suppress_next(path, canonical)
+        outbound_echo.register(path.parent.name, text)
 
     tailer = Tailer(
         name="imessage-out",

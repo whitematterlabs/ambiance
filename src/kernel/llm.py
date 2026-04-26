@@ -11,23 +11,61 @@ import asyncio
 import os
 from typing import Optional
 
+import yaml
 from anthropic import AsyncAnthropic
 
 from . import shell_tool
+from .processes import LIVE_DIR
 
-MODEL = os.environ.get("PAI_MODEL", "claude-sonnet-4-6")
 MAX_TOKENS = 4096
 MAX_ITERATIONS = 25
 
+PROVIDER_CONFIG_PATH = LIVE_DIR / "memory" / "myself" / "provider.yaml"
 
-_client: Optional[AsyncAnthropic] = None
+# provider key -> (base_url or None, api_key env var, default model, extra_body)
+_PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
+    "anthropic": (None, "ANTHROPIC_API_KEY", "claude-sonnet-4-6", {}),
+    # Deepseek's Anthropic-compatible endpoint defaults thinking=enabled, which
+    # demands thinking blocks be preserved in tool-call history. Our histories
+    # don't contain them, so disable thinking entirely.
+    "deepseek": (
+        "https://api.deepseek.com/anthropic",
+        "DEEPSEEK_API_KEY",
+        "deepseek-v4-pro",
+        {"thinking": {"type": "disabled"}},
+    ),
+}
+DEFAULT_PROVIDER = "anthropic"
 
 
-def _get_client() -> AsyncAnthropic:
-    global _client
-    if _client is None:
-        _client = AsyncAnthropic()
-    return _client
+def _read_provider_key() -> str:
+    try:
+        data = yaml.safe_load(PROVIDER_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return DEFAULT_PROVIDER
+    key = data.get("provider") if isinstance(data, dict) else None
+    return key if key in _PROVIDERS else DEFAULT_PROVIDER
+
+
+# Cached (provider_key, client, model, extra_body). Rebuilt on swap.
+_cached: Optional[tuple[str, AsyncAnthropic, str, dict]] = None
+
+
+def _get_client_and_model() -> tuple[AsyncAnthropic, str, dict]:
+    global _cached
+    key = _read_provider_key()
+    if _cached is not None and _cached[0] == key:
+        return _cached[1], _cached[2], _cached[3]
+    base_url, api_key_env, default_model, extra_body = _PROVIDERS[key]
+    api_key = os.environ.get(api_key_env)
+    kwargs: dict = {}
+    if api_key:
+        kwargs["api_key"] = api_key
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = AsyncAnthropic(**kwargs)
+    _cached = (key, client, default_model, extra_body)
+    return client, default_model, extra_body
 
 
 class TurnCancelled(Exception):
@@ -76,12 +114,12 @@ async def run_turn(
 
     On cancellation raises TurnCancelled with the pruned partial history.
     """
-    client = _get_client()
+    client, model, extra_body = _get_client_and_model()
     messages: list[dict] = list(history) if history else []
     messages.append({"role": "user", "content": user})
 
     try:
-        return await _loop(client, system, messages, env)
+        return await _loop(client, model, extra_body, system, messages, env)
     except asyncio.CancelledError:
         _prune_unresolved_tool_uses(messages)
         raise TurnCancelled(messages)
@@ -114,6 +152,8 @@ def _with_cache_control(messages: list[dict]) -> list[dict]:
 
 async def _loop(
     client: AsyncAnthropic,
+    model: str,
+    extra_body: dict,
     system: str,
     messages: list[dict],
     env: Optional[dict],
@@ -127,11 +167,12 @@ async def _loop(
     ]
     for _ in range(MAX_ITERATIONS):
         response = await client.messages.create(
-            model=MODEL,
+            model=model,
             max_tokens=MAX_TOKENS,
             system=system_blocks,
             tools=[shell_tool.TOOL_SCHEMA],
             messages=_with_cache_control(messages),
+            extra_body=extra_body,
         )
 
         # Anthropic SDK returns content blocks as objects; serialize for

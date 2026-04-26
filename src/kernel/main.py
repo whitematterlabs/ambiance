@@ -21,6 +21,7 @@ from drivers.imessage import outbound as imessage_out
 
 from . import contacts
 from . import messages as M
+from . import outbound_echo
 from . import processes as P
 from . import proc_watcher
 from . import supervisor
@@ -180,6 +181,19 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
                 received_at = datetime.fromisoformat(raw_ts)
             except ValueError:
                 received_at = None
+        from_me = bool(event.get("is_from_me"))
+        if from_me:
+            # chat.db is reflecting a send back at us. If PAI drafted it,
+            # outbound._append_canonical already wrote the line — drop the
+            # echo. Otherwise it's Arda texting from his phone/Mac and
+            # we need to log it as `me:` and nudge.
+            existing_slug = M.resolve_slug(handle, event.get("chat_guid"))
+            if existing_slug and outbound_echo.consume(existing_slug, text):
+                print(
+                    f"[kernel] dropped chat.db echo of PAI send → {existing_slug}",
+                    flush=True,
+                )
+                return
         result = M.ingest(
             handle=handle,
             text=text,
@@ -187,8 +201,11 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             display_name=event.get("display_name"),
             received_at=received_at,
             source=event.get("source"),
+            sender_override="me" if from_me else None,
         )
         tag = "new message"
+        if from_me:
+            tag = "outbound message"
         if result.created_thread:
             tag += " (new thread)"
         _dispatch_nudge(

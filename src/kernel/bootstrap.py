@@ -20,6 +20,8 @@ MYSELF_DIR = LIVE_DIR / "memory" / "myself"
 IDENTITY_PATH = MYSELF_DIR / "identity.yaml"
 DIRECTIVES_PATH = MYSELF_DIR / "directives.md"
 WORLD_PATH = LIVE_DIR / "PAI.md"
+BIN_DIR = LIVE_DIR / "bin"
+SKILLS_DIR = LIVE_DIR / "memory" / "skills"
 
 
 OPERATING_INSTRUCTIONS = """\
@@ -137,10 +139,14 @@ To act, write to files or invoke tools:
   logs all stay put. Use when the buffer is getting unwieldy.
 - Choosing not to respond = do nothing; return.
 
-`memory/skills/` holds how-to guides for specific capabilities (AppleScript,
-etc.). When a request touches something you're not sure how to do, `ls
-memory/skills/` and `cat` any that look relevant before acting. Skills are
-loaded on demand — not pre-read into this prompt.
+`memory/skills/` holds how-to guides for specific capabilities. The
+`<skills>` block below lists what's available by filename — only the
+names, not the bodies. Whenever a request touches something a skill
+might cover, `cat memory/skills/<name>` before acting. Err on the side
+of loading: if the name plausibly applies, read it. The cost is one
+shell command; the cost of skipping it is doing the wrong thing or
+reinventing a recipe that's already written down. Re-read on each turn
+that needs it — don't assume you remember from a prior turn.
 
 Replying to the owner (Arda): just produce your reply as your final
 assistant text. The kernel automatically appends it to today's
@@ -160,11 +166,21 @@ def _read_or_empty(path: Path) -> str:
         return ""
 
 
+def _list_dir(path: Path) -> str:
+    """One filename per line, sorted. Empty string if dir is missing."""
+    try:
+        return "\n".join(sorted(p.name for p in path.iterdir()))
+    except FileNotFoundError:
+        return ""
+
+
 @lru_cache(maxsize=32)
 def build_system_prompt(pai: int = 1, parent: Optional[int] = None) -> str:
     identity = _read_or_empty(IDENTITY_PATH)
     directives = _read_or_empty(DIRECTIVES_PATH)
     world = _read_or_empty(WORLD_PATH)
+    bins = _list_dir(BIN_DIR)
+    skills = _list_dir(SKILLS_DIR)
 
     parent_label = str(parent) if parent is not None else "kernel"
     pai_line = (
@@ -178,6 +194,10 @@ def build_system_prompt(pai: int = 1, parent: Optional[int] = None) -> str:
         f"<directives>\n{directives}</directives>\n\n"
         f"<world>\n{world}</world>\n\n"
         f"<operating-instructions>\n{OPERATING_INSTRUCTIONS}</operating-instructions>\n\n"
+        f"<bin>\nBinaries in bin/ (run as `bin/<name>`; use `bin/<name> --help` "
+        f"or `head bin/<name>` for usage):\n{bins}\n</bin>\n\n"
+        f"<skills>\nSkills in memory/skills/ (read on demand with "
+        f"`cat memory/skills/<name>`):\n{skills}\n</skills>\n\n"
         # Anchor the shell's cwd visually, without naming it — naming it
         # encourages the model to prefix commands with that name.
         "~ $ "

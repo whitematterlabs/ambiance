@@ -9,12 +9,63 @@ from datetime import datetime
 _PAI_CMD = re.compile(r"^\[pai(?::[^\]]+)?\] \$ ")
 _PAI_REPLY = re.compile(r"^\[pai(?::[^\]]+)?\] ")
 
+import yaml
+from functools import partial
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Input, Static
 
-from kernel.processes import emit_event
+from kernel.processes import LIVE_DIR, emit_event
+
+PROVIDER_CONFIG_PATH = LIVE_DIR / "memory" / "myself" / "provider.yaml"
+PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek")]
+
+
+def _read_provider() -> str:
+    try:
+        data = yaml.safe_load(PROVIDER_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return "anthropic"
+    key = data.get("provider") if isinstance(data, dict) else None
+    return key if key in {k for _, k in PROVIDER_OPTIONS} else "anthropic"
+
+
+def _write_provider(key: str) -> None:
+    PROVIDER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PROVIDER_CONFIG_PATH.write_text(f"provider: {key}\n", encoding="utf-8")
+
+
+class ProviderCommands(Provider):
+    """Command-palette entries to swap the LLM provider."""
+
+    def _help(self, key: str) -> str:
+        return "active" if key == _read_provider() else "switch on next turn"
+
+    async def discover(self) -> Hits:
+        for label, key in PROVIDER_OPTIONS:
+            yield DiscoveryHit(
+                f"Provider: {label}",
+                partial(self.app.set_provider, key),
+                help=self._help(key),
+            )
+
+    async def search(self, query: str) -> Hits:
+        matcher = self.matcher(query)
+        for label, key in PROVIDER_OPTIONS:
+            command = f"Provider: {label}"
+            score = matcher.match(command)
+            if score <= 0:
+                continue
+            yield Hit(
+                score,
+                matcher.highlight(command),
+                partial(self.app.set_provider, key),
+                help=self._help(key),
+            )
+
 
 from .state import (
     EventsWatcher,
@@ -66,6 +117,7 @@ class TuiApp(App):
         ("ctrl+c", "quit", "quit"),
         Binding("escape", "interrupt", "interrupt PAI", priority=True),
     ]
+    COMMANDS = App.COMMANDS | {ProviderCommands}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -176,6 +228,9 @@ class TuiApp(App):
             "text": text,
         })
         self.query_one("#status", Static).update("sent → waiting for kernel…")
+
+    def set_provider(self, key: str) -> None:
+        _write_provider(key)
 
     async def action_interrupt(self) -> None:
         emit_event({"source": "tui", "kind": "interrupt", "pai": 1})
