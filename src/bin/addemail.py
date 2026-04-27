@@ -5,10 +5,10 @@ Runs the Google installed-app OAuth loopback flow (browser pops up),
 captures the current Gmail historyId as the bootstrap cursor (so the
 driver starts from "now" and never backfills), and writes:
 
-  live/communication/email/{account}/meta.yaml
-  live/communication/email/{account}/{threads,drafts}/   (empty)
-  live/tmp/drivers/gmail-in/{account}/token.json
-  live/tmp/drivers/gmail-in/{account}/history-id
+  home/communication/email/{account}/meta.yaml
+  home/communication/email/{account}/{threads,drafts}/   (empty)
+  home/tmp/drivers/gmail-in/{account}/token.json
+  home/tmp/drivers/gmail-in/{account}/history-id
 
 Usage:
     uv run python src/bin/addemail.py ACCOUNT [--client-id ID] [--poll 60]
@@ -37,8 +37,8 @@ from drivers.email.gmail import api as gapi
 from drivers.email.gmail import auth as gauth
 from kernel import processes as P  # noqa: F401  — triggers .env.local load
 
-EMAIL_ROOT = P.LIVE_DIR / "communication" / "email"
-TMP_ROOT = P.LIVE_DIR / "tmp" / "drivers" / "gmail-in"
+EMAIL_ROOT = P.HOME_DIR / "communication" / "email"
+TMP_ROOT = P.HOME_DIR / "tmp" / "drivers" / "gmail-in"
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 

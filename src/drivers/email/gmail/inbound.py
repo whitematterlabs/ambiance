@@ -3,9 +3,9 @@
 One supervised proc (`gmail-in`) fans out to per-account async loops. Each
 loop polls `users.history.list` from a persisted `historyId`, fetches new
 INBOX messages, writes per-message yaml under
-`live/communication/email/{account}/{date}/...`, builds the threads/ and
+`home/communication/email/{account}/{date}/...`, builds the threads/ and
 .prev symlink indexes, and emits `new_email` / `email_backlog` events into
-`live/events/`.
+`home/events/`.
 
 Bootstrap and cursor-reset both capture a fresh `historyId` via getProfile
 and ingest nothing — never backfills, per EMAILS.md.
@@ -31,8 +31,8 @@ from drivers.email.gmail import auth as gauth
 from kernel import processes as P
 
 DRIVER_SLUG = "gmail-in"
-EMAIL_ROOT = P.LIVE_DIR / "communication" / "email"
-TMP_ROOT = P.LIVE_DIR / "tmp" / "drivers" / DRIVER_SLUG
+EMAIL_ROOT = P.HOME_DIR / "communication" / "email"
+TMP_ROOT = P.HOME_DIR / "tmp" / "drivers" / DRIVER_SLUG
 
 
 # ---------- account discovery ----------
@@ -240,7 +240,7 @@ def _ingest_one(account_dir: Path, account: str, gmail_msg: dict) -> Optional[di
     parent_path = shared.find_message_by_id(account_dir, parent_id) if parent_id else None
     shared.link_prev(msg_path, parent_path)
 
-    rel_path = msg_path.relative_to(P.LIVE_DIR.parent) if msg_path.is_absolute() else msg_path
+    rel_path = msg_path.relative_to(P.HOME_DIR.parent) if msg_path.is_absolute() else msg_path
     return {
         "account": account,
         "provider": "gmail",

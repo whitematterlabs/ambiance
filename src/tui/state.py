@@ -18,10 +18,10 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from kernel.processes import EVENTS_DIR, LIVE_DIR, PROC_DIR, list_procs, read_spec, read_status
+from kernel.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_spec, read_status
 
-ME_THREAD_DIR = LIVE_DIR / "communication" / "messages" / "me" / "1"
-KERNEL_LOG = LIVE_DIR / "tmp" / "kernel.log"
+ME_THREAD_DIR = HOME_DIR / "communication" / "messages" / "me" / "1"
+KERNEL_LOG = HOME_DIR / "tmp" / "kernel.log"
 
 
 def today_file() -> Path:
@@ -191,7 +191,7 @@ class EventSighting:
 
 
 class EventsWatcher:
-    """Emits an EventSighting for each new file in live/events/.
+    """Emits an EventSighting for each new file in home/events/.
 
     Files may get consumed (deleted) by the kernel before we read them;
     we try to read the YAML in the watchdog thread to beat the kernel,
@@ -263,7 +263,7 @@ class _EventsHandler(FileSystemEventHandler):
 
 
 class LogTailer:
-    """In-memory tail of live/tmp/kernel.log. Emits each new line as it's appended."""
+    """In-memory tail of home/tmp/kernel.log. Emits each new line as it's appended."""
 
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.loop = loop

@@ -14,14 +14,16 @@ from typing import Optional
 
 import yaml
 
-from .processes import LIVE_DIR
+from .processes import HOME_DIR
 
-MYSELF_DIR = LIVE_DIR / "memory" / "myself"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+MYSELF_DIR = HOME_DIR / "memory" / "myself"
 IDENTITY_PATH = MYSELF_DIR / "identity.yaml"
 DIRECTIVES_PATH = MYSELF_DIR / "directives.md"
-WORLD_PATH = LIVE_DIR / "PAI.md"
-BIN_DIR = LIVE_DIR / "bin"
-SKILLS_DIR = LIVE_DIR / "memory" / "skills"
+WORLD_PATH = HOME_DIR / "PAI.md"
+BIN_DIR = HOME_DIR / "bin"
+SKILLS_DIR = HOME_DIR / "memory" / "skills"
 
 
 OPERATING_INSTRUCTIONS = """\
@@ -139,6 +141,14 @@ To act, write to files or invoke tools:
   logs all stay put. Use when the buffer is getting unwieldy.
 - Choosing not to respond = do nothing; return.
 
+`etc/` is the kernel control plane — agent-readable and agent-editable.
+`etc/config.yaml` declares the long-running PAI fleet (your `wake_on:`
+patterns live here). `etc/drivers/{driver}/events.yaml` enumerates
+what events each driver emits, their payloads, and the routing kinds
+that `wake_on` matches against. `cat etc/drivers/imessage/events.yaml`
+before editing `wake_on:` so you know what kinds exist, or when you
+receive an unfamiliar event reason.
+
 `memory/skills/` holds how-to guides for specific capabilities. The
 `<skills>` block below lists what's available by filename — only the
 names, not the bodies. Whenever a request touches something a skill
@@ -175,7 +185,11 @@ def _list_dir(path: Path) -> str:
 
 
 @lru_cache(maxsize=32)
-def build_system_prompt(pai: int = 1, parent: Optional[int] = None) -> str:
+def build_system_prompt(
+    pai: int = 1,
+    parent: Optional[int] = None,
+    prompt_path: Optional[str] = None,
+) -> str:
     identity = _read_or_empty(IDENTITY_PATH)
     directives = _read_or_empty(DIRECTIVES_PATH)
     world = _read_or_empty(WORLD_PATH)
@@ -188,9 +202,13 @@ def build_system_prompt(pai: int = 1, parent: Optional[int] = None) -> str:
         f"Subprocesses you spawn should declare parent: {pai}.\n"
     )
 
+    role = _read_or_empty(REPO_ROOT / prompt_path) if prompt_path else ""
+    role_block = f"<role>\n{role}</role>\n\n" if role else ""
+
     return (
         f"<identity>\n{identity}</identity>\n\n"
         f"<pai-instance>\n{pai_line}</pai-instance>\n\n"
+        f"{role_block}"
         f"<directives>\n{directives}</directives>\n\n"
         f"<world>\n{world}</world>\n\n"
         f"<operating-instructions>\n{OPERATING_INSTRUCTIONS}</operating-instructions>\n\n"

@@ -2,7 +2,7 @@
 
 Watches ~/Library/Messages/chat.db{,-wal,-shm} via kqueue. On each
 VNODE event, runs a bounded ROWID-delta query against chat.db and
-emits one `new_message` event per new inbound row into live/events/.
+emits one `new_message` event per new inbound row into home/events/.
 
 kqueue (not watchdog/FSEvents) because SQLite modifies the WAL in place
 via mmap, which FSEvents coalesces aggressively — you get one event and
@@ -34,7 +34,7 @@ import yaml
 from kernel import processes as P
 
 CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
-CURSOR_DIR = P.LIVE_DIR / "tmp" / "drivers" / "imessage_in"
+CURSOR_DIR = P.HOME_DIR / "tmp" / "drivers" / "imessage_in"
 CURSOR_PATH = CURSOR_DIR / "cursor.yaml"
 
 MAC_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)

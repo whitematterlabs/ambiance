@@ -1,7 +1,7 @@
 """Shared on-disk helpers for email drivers.
 
 Per `src/guides/EMAILS.md`, every provider produces the same shape:
-    live/communication/email/{account}/
+    home/communication/email/{account}/
         {YYYY-MM-DD}/{subject-slug}.yaml         # canonical
         {YYYY-MM-DD}/{subject-slug}.prev -> ...  # one-hop walkback
         threads/{thread-slug}/...yaml -> ...     # chronological index

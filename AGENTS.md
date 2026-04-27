@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project
 
-PAI (Personal AI) — an always-on AI agent that uses the filesystem as its primary data structure. Source code lives in `src/`, the agent's live workspace lives in `live/`.
+PAI (Personal AI) — an always-on AI agent that uses the filesystem as its primary data structure. Source code lives in `src/`, the agent's live workspace lives in `home/`.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ PAI (Personal AI) — an always-on AI agent that uses the filesystem as its prim
 ### Key directories
 
 - `src/` — agent source code (Python 3.14, managed with uv)
-- `live/` — the agent's runtime workspace, structured as:
+- `home/` — the agent's runtime workspace, structured as:
   - `communication/messages/{contact-or-group}/` — append-only message logs, one file per day (`YYYY-MM-DD.md`)
   - `memory/myself/` — identity (`identity.yaml`) and behavioral directives (`directives.md`)
   - `memory/people/{name}/about.yaml` — structured profiles with freeform wiki entries
@@ -45,5 +45,5 @@ One message per line, append-only, date in filename. `me` for the agent/owner's 
 
 - Plain text over databases — everything should be greppable, tailable, appendable
 - Symlinks over duplication — single source of truth, linked from multiple contexts
-- The `live/` directory is the agent's world; `src/` is the machinery that operates on it
-- The scaffolding doc (`src/guides/SCAFFOLDING.md`) is the authoritative spec for the `live/` directory structure
+- The `home/` directory is the agent's world; `src/` is the machinery that operates on it
+- The scaffolding doc (`src/guides/SCAFFOLDING.md`) is the authoritative spec for the `home/` directory structure

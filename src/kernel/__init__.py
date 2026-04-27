@@ -1,4 +1,4 @@
-"""PAI kernel — process management for the live/ filesystem."""
+"""PAI kernel — process management for the home/ filesystem."""
 
 # Load .env from the project root before anything else imports — the
 # anthropic client reads ANTHROPIC_API_KEY at construction time.
@@ -14,7 +14,7 @@ _load_dotenv(_root / ".env")
 
 from .main import run
 from .processes import (
-    LIVE_DIR,
+    HOME_DIR,
     PROC_DIR,
     EVENTS_DIR,
     ProcessExists,
@@ -30,7 +30,7 @@ from .processes import (
 )
 
 __all__ = [
-    "LIVE_DIR",
+    "HOME_DIR",
     "PROC_DIR",
     "EVENTS_DIR",
     "ProcessExists",

@@ -15,6 +15,7 @@ dependencies = [
     "requests>=2.32",
     "textual>=0.80",
     "watchdog>=6.0.0",
+    "pytest>=8.0",
 ]
 
 [project.scripts]

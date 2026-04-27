@@ -1,7 +1,7 @@
 """Run the kernel and the TUI together.
 
 Spawns the kernel as a child process (its stdout/stderr are already tee'd
-to live/tmp/kernel.log by the kernel itself), then runs the TUI in the
+to home/tmp/kernel.log by the kernel itself), then runs the TUI in the
 foreground. Ctrl+C quits the TUI and terminates the kernel.
 
     uv run python -m pai
@@ -14,7 +14,7 @@ import signal
 import subprocess
 import sys
 
-from kernel.processes import LIVE_DIR
+from kernel.processes import HOME_DIR
 from tui.app import TuiApp
 
 
@@ -22,7 +22,7 @@ def main() -> int:
     # Point the kernel's stdout/stderr straight at kernel.log so even early
     # startup errors (import failures, missing API key) land on disk where
     # the TUI's log pane can see them. -u keeps writes unbuffered.
-    log_path = LIVE_DIR / "tmp" / "kernel.log"
+    log_path = HOME_DIR / "tmp" / "kernel.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("a", buffering=1, encoding="utf-8")
     log.write(f"\n--- pai supervisor starting kernel ---\n")

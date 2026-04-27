@@ -1,5 +1,24 @@
 # PAI Scaffolding
 
+## Repo layout
+
+```
+src/         # agent source code
+etc/         # kernel control plane (agent-readable via home/etc symlink)
+  config.yaml                # long-running PAI fleet declaration
+  drivers/{driver}/events.yaml  # per-driver event manifest
+packages/    # reusable PAI/skill/driver bundles (only kind: pai is honored in v1)
+home/        # agent's runtime workspace (see below)
+```
+
+`etc/config.yaml` is reconciled against `home/proc/` at boot and on a
+`kernel:reload_config` event. See `src/kernel/config.py` for the schema.
+
+`etc/drivers/{driver}/events.yaml` enumerates the event-kinds each
+driver emits — their `wake_on` routing keys, raw event-file kinds,
+emitter source paths, and payload shapes. Single source of truth for
+both PAI (writing `wake_on:` patterns) and humans (debugging routing).
+
 ## Philosophy
 
 Everything is a filesystem. The agent navigates its world using standard shell primitives (`ls`, `cat`, `grep`, `find`, `tail`, `echo >>`). No custom APIs, no blind graph traversal. Relationships are symlinks. Data is plain text.
@@ -7,7 +26,7 @@ Everything is a filesystem. The agent navigates its world using standard shell p
 ## Live Directory Structure
 
 ```
-live/
+home/
 ├── communication/
 │   └── messages/                        # iMessage
 │       ├── me/                          # PAI ↔ owner channel
@@ -58,6 +77,7 @@ live/
 │   └── {tool-name}                      # sync tools PAI runs inline
 ├── events/                              # kernel inbox — consumed on read
 │   └── {timestamp}-{source}.yaml        # one event per file
+├── etc -> ../etc/                       # kernelspace control plane (symlink)
 ├── tmp/                                 # ephemeral file storage
 │   └── drivers/                         # outbound driver state (cursors, etc.)
 │       └── {driver-name}/
@@ -299,17 +319,17 @@ Append-only, same `[HH:MM]` format as messages. Subprocess stdout/stderr are tee
 
 ### bin/
 
-`live/bin/` holds executables. Sync tools (e.g. `bin/slugify`, `bin/weather`) are run inline by PAI during a nudge. `bin/paictl` is the ergonomic frontend for spawning, stopping, and inspecting services.
+`home/bin/` holds executables. Sync tools (e.g. `bin/slugify`, `bin/weather`) are run inline by PAI during a nudge. `bin/paictl` is the ergonomic frontend for spawning, stopping, and inspecting services.
 
 ## events/
 
-Event files are dropped into `live/events/` to wake the kernel. Each file is a YAML document and is deleted once consumed. Filenames are `{timestamp}-{source}.yaml` for ordering and debuggability.
+Event files are dropped into `home/events/` to wake the kernel. Each file is a YAML document and is deleted once consumed. Filenames are `{timestamp}-{source}.yaml` for ordering and debuggability.
 
 ```yaml
 source: imessage
 kind: new_message
 thread: kaia
-path: live/communication/messages/kaia/2026-04-21.md
+path: home/communication/messages/kaia/2026-04-21.md
 ```
 
 ## Open Questions

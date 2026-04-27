@@ -1,6 +1,6 @@
 """Process primitives — spawn, resolve, read, log.
 
-Every process is a directory in live/proc/{slug}/ containing spec.yaml,
+Every process is a directory in home/proc/{slug}/ containing spec.yaml,
 status, and log.md. See src/guides/KERNEL.md for the full spec.
 """
 
@@ -9,9 +9,9 @@ from pathlib import Path
 
 import yaml
 
-LIVE_DIR = Path(__file__).resolve().parent.parent.parent / "live"
-PROC_DIR = LIVE_DIR / "proc"
-EVENTS_DIR = LIVE_DIR / "events"
+HOME_DIR = Path(__file__).resolve().parent.parent.parent / "home"
+PROC_DIR = HOME_DIR / "proc"
+EVENTS_DIR = HOME_DIR / "events"
 
 VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed"}
 
@@ -42,7 +42,7 @@ def _now_hm() -> str:
 
 
 def emit_event(payload: dict) -> Path:
-    """Write a YAML event file into live/events/. Consumed by the running kernel."""
+    """Write a YAML event file into home/events/. Consumed by the running kernel."""
     EVENTS_DIR.mkdir(parents=True, exist_ok=True)
     source = str(payload.get("source", "kernel"))
     # Microseconds + source keep filenames unique and debuggable.
@@ -153,12 +153,42 @@ def read_pai_pid(slug: str) -> int | None:
     return pid if isinstance(pid, int) else None
 
 
-def spawn_pai(pid: int = 1, slug: str | None = None, description: str = "Main PAI") -> Path:
+def spawn_pai(
+    pid: int = 1,
+    slug: str | None = None,
+    description: str = "Main PAI",
+    *,
+    prompt: str | None = None,
+    model: str | None = None,
+    wake_on: list[str] | None = None,
+    fallback: bool | None = None,
+    parent: int | None = None,
+    extra: dict | None = None,
+) -> Path:
     """Spawn a `kind: pai` proc with an explicit PID. Slug defaults to
-    str(pid) for the main PAI / back-compat; subagents pass a name."""
+    str(pid) for the main PAI / back-compat; subagents pass a name.
+
+    Optional fields (prompt, model, wake_on) are persisted into spec.yaml
+    when provided. `prompt` and `wake_on` are honored by bootstrap.py
+    and main.py respectively; `model` is still inert (llm.py reads from
+    provider.yaml)."""
     if slug is None:
         slug = str(pid)
-    return spawn(slug, {"kind": "pai", "pid": pid, "description": description})
+    spec: dict = {"kind": "pai", "pid": pid, "slug": slug, "description": description}
+    if prompt is not None:
+        spec["prompt"] = prompt
+    if model is not None:
+        spec["model"] = model
+    if wake_on is not None:
+        spec["wake_on"] = list(wake_on)
+    if fallback is not None:
+        spec["fallback"] = bool(fallback)
+    if parent is not None:
+        spec["parent"] = parent
+    if extra:
+        for k, v in extra.items():
+            spec.setdefault(k, v)
+    return spawn(slug, spec)
 
 
 def read_spec(slug: str) -> dict:

@@ -38,10 +38,10 @@ import yaml
 from kernel import outbound_echo
 from kernel import processes as P
 
-from ..tailer import LIVE_DIR, Tailer
+from ..tailer import HOME_DIR, Tailer
 
-MESSAGES_ROOT = LIVE_DIR / "communication" / "messages"
-PEOPLE_ROOT = LIVE_DIR / "memory" / "people"
+MESSAGES_ROOT = HOME_DIR / "communication" / "messages"
+PEOPLE_ROOT = HOME_DIR / "memory" / "people"
 
 # Bracketed prefix — log entries (inbound, canonical me:, kernel notes).
 # Never treated as send requests; only bare lines are.

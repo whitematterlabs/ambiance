@@ -1,6 +1,6 @@
 """The kernel loop — tickless, event + timer driven.
 
-Sleeps on whichever fires first: an FS event in live/events/ or the next
+Sleeps on whichever fires first: an FS event in home/events/ or the next
 pending timer. When the heap is empty and no events are pending, blocks
 indefinitely on the watcher.
 """
@@ -8,6 +8,8 @@ indefinitely on the watcher.
 from __future__ import annotations
 
 import asyncio
+import fnmatch
+import os
 import sys
 import traceback
 from collections import defaultdict
@@ -20,6 +22,9 @@ from drivers.email.gmail import inbound as gmail_in
 from drivers.imessage import inbound as imessage_in
 from drivers.imessage import outbound as imessage_out
 
+from contextlib import AsyncExitStack
+
+from . import config as C
 from . import contacts
 from . import messages as M
 from . import outbound_echo
@@ -69,6 +74,38 @@ def _dispatch_nudge(
     _active_nudges[to].add(task)
     task.add_done_callback(lambda t: _active_nudges[to].discard(t))
     return task
+
+
+def _route_to_pids(event_kind: str, fallback_pid: int = 1) -> list[int]:
+    """Every running PAI that should be nudged for `event_kind`, by pid.
+
+    Two-tier:
+      1. Every PAI whose `wake_on` glob matches → nudged (fan-out).
+      2. If zero PAIs matched, every PAI with `fallback: true` → nudged.
+      3. If still zero, [fallback_pid] (pid 1 = kernel_manager) so the
+         event always lands somewhere.
+    """
+    matched: list[int] = []
+    fallbacks: list[int] = []
+    for slug, spec in P._iter_pai_specs():
+        try:
+            if P.read_status(slug) != "running":
+                continue
+        except P.ProcessNotFound:
+            continue
+        pid = spec.get("pid")
+        if not isinstance(pid, int):
+            continue
+        wake_on = spec.get("wake_on") or []
+        if isinstance(wake_on, list) and any(
+            fnmatch.fnmatchcase(event_kind, pat) for pat in wake_on
+        ):
+            matched.append(pid)
+        elif spec.get("fallback") is True:
+            fallbacks.append(pid)
+    chosen = matched or fallbacks or [fallback_pid]
+    chosen.sort()
+    return chosen
 
 
 async def _handle_timer(entry: T.TimerEntry, heap: list[T.TimerEntry]) -> None:
@@ -158,16 +195,17 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
                 print(f"[kernel] dropping empty owner message: {event!r}", flush=True)
                 return
             day = date.today().isoformat()
-            _dispatch_nudge(
-                1,
-                "owner message",
-                context={
-                    "thread": "me",
-                    "sender": "me",
-                    "text": text,
-                    "day_file": f"communication/messages/me/1/{day}.md",
-                },
-            )
+            for pid in _route_to_pids("imessage:owner"):
+                _dispatch_nudge(
+                    pid,
+                    "owner message",
+                    context={
+                        "thread": "me",
+                        "sender": "me",
+                        "text": text,
+                        "day_file": f"communication/messages/me/{pid}/{day}.md",
+                    },
+                )
             return
 
         handle = event.get("handle") or ""
@@ -209,16 +247,14 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             tag = "outbound message"
         if result.created_thread:
             tag += " (new thread)"
-        _dispatch_nudge(
-            1,
-            tag,
-            context={
-                "thread": result.slug,
-                "sender": result.sender,
-                "text": text,
-                "day_file": str(result.day_file.relative_to(P.LIVE_DIR)),
-            },
-        )
+        ctx = {
+            "thread": result.slug,
+            "sender": result.sender,
+            "text": text,
+            "day_file": str(result.day_file.relative_to(P.HOME_DIR)),
+        }
+        for pid in _route_to_pids("imessage:new"):
+            _dispatch_nudge(pid, tag, context=ctx)
 
     elif kind == "messages_backlog":
         messages = event.get("messages") or []
@@ -272,15 +308,13 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             for slug, b in per_thread.items()
         ]
         since = earliest_ts.isoformat(timespec="seconds") if earliest_ts else None
-        _dispatch_nudge(
-            1,
-            "messages backlog",
-            context={
-                "since": since,
-                "threads": summary,
-                "total": sum(b["inbound"] + b["outbound"] for b in per_thread.values()),
-            },
-        )
+        ctx = {
+            "since": since,
+            "threads": summary,
+            "total": sum(b["inbound"] + b["outbound"] for b in per_thread.values()),
+        }
+        for pid in _route_to_pids("imessage:backlog"):
+            _dispatch_nudge(pid, "messages backlog", context=ctx)
 
     elif kind == "proc_resolved":
         slug = event.get("slug")
@@ -312,11 +346,12 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         if not thread:
             print(f"[kernel] dropping malformed send_failed event: {event!r}", flush=True)
             return
-        _dispatch_nudge(
-            1,
-            "send failed",
-            context={"thread": thread, "text": text, "reason": reason},
-        )
+        ctx = {"thread": thread, "text": text, "reason": reason}
+        for pid in _route_to_pids("imessage:send_failed"):
+            _dispatch_nudge(pid, "send failed", context=ctx)
+
+    elif kind == "kernel:reload_config":
+        await _handle_reload_config()
 
     elif kind == "cron_fired":
         slug = event.get("slug")
@@ -368,53 +403,117 @@ def _install_stdout_tee() -> None:
             return
     except (AttributeError, ValueError):
         return
-    log_path = P.LIVE_DIR / "tmp" / "kernel.log"
+    log_path = P.HOME_DIR / "tmp" / "kernel.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     f = log_path.open("a", buffering=1, encoding="utf-8")
     sys.stdout = _Tee(sys.stdout, f)
     sys.stderr = _Tee(sys.stderr, f)
 
 
-def _ensure_pai_1() -> None:
-    """Migrate flat me/*.md into me/1/*.md and ensure pid 1 exists."""
-    me_dir = P.LIVE_DIR / "communication" / "messages" / "me"
-    pid1_dir = me_dir / "1"
-    if me_dir.exists():
-        pid1_dir.mkdir(parents=True, exist_ok=True)
-        for child in me_dir.iterdir():
-            if not child.is_file() or child.suffix != ".md":
-                continue
-            dest = pid1_dir / child.name
-            if dest.exists():
-                continue
-            child.rename(dest)
+def _ensure_etc_symlink() -> None:
+    """Surface etc/ inside home/ as `home/etc -> ../etc/`.
 
-    have_pai = False
-    if P.PROC_DIR.exists():
-        for child in P.PROC_DIR.iterdir():
-            if not child.is_dir():
-                continue
-            spec_path = child / "spec.yaml"
-            if not spec_path.exists():
-                continue
+    PAI's shell cwd is HOME_DIR and the operating instructions forbid
+    path prefixes. The symlink lets PAI read kernelspace control plane
+    files (etc/config.yaml, etc/drivers/*/events.yaml) without leaving
+    its world. Idempotent."""
+    link = P.HOME_DIR / "etc"
+    target = "../etc"
+    if link.is_symlink() and os.readlink(link) == target:
+        return
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    P.HOME_DIR.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target, target_is_directory=True)
+
+
+def _migrate_legacy_me_dir() -> None:
+    """Lift flat home/communication/messages/me/*.md into me/1/*.md.
+
+    Pre-reconcile: keeps existing-fleet boots working when the owner's
+    me/ thread predates the per-pid layout."""
+    me_dir = P.HOME_DIR / "communication" / "messages" / "me"
+    if not me_dir.exists():
+        return
+    pid1_dir = me_dir / "1"
+    pid1_dir.mkdir(parents=True, exist_ok=True)
+    for child in me_dir.iterdir():
+        if not child.is_file() or child.suffix != ".md":
+            continue
+        dest = pid1_dir / child.name
+        if dest.exists():
+            continue
+        child.rename(dest)
+
+
+_LEGACY_PAI_RENAMES: dict[str, str] = {
+    # Pre-config slug → reconcile slug. The reserved-pid invariant means
+    # these renames are safe: the on-disk pid stays the same.
+    "1": "kernel_manager",
+}
+
+
+def _migrate_legacy_pai_slug() -> None:
+    """Backfill `pid` on pre-config specs and rename legacy slugs.
+
+    Pre-reconcile: reconcile relies on `spec["pid"]` being present and on
+    slug names matching `etc/config.yaml`. Anything not handled here would
+    look like a removed-then-added PAI to reconcile."""
+    if not P.PROC_DIR.exists():
+        return
+    for child in list(P.PROC_DIR.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        spec_path = child / "spec.yaml"
+        if not spec_path.exists():
+            continue
+        try:
+            with spec_path.open() as f:
+                spec = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        if spec.get("kind") != "pai":
+            continue
+
+        if "pid" not in spec and child.name.isdigit():
+            spec["pid"] = int(child.name)
+            with spec_path.open("w") as f:
+                yaml.safe_dump(spec, f, sort_keys=False)
+            print(f"[kernel] backfilled pid={spec['pid']} on {child.name}/spec.yaml", flush=True)
+
+        new_slug = _LEGACY_PAI_RENAMES.get(child.name)
+        if new_slug and not (P.PROC_DIR / new_slug).exists():
+            target = P.PROC_DIR / new_slug
+            child.rename(target)
+            # Update the spec's `slug` field if present.
+            spec_path = target / "spec.yaml"
             try:
                 with spec_path.open() as f:
                     spec = yaml.safe_load(f) or {}
+                if spec.get("slug") != new_slug:
+                    spec["slug"] = new_slug
+                    with spec_path.open("w") as f:
+                        yaml.safe_dump(spec, f, sort_keys=False)
             except Exception:
-                continue
-            if spec.get("kind") != "pai":
-                continue
-            have_pai = True
-            # Backfill pid on legacy specs whose slug is the implicit PID.
-            if "pid" not in spec and child.name.isdigit():
-                spec["pid"] = int(child.name)
-                with spec_path.open("w") as f:
-                    yaml.safe_dump(spec, f, sort_keys=False)
-                print(f"[kernel] backfilled pid={spec['pid']} on {child.name}/spec.yaml", flush=True)
-    if not have_pai:
-        pid = P.alloc_pai_pid()
-        P.spawn_pai(pid)
-        print(f"[kernel] spawned pai pid={pid}", flush=True)
+                pass
+            print(f"[kernel] renamed legacy proc {child.name!r} → {new_slug!r}", flush=True)
+
+
+async def _handle_reload_config() -> None:
+    """Drain in-flight nudges, then reconcile. On error, nudge pid 1."""
+    print("[kernel] reload_config: draining nudges", flush=True)
+    async with AsyncExitStack() as stack:
+        for lock in list(_pai_locks.values()):
+            await stack.enter_async_context(lock)
+        try:
+            C.reconcile_from_config()
+            print("[kernel] reload_config: done", flush=True)
+        except Exception as e:
+            tb = traceback.format_exc()
+            print(f"[kernel] reload_config failed: {e!r}\n{tb}", flush=True)
+            ctx = {"error": repr(e), "traceback": tb}
+            for pid in _route_to_pids("kernel:reload_failed"):
+                _dispatch_nudge(pid, "config reload failed", context=ctx)
 
 
 def _ensure_driver_proc(slug: str) -> None:
@@ -460,7 +559,10 @@ async def _supervise_driver(slug: str, coro) -> None:
 async def run() -> None:
     _install_stdout_tee()
     loop = asyncio.get_running_loop()
-    _ensure_pai_1()
+    _ensure_etc_symlink()
+    _migrate_legacy_me_dir()
+    _migrate_legacy_pai_slug()
+    C.reconcile_from_config()
     contacts.sync_to_people(M.PEOPLE_DIR)
     heap = T.rebuild_from_proc()
     watcher = EventWatcher(P.EVENTS_DIR, loop)

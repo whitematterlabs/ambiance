@@ -1,6 +1,6 @@
-"""The single tool exposed to PAI: a bash shell rooted at live/.
+"""The single tool exposed to PAI: a bash shell rooted at home/.
 
-Freesolo by design. cwd is live/; no path-escape filtering, no command
+Freesolo by design. cwd is home/; no path-escape filtering, no command
 allowlist. The agent is trusted. If it runs `rm -rf` on its own world,
 that's a PAI problem, not a harness problem.
 """
@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from .processes import LIVE_DIR
+from .processes import HOME_DIR
 
 TOOL_NAME = "bash"
 TOOL_DESCRIPTION = (
@@ -61,11 +61,11 @@ async def run(
     timeout: float = 30.0,
     env: Optional[dict] = None,
 ) -> ShellResult:
-    LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    HOME_DIR.mkdir(parents=True, exist_ok=True)
     proc_env = {**os.environ, **env} if env else None
     proc = await asyncio.create_subprocess_shell(
         command,
-        cwd=str(LIVE_DIR),
+        cwd=str(HOME_DIR),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=proc_env,

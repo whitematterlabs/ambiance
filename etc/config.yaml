@@ -1,0 +1,35 @@
+# PAI kernel control plane.
+#
+# Source of truth for which long-running PAIs exist. The kernel reconciles
+# home/proc/ against this file at boot and on a `kernel:reload_config` event.
+# In git, agent-editable.
+#
+# Field rules (see src/kernel/config.py for the authoritative schema):
+#   name         (required) stable proc-dir slug; unique
+#   pid          required for reserved entries (1 and 2); auto-allocated otherwise
+#   description  required
+#   package      (optional) pulls defaults from packages/{package}/package.yaml
+#   prompt       per-PAI role file (resolved relative to repo root)
+#   model        accepted, persisted into spec.yaml — INERT in v1
+#   wake_on      list of fnmatch globs over event-kind; matching PAIs are nudged
+#   fallback     if true, this PAI is nudged only when no wake_on pattern matched
+
+pais:
+  - name: kernel_manager
+    pid: 1
+    description: kernel-internal events + errored nudges
+    prompt: src/prompts/kernel_manager.md
+    model: deepseek-v4-pro
+    wake_on: ['kernel:*']
+
+  - name: pai
+    pid: 2
+    description: owner-facing PAI; catch-all for unclaimed events
+    prompt: src/prompts/pai_default.md
+    model: deepseek-v4-pro
+    fallback: true
+
+  # Example future entry (not seeded):
+  # - name: msg-spec
+  #   package: message_specialist
+  #   wake_on: ['imessage:*']

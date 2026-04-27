@@ -7,6 +7,6 @@ wheels/
 *.egg-info
 
 .venv
-live/
+home/
 .env
 .env.local

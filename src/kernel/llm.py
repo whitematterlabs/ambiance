@@ -15,12 +15,12 @@ import yaml
 from anthropic import AsyncAnthropic
 
 from . import shell_tool
-from .processes import LIVE_DIR
+from .processes import HOME_DIR
 
 MAX_TOKENS = 4096
 MAX_ITERATIONS = 25
 
-PROVIDER_CONFIG_PATH = LIVE_DIR / "memory" / "myself" / "provider.yaml"
+PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
 
 # provider key -> (base_url or None, api_key env var, default model, extra_body)
 _PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {

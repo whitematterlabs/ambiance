@@ -113,7 +113,7 @@ class EventStrip(RichLog):
 
 
 class LogTail(RichLog):
-    """Tail of live/tmp/kernel.log, colored by speaker tag."""
+    """Tail of home/tmp/kernel.log, colored by speaker tag."""
 
     DEFAULT_CSS = """
     LogTail {

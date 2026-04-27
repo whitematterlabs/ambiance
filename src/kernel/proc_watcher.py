@@ -1,6 +1,6 @@
 """proc/ watcher — syncs PAI-written specs into the kernel's timer heap.
 
-Watches live/proc/ for new spec.yaml files and status file changes. On a
+Watches home/proc/ for new spec.yaml files and status file changes. On a
 new spec, parses its deadline or schedule and pushes to the heap. On a
 status flip away from "running", removes the entry.
 

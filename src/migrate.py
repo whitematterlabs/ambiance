@@ -1,5 +1,5 @@
 """
-Migrate 2026 data from animus twin.json into PAI's live/ filesystem.
+Migrate 2026 data from animus twin.json into PAI's home/ filesystem.
 
 Explodes the graph into:
   - communication/messages/{thread}/YYYY-MM-DD.md  (message logs)
@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 ANIMUS_GRAPH = Path.home() / "Projects" / "animus" / "memory" / "twin.json"
-LIVE_DIR = Path(__file__).resolve().parent.parent / "live"
+HOME_DIR = Path(__file__).resolve().parent.parent / "home"
 YEAR = "2026"
 
 
@@ -170,7 +170,7 @@ def write_messages(nodes: dict, edges: list):
             counter += 1
         thread_slugs[thread_id] = slug
 
-        thread_dir = LIVE_DIR / "communication" / "messages" / slug
+        thread_dir = HOME_DIR / "communication" / "messages" / slug
         thread_dir.mkdir(parents=True, exist_ok=True)
 
         # Write day files
@@ -227,7 +227,7 @@ def write_messages(nodes: dict, edges: list):
 def write_people(nodes: dict):
     """Write memory/people/{slug}/about.yaml for each contact."""
     contacts = [n for n in nodes.values() if n.get("type") == "contact"]
-    people_dir = LIVE_DIR / "memory" / "people"
+    people_dir = HOME_DIR / "memory" / "people"
     count = 0
 
     for contact in contacts:
@@ -273,7 +273,7 @@ def write_topics(nodes: dict, thread_slugs: dict):
     ]
 
     print(f"Processing {len(topics)} topics from 2026 ...")
-    topics_dir = LIVE_DIR / "memory" / "topics"
+    topics_dir = HOME_DIR / "memory" / "topics"
     used_slugs = set()
     count = 0
 
@@ -366,7 +366,7 @@ def write_topics(nodes: dict, thread_slugs: dict):
 
 def write_myself():
     """Write memory/myself/ identity and directives."""
-    myself_dir = LIVE_DIR / "memory" / "myself"
+    myself_dir = HOME_DIR / "memory" / "myself"
     myself_dir.mkdir(parents=True, exist_ok=True)
 
     identity = myself_dir / "identity.yaml"
@@ -396,7 +396,7 @@ def write_myself():
 
 def write_journal(date_threads: dict[str, set[str]]):
     """Write memory/journal/{date}/ with symlinks to each thread's day-file."""
-    journal_dir = LIVE_DIR / "memory" / "journal"
+    journal_dir = HOME_DIR / "memory" / "journal"
     count = 0
 
     for date_key in sorted(date_threads):
@@ -427,7 +427,7 @@ def write_scaffold_dirs():
     for d in ["communication/messages", "memory/people", "memory/topics",
               "memory/journal", "memory/myself", "memory/skills",
               "tmp", "workspace"]:
-        (LIVE_DIR / d).mkdir(parents=True, exist_ok=True)
+        (HOME_DIR / d).mkdir(parents=True, exist_ok=True)
 
 
 def main():

@@ -10,10 +10,10 @@ Design for PAI drivers that let the agent read and write email through personal 
 
 ## Filesystem layout
 
-Email is its own root under `live/communication/`, parallel to `messages/`.
+Email is its own root under `home/communication/`, parallel to `messages/`.
 
 ```
-live/communication/email/{account}/
+home/communication/email/{account}/
     meta.yaml
     {YYYY-MM-DD}/
         {subject-slug}.yaml
@@ -24,7 +24,7 @@ live/communication/email/{account}/
     drafts/
         {draft-id}.yaml
     tmp/
-        delta-token, oauth tokens, etc. (or under live/tmp/drivers/email/{account}/)
+        delta-token, oauth tokens, etc. (or under home/tmp/drivers/email/{account}/)
 ```
 
 - `{account}` is the full email address, e.g. `arda@outlook.com` or `arda@gmail.com`. Provider is recorded in `meta.yaml`, not the path — the directory shape is identical for both. Supports multiple accounts (across providers) cleanly.
@@ -94,7 +94,7 @@ What both drivers must produce regardless of provider:
 
 - Per-message YAML written to `{date}/{subject-slug}.yaml` with the schema above.
 - `threads/{thread-slug}/` symlink updated; best-effort `.prev` symlink.
-- A `new_email` event into `live/events/` with `{source: email, account, provider, thread_slug, subject, from, path}`.
+- A `new_email` event into `home/events/` with `{source: email, account, provider, thread_slug, subject, from, path}`.
 - Bootstrap captures the current cursor and writes nothing.
 - A first post-bootstrap sync that returns a backlog emits a single `email_backlog` event, not N events (mirroring imessage's coalesced backlog).
 - Permanent send failures append a `kernel_notes` entry to the yaml and emit `send_failed`; the cursor advances so we don't retry forever.
@@ -102,8 +102,8 @@ What both drivers must produce regardless of provider:
 ### Outlook driver pair (`src/drivers/email/outlook/`)
 
 `inbound.py`:
-- Auth: MS Graph OAuth via device-code flow. Refresh token cached at `live/tmp/drivers/email/{account}/token.json`. Public client (no secret) — works with personal outlook.com accounts (tenant = `consumers`) registered with `Mail.ReadWrite`, `Mail.Send`, `offline_access`, `User.Read`.
-- Change detection: Graph **delta query** (`/me/mailFolders/Inbox/messages/delta`). Cursor stored at `live/tmp/drivers/email/{account}/delta-token`. Subsequent polls pull only changes since the last token.
+- Auth: MS Graph OAuth via device-code flow. Refresh token cached at `home/tmp/drivers/email/{account}/token.json`. Public client (no secret) — works with personal outlook.com accounts (tenant = `consumers`) registered with `Mail.ReadWrite`, `Mail.Send`, `offline_access`, `User.Read`.
+- Change detection: Graph **delta query** (`/me/mailFolders/Inbox/messages/delta`). Cursor stored at `home/tmp/drivers/email/{account}/delta-token`. Subsequent polls pull only changes since the last token.
 - Body fetch returns HTML or text; convert HTML to text on ingest.
 
 `outbound.py`:
@@ -113,8 +113,8 @@ What both drivers must produce regardless of provider:
 ### Gmail driver pair (`src/drivers/email/gmail/`)
 
 `inbound.py`:
-- Auth: Google OAuth 2.0 via installed-app loopback flow (`http://127.0.0.1:<port>/`). Refresh token cached at `live/tmp/drivers/email/{account}/token.json`. Scopes: `https://www.googleapis.com/auth/gmail.modify` and `https://www.googleapis.com/auth/gmail.send`. Client ID/secret come from a Google Cloud "Desktop app" credential (the secret is non-confidential for installed apps).
-- Change detection: Gmail **history API** (`users.history.list?startHistoryId={cursor}`). Bootstrap uses `users.getProfile` to capture the current `historyId`. Cursor stored at `live/tmp/drivers/email/{account}/history-id`.
+- Auth: Google OAuth 2.0 via installed-app loopback flow (`http://127.0.0.1:<port>/`). Refresh token cached at `home/tmp/drivers/email/{account}/token.json`. Scopes: `https://www.googleapis.com/auth/gmail.modify` and `https://www.googleapis.com/auth/gmail.send`. Client ID/secret come from a Google Cloud "Desktop app" credential (the secret is non-confidential for installed apps).
+- Change detection: Gmail **history API** (`users.history.list?startHistoryId={cursor}`). Bootstrap uses `users.getProfile` to capture the current `historyId`. Cursor stored at `home/tmp/drivers/email/{account}/history-id`.
 - `historyId` expires after ~7 days of inactivity. On `404 historyId not found`, fetch a fresh `getProfile` cursor and emit a single `email_cursor_reset` event — never backfill.
 - Filter: only messages whose `labelIds` include `INBOX` and exclude `DRAFT`/`SENT`. Spam/trash ignored.
 - Body comes as base64url-encoded MIME parts; walk the parts tree and convert HTML to text.

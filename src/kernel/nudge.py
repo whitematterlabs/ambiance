@@ -18,11 +18,11 @@ from typing import Optional
 
 from . import bootstrap, llm
 from . import processes as P
-from .processes import LIVE_DIR, ProcessNotFound, append_log
+from .processes import HOME_DIR, ProcessNotFound, append_log
 
 
 def _history_path(pai_slug: str) -> Path:
-    return LIVE_DIR / "proc" / pai_slug / "messages.jsonl"
+    return HOME_DIR / "proc" / pai_slug / "messages.jsonl"
 
 
 def _load_history(path: Path) -> list[dict]:
@@ -40,7 +40,7 @@ def _load_history(path: Path) -> list[dict]:
 def _append_to_me_thread(pai_pid: int, text: str) -> None:
     """Post PAI's reply to today's me/<pid>/<date>.md as `[HH:MM] pai: ...`."""
     day = date.today().isoformat()
-    path = LIVE_DIR / "communication" / "messages" / "me" / str(pai_pid) / f"{day}.md"
+    path = HOME_DIR / "communication" / "messages" / "me" / str(pai_pid) / f"{day}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     hm = datetime.now().strftime("%H:%M")
     # Collapse internal newlines — one message = one line.
@@ -72,7 +72,7 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     """If PAI queued a clear/compact via `bin/clear` or `bin/compact` during
     the turn, apply it now: archive the just-saved history and rewrite the
     live jsonl. Returns True if an action was applied."""
-    proc_dir = LIVE_DIR / "proc" / pai_slug
+    proc_dir = HOME_DIR / "proc" / pai_slug
     action_path = proc_dir / ".history-action"
     if not action_path.exists():
         return False
@@ -89,7 +89,7 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     if history_path.exists():
         shutil.copy(history_path, archive_path)
 
-    rel_archive = archive_path.relative_to(LIVE_DIR)
+    rel_archive = archive_path.relative_to(HOME_DIR)
 
     if action == "clear":
         _save_history(history_path, [])
@@ -159,7 +159,9 @@ async def nudge(
     parent_pid = int(parent) if parent is not None else None
     parent_str = str(parent_pid) if parent_pid is not None else None
 
-    system = bootstrap.build_system_prompt(pai=pai_pid, parent=parent_pid)
+    system = bootstrap.build_system_prompt(
+        pai=pai_pid, parent=parent_pid, prompt_path=pai_spec.get("prompt")
+    )
     sender = str(from_) if from_ is not None else None
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)
 

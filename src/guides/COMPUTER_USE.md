@@ -76,14 +76,14 @@ First time PAI uses a site, a human (or VLM) walks through the flow and PAI save
 ## Auth model
 
 - PAI never holds raw passwords. When a site needs login, PAI **pauses and hands the browser window to the human** ("I need you to log in to foo.com — taking control of the browser now"). User logs in, PAI resumes with the session cookie.
-- Per-domain cookie jars stored under `live/workspace/browser/cookies/{domain}/`.
+- Per-domain cookie jars stored under `home/workspace/browser/cookies/{domain}/`.
 - Re-auth is a normal pause-and-handoff event; not an error.
 
 ## Open questions
 
 1. **Browser runtime.** Playwright vs CDP-direct vs Chrome via DevTools Protocol over a long-lived process? PAI's bash tool is a literal TTY (per memory), so a long-running browser daemon controlled via a CLI fits naturally.
-2. **State boundary.** Does the page-text representation live in PAI's context window every step, or in a file under `live/` that PAI reads on demand? Probably the latter, with a short summary in context.
-3. **Action log.** Every click/fill/goto should append to `live/communication/browser/{domain}/YYYY-MM-DD.md` in the same format as messages — so browsing is just another conversation.
+2. **State boundary.** Does the page-text representation live in PAI's context window every step, or in a file under `home/` that PAI reads on demand? Probably the latter, with a short summary in context.
+3. **Action log.** Every click/fill/goto should append to `home/communication/browser/{domain}/YYYY-MM-DD.md` in the same format as messages — so browsing is just another conversation.
 4. **Concurrency.** One browser, many tabs? Many browsers? When PAI is doing background work and the user grabs the browser to log in, what happens?
 5. **Failure recovery.** If an action's expected outcome doesn't materialize (clicked submit, still on same URL, no new text), what's the retry/replan loop?
 6. **Sandboxing.** A general-purpose browser controlled by an LLM is a large blast radius. Per-domain allowlists? Confirmation prompts before POSTs to unfamiliar origins?

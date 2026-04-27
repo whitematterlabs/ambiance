@@ -1,7 +1,7 @@
 """Min-heap of timer entries sorted by fire time.
 
 Pure, in-memory state owned by the running kernel. Rebuilt from disk
-(`live/proc/*/spec.yaml`) at startup so restarts are transparent.
+(`home/proc/*/spec.yaml`) at startup so restarts are transparent.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ def _parse_iso(value) -> Optional[datetime]:
 
 
 def rebuild_from_proc() -> list[TimerEntry]:
-    """Scan live/proc/ and rebuild the timer heap from running processes."""
+    """Scan home/proc/ and rebuild the timer heap from running processes."""
     heap: list[TimerEntry] = []
     if not PROC_DIR.exists():
         return heap

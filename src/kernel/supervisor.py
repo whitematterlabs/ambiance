@@ -92,7 +92,7 @@ async def start(slug: str, spec: dict) -> None:
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(P.LIVE_DIR),
+        cwd=str(P.HOME_DIR),
     )
     P.append_log(slug, f"kernel: subprocess started pid={proc.pid} ({run})")
 
@@ -138,7 +138,7 @@ async def fire_once(slug: str, spec: dict) -> None:
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(P.LIVE_DIR),
+        cwd=str(P.HOME_DIR),
     )
     P.append_log(slug, f"kernel: cron fire pid={proc.pid} ({run})")
 

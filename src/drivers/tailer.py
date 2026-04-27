@@ -3,7 +3,7 @@
 A Tailer owns a set of files (determined by a predicate), maintains a
 byte-offset cursor per file, and calls a user-supplied callback once per
 new complete line. Partial trailing lines are left for the next wake.
-Cursors are persisted atomically under live/tmp/drivers/{name}/cursors.yaml
+Cursors are persisted atomically under home/tmp/drivers/{name}/cursors.yaml
 so restarts don't replay history or drop in-flight work.
 """
 
@@ -18,8 +18,8 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-LIVE_DIR = Path(__file__).resolve().parent.parent.parent / "live"
-DRIVERS_STATE_DIR = LIVE_DIR / "tmp" / "drivers"
+HOME_DIR = Path(__file__).resolve().parent.parent.parent / "home"
+DRIVERS_STATE_DIR = HOME_DIR / "tmp" / "drivers"
 
 OnLine = Callable[[Path, str], Awaitable[None]]
 OnDirCreated = Callable[[Path], Awaitable[None]]
@@ -27,7 +27,7 @@ OwnedPredicate = Callable[[Path], bool]
 
 
 def _rel(path: Path) -> str:
-    return str(path.resolve().relative_to(LIVE_DIR.resolve()))
+    return str(path.resolve().relative_to(HOME_DIR.resolve()))
 
 
 class _Handler(FileSystemEventHandler):

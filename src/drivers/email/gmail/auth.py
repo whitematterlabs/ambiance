@@ -2,7 +2,7 @@
 
 Personal Gmail accounts use Google's "Desktop app" OAuth client. The client
 secret is non-confidential for installed apps (Google's docs are explicit
-about this), so storing it under live/ alongside the refresh token is fine.
+about this), so storing it under home/ alongside the refresh token is fine.
 """
 
 from __future__ import annotations

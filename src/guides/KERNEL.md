@@ -52,12 +52,12 @@ When a process is spawned with a deadline (or a cron process calculates its next
 
 ## Event System
 
-### `live/events/` directory
+### `home/events/` directory
 
 Events are plain files dropped into `events/`. The kernel watches this directory. When a file appears, the kernel reads it, acts, and deletes it (consumed).
 
 ```
-live/events/
+home/events/
 ├── 1745267400-imessage-kaia.yaml
 ├── 1745267520-calendar-reminder.yaml
 └── 1745268000-subagent-done.yaml
@@ -88,7 +88,7 @@ The kernel doesn't know or care how events are produced. It just watches the dir
 ## Process Directory (`proc/`)
 
 ```
-live/proc/
+home/proc/
 ├── dinner-gyro-project/
 │   ├── spec.yaml
 │   ├── status
@@ -254,7 +254,7 @@ bin/paictl start --slug research-flights \
 
 ```python
 def spawn(slug, spec):
-    proc_dir = LIVE_DIR / "proc" / slug
+    proc_dir = HOME_DIR / "proc" / slug
     proc_dir.mkdir(parents=True)
     write_yaml(proc_dir / "spec.yaml", spec)
     (proc_dir / "status").write_text("running\n")
@@ -282,7 +282,7 @@ Resolved processes stay in `proc/` as a record. The kernel skips non-running sta
 
 ## Implementation Order
 
-1. Scaffold `proc/` and `events/` into `live/`, update `SCAFFOLDING.md`, `reset.py`
+1. Scaffold `proc/` and `events/` into `home/`, update `SCAFFOLDING.md`, `reset.py`
 2. `src/kernel.py` — core async loop with `watchdog` FS watcher + timer heap
 3. Event file reading/consumption
 4. Timer handling — deadline resolution + cron rescheduling

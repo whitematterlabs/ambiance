@@ -49,7 +49,7 @@ from kernel.messages import MESSAGES_DIR, ingest
 
 OUT_DRIVER_SLUG = "imessage-out"
 IN_DRIVER_SLUG = "imessage-in"
-OUT_CURSORS = P.LIVE_DIR / "tmp" / "drivers" / OUT_DRIVER_SLUG / "cursors.yaml"
+OUT_CURSORS = P.HOME_DIR / "tmp" / "drivers" / OUT_DRIVER_SLUG / "cursors.yaml"
 
 
 def _local_day_to_mac_range(start_d: date, end_d: date) -> tuple[int, int]:
@@ -100,7 +100,7 @@ def _seed_outbound_cursors(touched: set[Path]) -> int:
     for path in touched:
         if not path.exists():
             continue
-        rel = str(path.relative_to(P.LIVE_DIR))
+        rel = str(path.relative_to(P.HOME_DIR))
         cursors[rel] = path.stat().st_size
         seeded += 1
     OUT_CURSORS.parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +200,7 @@ def _parse_date(s: str) -> date:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="imessage-backfill",
-        description="Replay iMessage history from chat.db into live/communication/messages/.",
+        description="Replay iMessage history from chat.db into home/communication/messages/.",
     )
     parser.add_argument(
         "dates",

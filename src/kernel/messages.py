@@ -16,10 +16,10 @@ from typing import Optional
 import yaml
 
 from . import contacts
-from .processes import LIVE_DIR
+from .processes import HOME_DIR
 
-MESSAGES_DIR = LIVE_DIR / "communication" / "messages"
-PEOPLE_DIR = LIVE_DIR / "memory" / "people"
+MESSAGES_DIR = HOME_DIR / "communication" / "messages"
+PEOPLE_DIR = HOME_DIR / "memory" / "people"
 
 FILLER_WORDS = {
     "a", "an", "the", "and", "or", "but", "for", "from", "about",
