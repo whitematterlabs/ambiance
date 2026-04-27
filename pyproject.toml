@@ -7,17 +7,30 @@ requires-python = ">=3.14"
 dependencies = [
     "anthropic>=0.40.0",
     "croniter>=6.2.2",
+    "google-auth>=2.35",
+    "google-auth-oauthlib>=1.2",
     "python-dotenv>=1.0",
     "pyobjc-framework-Contacts>=10.0",
     "pyyaml>=6.0.3",
+    "requests>=2.32",
     "textual>=0.80",
     "watchdog>=6.0.0",
 ]
+
+[project.scripts]
+addcontact = "bin.addcontact:main"
+addemail = "bin.addemail:main"
+clear = "bin.clear:main"
+compact = "bin.compact:main"
+imessage-backfill = "bin.imessage_backfill:main"
+paictl = "bin.paictl:main"
+resolve-contact = "bin.resolve_contact:main"
+subagent = "bin.subagent:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kernel", "src/drivers", "src/tui"]
+packages = ["src/kernel", "src/drivers", "src/tui", "src/bin"]
 

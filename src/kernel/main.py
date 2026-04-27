@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yaml
 
+from drivers.email.gmail import inbound as gmail_in
 from drivers.imessage import inbound as imessage_in
 from drivers.imessage import outbound as imessage_out
 
@@ -479,6 +480,10 @@ async def run() -> None:
         asyncio.create_task(
             _supervise_driver("imessage-in", imessage_in.run()),
             name="imessage-in",
+        ),
+        asyncio.create_task(
+            _supervise_driver("gmail-in", gmail_in.run()),
+            name="gmail-in",
         ),
     ]
 
