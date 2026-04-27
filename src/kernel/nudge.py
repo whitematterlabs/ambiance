@@ -158,6 +158,10 @@ async def nudge(
     parent = pai_spec.get("parent")
     parent_pid = int(parent) if parent is not None else None
     parent_str = str(parent_pid) if parent_pid is not None else None
+    # Persistent PAIs (config-declared fleet members) live forever — they
+    # have a parent for delegation/return-routing, but a single nudge is
+    # not their full lifetime. Only ephemeral subagents resolve on turn end.
+    is_ephemeral = parent_str is not None and not pai_spec.get("persistent")
 
     system = bootstrap.build_system_prompt(
         pai=pai_pid, parent=parent_pid, prompt_path=pai_spec.get("prompt")
@@ -188,7 +192,7 @@ async def nudge(
                 append_log(slug, "kernel: nudge interrupted")
             except ProcessNotFound:
                 pass
-        if parent_str:
+        if is_ephemeral:
             try:
                 P.resolve(pai_slug, "cancelled")
             except ProcessNotFound:
@@ -205,7 +209,7 @@ async def nudge(
                 append_log(slug, f"kernel: nudge failed — {e!r}")
             except ProcessNotFound:
                 pass
-        if parent_str:
+        if is_ephemeral:
             try:
                 P.resolve(pai_slug, "failed")
             except ProcessNotFound:
@@ -230,7 +234,7 @@ async def nudge(
         except ProcessNotFound:
             pass
 
-    if parent_str:
+    if is_ephemeral:
         try:
             P.resolve(pai_slug, "completed")
         except ProcessNotFound:

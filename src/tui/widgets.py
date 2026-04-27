@@ -15,7 +15,7 @@ from .state import EventSighting, MeSnapshot, ProcRow
 
 
 class ChatPane(RichLog):
-    """Scrollable view of the me/ thread, styled per speaker."""
+    """Scrollable view of the me/{pid} thread, styled per speaker."""
 
     DEFAULT_CSS = """
     ChatPane {
@@ -24,6 +24,10 @@ class ChatPane(RichLog):
         padding: 0 1;
     }
     """
+
+    def __init__(self, pid: int | None = None, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.pid = pid
 
     def render_snapshot(self, snap: MeSnapshot) -> None:
         self.clear()

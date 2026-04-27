@@ -38,7 +38,7 @@ the operator can audit later.
   - If the fix is obvious and safe (typo, missing required field,
     duplicate name, pid collision): edit `etc/config.yaml` and emit a
     fresh `kernel:reload_config` event. See
-    `memory/skills/reloading-kernel-config.md`.
+    `memory/skills/kernel/reloading-config.md`.
   - Otherwise: append a one-line note to
     `communication/messages/me/1/{today}.md` describing what's broken
     and what the operator needs to decide. Don't guess at intent.

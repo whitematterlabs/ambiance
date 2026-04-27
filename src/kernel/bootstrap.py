@@ -52,7 +52,7 @@ Event reasons you will see, and how to handle them:
   while it was down. Context has `threads` (per-thread `inbound` /
   `outbound` counts and `last_text`) and `since`. The lines are already
   written to the thread day-files. Default: post a short recap in
-  `communication/messages/me/{today}.md` in this shape:
+  `communication/messages/me/{pid}/{today}.md` (your own pid) in this shape:
     While you were offline:
     - Arda talked to {contact}: N messages.
     - {contact}: N unread messages
@@ -63,7 +63,7 @@ Event reasons you will see, and how to handle them:
   the kernel) started has finished. The event's `slug` names it.
   Default behavior: read `proc/{slug}/log.md` and `result.md` if present,
   then append a short summary to
-  `communication/messages/me/{today}.md` so the owner sees what
+  `communication/messages/me/{pid}/{today}.md` (your own pid) so the owner sees what
   happened. Include the outcome and (for failures) the reason if
   obvious. Suppress the summary only if the service is internal
   maintenance (nightly consolidation, sweeps) and nothing notable
@@ -74,7 +74,7 @@ Event reasons you will see, and how to handle them:
   do whatever the reminder asked for.
 - `cron fired (rc=N)` — a cron-with-run service's per-fire subprocess
   just finished. Check the log for its output, then summarize to the
-  owner in `communication/messages/me/{today}.md`. For high-frequency
+  owner in `communication/messages/me/{pid}/{today}.md` (your own pid). For high-frequency
   or purely-internal crons you may stay quiet — the owner can set
   `announce: false` on the spec to suppress the nudge entirely.
 - `deadline reached` — a service hit its deadline without completing.
@@ -111,7 +111,7 @@ To act, write to files or invoke tools:
   This renames both dirs to `alper`, updates about.yaml's `name`, keeps
   the phone in `handles` so outbound still routes, and fixes the thread's
   participant symlink. Only call it when you're confident about the
-  identity — ask the owner in `communication/messages/me/` if unsure.
+  identity — ask the owner in `communication/messages/me/{pid}/` (your own pid) if unsure.
 - Replying to the owner (Arda) = just produce assistant text. The
   kernel appends it to today's me/ thread as `[HH:MM] pai: <text>`.
   Do NOT write to the me/ thread yourself — that would double-post.
@@ -149,12 +149,13 @@ that `wake_on` matches against. `cat etc/drivers/imessage/events.yaml`
 before editing `wake_on:` so you know what kinds exist, or when you
 receive an unfamiliar event reason.
 
-`memory/skills/` holds how-to guides for specific capabilities. The
-`<skills>` block below lists what's available by filename — only the
-names, not the bodies. Whenever a request touches something a skill
-might cover, `cat memory/skills/<name>` before acting. Err on the side
-of loading: if the name plausibly applies, read it. The cost is one
-shell command; the cost of skipping it is doing the wrong thing or
+`memory/skills/` holds how-to guides for specific capabilities,
+organized by topic — each entry in the `<skills>` block below is
+`{topic}/{name}`. The block lists paths only, not bodies. Whenever a
+request touches something a skill might cover, `cat
+memory/skills/{topic}/{name}` before acting. Err on the side of
+loading: if the name plausibly applies, read it. The cost is one shell
+command; the cost of skipping it is doing the wrong thing or
 reinventing a recipe that's already written down. Re-read on each turn
 that needs it — don't assume you remember from a prior turn.
 
@@ -184,6 +185,18 @@ def _list_dir(path: Path) -> str:
         return ""
 
 
+def _list_skills(path: Path) -> str:
+    """Skills are organized into topic subdirs. Emit `topic/name` per
+    line so PAI knows the path to cat."""
+    if not path.exists():
+        return ""
+    entries: list[str] = []
+    for p in path.rglob("*"):
+        if p.is_file() and not any(seg.startswith(".") for seg in p.relative_to(path).parts):
+            entries.append(str(p.relative_to(path)))
+    return "\n".join(sorted(entries))
+
+
 @lru_cache(maxsize=32)
 def build_system_prompt(
     pai: int = 1,
@@ -194,7 +207,7 @@ def build_system_prompt(
     directives = _read_or_empty(DIRECTIVES_PATH)
     world = _read_or_empty(WORLD_PATH)
     bins = _list_dir(BIN_DIR)
-    skills = _list_dir(SKILLS_DIR)
+    skills = _list_skills(SKILLS_DIR)
 
     parent_label = str(parent) if parent is not None else "kernel"
     pai_line = (
@@ -214,8 +227,9 @@ def build_system_prompt(
         f"<operating-instructions>\n{OPERATING_INSTRUCTIONS}</operating-instructions>\n\n"
         f"<bin>\nBinaries in bin/ (run as `bin/<name>`; use `bin/<name> --help` "
         f"or `head bin/<name>` for usage):\n{bins}\n</bin>\n\n"
-        f"<skills>\nSkills in memory/skills/ (read on demand with "
-        f"`cat memory/skills/<name>`):\n{skills}\n</skills>\n\n"
+        f"<skills>\nSkills in memory/skills/ (organized as "
+        f"`{{topic}}/{{name}}`; read on demand with "
+        f"`cat memory/skills/<topic>/<name>`):\n{skills}\n</skills>\n\n"
         # Anchor the shell's cwd visually, without naming it — naming it
         # encourages the model to prefix commands with that name.
         "~ $ "

@@ -20,12 +20,16 @@ from watchdog.observers import Observer
 
 from kernel.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_spec, read_status
 
-ME_THREAD_DIR = HOME_DIR / "communication" / "messages" / "me" / "1"
+ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
 KERNEL_LOG = HOME_DIR / "tmp" / "kernel.log"
 
 
-def today_file() -> Path:
-    return ME_THREAD_DIR / f"{date.today().isoformat()}.md"
+def me_thread_dir(pid: int) -> Path:
+    return ME_ROOT / str(pid)
+
+
+def today_file(pid: int) -> Path:
+    return me_thread_dir(pid) / f"{date.today().isoformat()}.md"
 
 
 # --- helpers ---------------------------------------------------------------
@@ -64,22 +68,25 @@ class MeSnapshot:
 
 
 class MeThreadWatcher:
-    """Emits a full MeSnapshot whenever today's me/YYYY-MM-DD.md changes."""
+    """Emits a full MeSnapshot whenever today's me/{pid}/YYYY-MM-DD.md changes."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop):
+    def __init__(self, loop: asyncio.AbstractEventLoop, pid: int):
         self.loop = loop
+        self.pid = pid
+        self.dir = me_thread_dir(pid)
         self.queue: asyncio.Queue[bool] = asyncio.Queue()
         self._observer: Optional[Observer] = None
 
     def start(self) -> None:
-        ME_THREAD_DIR.mkdir(parents=True, exist_ok=True)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        my_dir = self.dir
         handler = _Poker(
             self.loop,
             self.queue,
-            path_filter=lambda p: p.suffix == ".md" and p.parent == ME_THREAD_DIR,
+            path_filter=lambda p: p.suffix == ".md" and p.parent == my_dir,
         )
         obs = Observer()
-        obs.schedule(handler, str(ME_THREAD_DIR), recursive=False)
+        obs.schedule(handler, str(self.dir), recursive=False)
         obs.start()
         self._observer = obs
         # Prime the queue so on_mount gets an initial snapshot.
@@ -93,7 +100,7 @@ class MeThreadWatcher:
 
     async def next(self) -> MeSnapshot:
         await self.queue.get()
-        path = today_file()
+        path = today_file(self.pid)
         if path.exists():
             text = path.read_text(encoding="utf-8", errors="replace")
             lines = [ln for ln in text.splitlines() if ln.strip()]

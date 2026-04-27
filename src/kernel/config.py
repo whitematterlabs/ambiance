@@ -42,7 +42,9 @@ RESERVED_PIDS: dict[int, str] = {1: "kernel_manager", 2: "pai"}
 # Fields the config is authoritative for. Reconcile rewrites these on
 # spec.yaml; everything else on disk (spawned, persistent, etc.) is
 # preserved across reconciles.
-CONFIG_MANAGED_FIELDS = ("description", "prompt", "model", "wake_on", "fallback")
+CONFIG_MANAGED_FIELDS = (
+    "description", "prompt", "model", "wake_on", "fallback", "parent", "persistent",
+)
 
 
 class ConfigError(Exception):
@@ -97,6 +99,8 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
             raise ConfigError(f"{source}: entry {name!r} wake_on must be list[str]")
     if "fallback" in entry and not isinstance(entry["fallback"], bool):
         raise ConfigError(f"{source}: entry {name!r} fallback must be bool")
+    if "parent" in entry and not isinstance(entry["parent"], int):
+        raise ConfigError(f"{source}: entry {name!r} parent must be int")
 
 
 def load_config(path: Path | None = None) -> dict[str, dict]:
@@ -193,6 +197,11 @@ def reconcile_from_config(path: Path | None = None) -> None:
              for an existing name.
     """
     desired = load_config(path)
+    # Every config-declared PAI is, by definition, persistent — long-running
+    # fleet members the kernel keeps alive across nudges. The flag drives
+    # nudge.py's "don't auto-resolve on completion" behavior.
+    for spec in desired.values():
+        spec["persistent"] = True
     actual = {slug: spec for slug, spec in P._iter_pai_specs()}
 
     desired_names = set(desired)
@@ -249,15 +258,32 @@ def reconcile_from_config(path: Path | None = None) -> None:
     # Changed.
     for name in sorted(desired_names & actual_names):
         diff = _spec_diff(desired[name], actual[name])
-        if not diff:
-            continue
-        spec_path = P.PROC_DIR / name / "spec.yaml"
-        on_disk = dict(actual[name])
-        _apply_managed_fields(on_disk, desired[name])
-        with spec_path.open("w") as f:
-            yaml.safe_dump(on_disk, f, sort_keys=False)
+        if diff:
+            spec_path = P.PROC_DIR / name / "spec.yaml"
+            on_disk = dict(actual[name])
+            _apply_managed_fields(on_disk, desired[name])
+            with spec_path.open("w") as f:
+                yaml.safe_dump(on_disk, f, sort_keys=False)
+            try:
+                P.append_log(name, f"kernel: spec updated via reconcile ({', '.join(diff)})")
+            except P.ProcessNotFound:
+                pass
+            print(f"[kernel] reconcile: updated pai {name!r} ({', '.join(diff)})", flush=True)
+
+        # Status heal: persistent PAIs are invariantly running. If anything
+        # left them resolved (legacy bug, manual edit, crash), restore.
         try:
-            P.append_log(name, f"kernel: spec updated via reconcile ({', '.join(diff)})")
+            status = P.read_status(name)
         except P.ProcessNotFound:
-            pass
-        print(f"[kernel] reconcile: updated pai {name!r} ({', '.join(diff)})", flush=True)
+            continue
+        if status != "running":
+            (P.PROC_DIR / name / "status").write_text("running\n")
+            try:
+                P.append_log(name, f"kernel: status healed ({status} → running)")
+            except P.ProcessNotFound:
+                pass
+            print(
+                f"[kernel] reconcile: healed status for pai {name!r} "
+                f"({status} → running)",
+                flush=True,
+            )

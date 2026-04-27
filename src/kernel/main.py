@@ -195,7 +195,12 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
                 print(f"[kernel] dropping empty owner message: {event!r}", flush=True)
                 return
             day = date.today().isoformat()
-            for pid in _route_to_pids("imessage:owner"):
+            target = event.get("target_pid")
+            if isinstance(target, int):
+                pids = [target]
+            else:
+                pids = _route_to_pids("imessage:owner")
+            for pid in pids:
                 _dispatch_nudge(
                     pid,
                     "owner message",
@@ -322,8 +327,13 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         if not slug:
             print(f"[kernel] dropping malformed proc_resolved event: {event!r}", flush=True)
             return
-        pai = int(event.get("parent", 1))
-        _dispatch_nudge(pai, f"proc {status}", slug=slug, context={"status": status})
+        parent = event.get("parent")
+        if parent is not None:
+            # Explicit parent: notify it of any outcome (subagent return path).
+            _dispatch_nudge(int(parent), f"proc {status}", slug=slug, context={"status": status})
+        elif status in ("failed", "expired"):
+            # No parent: only wake kernel_manager for self-healing on failures.
+            _dispatch_nudge(1, f"proc {status}", slug=slug, context={"status": status})
 
     elif kind == "pai_kickoff":
         target_pid = event.get("target_pid")
@@ -335,6 +345,20 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         _dispatch_nudge(
             int(target_pid),
             "subagent kickoff",
+            from_=int(sender_pid) if sender_pid is not None else None,
+            context={"text": text},
+        )
+
+    elif kind == "pai_message":
+        target_pid = event.get("target_pid")
+        text = event.get("text") or ""
+        sender_pid = event.get("sender_pid")
+        if target_pid is None:
+            print(f"[kernel] dropping malformed pai_message event: {event!r}", flush=True)
+            return
+        _dispatch_nudge(
+            int(target_pid),
+            "peer message",
             from_=int(sender_pid) if sender_pid is not None else None,
             context={"text": text},
         )
