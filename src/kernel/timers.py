@@ -70,15 +70,23 @@ def parse_schedule(schedule: str, now: datetime) -> tuple[Optional[datetime], bo
         dt = datetime.fromisoformat(schedule)
     except (ValueError, TypeError):
         return (croniter(schedule, now).get_next(datetime), True)
+    dt = _to_naive_local(dt)
     return (dt if dt > now else None, False)
+
+
+def _to_naive_local(dt: datetime) -> datetime:
+    """Convert a tz-aware datetime to naive local time. Naive input passes through."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone().replace(tzinfo=None)
 
 
 def _parse_iso(value) -> Optional[datetime]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value))
+        return _to_naive_local(value)
+    return _to_naive_local(datetime.fromisoformat(str(value)))
 
 
 def rebuild_from_proc() -> list[TimerEntry]:
