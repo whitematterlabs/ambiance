@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -67,11 +66,45 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
 )
 
-# (seed_in_repo, dest_under_root). Copied on first run; never overwritten —
-# these become user/agent-mutable runtime state once seeded.
-SEEDS: tuple[tuple[Path, str], ...] = (
-    (REPO_ROOT / "src" / "seed" / "config.yaml", "etc/config.yaml"),
-)
+# Default etc/config.yaml written on first install. Never overwritten —
+# once seeded this file is runtime state owned by the agent/user.
+DEFAULT_CONFIG_YAML = """\
+# PAI kernel control plane.
+#
+# Source of truth for which long-running PAIs exist. The kernel reconciles
+# home/proc/ against this file at boot and on a `kernel:reload_config` event.
+# In git, agent-editable.
+#
+# Field rules (see src/kernel/config.py for the authoritative schema):
+#   name         (required) stable proc-dir slug; unique
+#   pid          required for reserved entries (1 and 2); auto-allocated otherwise
+#   description  required
+#   package      (optional) pulls defaults from packages/{package}/package.yaml
+#   prompt       per-PAI role file (resolved relative to repo root)
+#   model        accepted, persisted into spec.yaml — INERT in v1
+#   wake_on      list of fnmatch globs over event-kind; matching PAIs are nudged
+#   fallback     if true, this PAI is nudged only when no wake_on pattern matched
+
+pais:
+  - name: kernel_manager
+    pid: 1
+    description: kernel-internal events + errored nudges
+    prompt: src/prompts/kernel_manager.md
+    model: deepseek-v4-pro
+    wake_on: ['kernel:*']
+
+  - name: pai
+    pid: 2
+    description: owner-facing PAI; catch-all for unclaimed events
+    prompt: src/prompts/pai_default.md
+    model: deepseek-v4-pro
+    fallback: true
+
+  # Example future entry (not seeded):
+  # - name: msg-spec
+  #   package: message_specialist
+  #   wake_on: ['imessage:*']
+"""
 
 # These appear in SKELETON but get replaced by symlinks above. The
 # symlink wins; ensure_symlink will remove an existing empty dir.
@@ -110,15 +143,13 @@ def ensure_symlink(link: Path, target: Path) -> None:
     link.symlink_to(target)
 
 
-def ensure_seed(src: Path, dest: Path) -> None:
-    """Copy a seed file into place once. Never overwrites: once seeded,
-    the file is runtime state owned by the agent/user."""
+def ensure_default_config(root: Path) -> None:
+    """Write a default etc/config.yaml on first install. Never overwrites."""
+    dest = root / "etc" / "config.yaml"
     if dest.exists():
         return
-    if not src.exists():
-        return
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
+    dest.write_text(DEFAULT_CONFIG_YAML)
 
 
 def expose_driver_events(root: Path) -> None:
@@ -219,8 +250,7 @@ def lay_out(root: Path) -> None:
         ensure_dir(root / rel)
     for rel, target in SYMLINKS:
         ensure_symlink(root / rel, target)
-    for src, dest in SEEDS:
-        ensure_seed(src, root / dest)
+    ensure_default_config(root)
     expose_driver_events(root)
     venv_dir = ensure_venv(root)
     install_pth(venv_dir, root)
