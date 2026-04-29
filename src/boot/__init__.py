@@ -1,4 +1,4 @@
-"""PAI kernel — process management for the home/ filesystem."""
+"""PAI boot — process management for the home/ filesystem."""
 
 # Load .env from the project root before anything else imports — the
 # anthropic client reads ANTHROPIC_API_KEY at construction time.
