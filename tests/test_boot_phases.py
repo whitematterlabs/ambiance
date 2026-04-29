@@ -85,3 +85,13 @@ def test_probe_logs_each_driver(laid_out_root: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "imessage" in out
     assert "ok" in out.lower() or "missing" in out.lower()
+
+
+def test_reconcile_phase_calls_config_reconcile(laid_out_root: Path) -> None:
+    """Phase wraps boot.config.reconcile_from_config — that already has
+    its own tests. We only verify the phase calls it without crashing
+    against an empty config."""
+    cfg = laid_out_root / "etc" / "config.yaml"
+    cfg.write_text("pais: []\n")
+    from boot.phases import reconcile
+    reconcile.run()  # no-op on empty fleet
