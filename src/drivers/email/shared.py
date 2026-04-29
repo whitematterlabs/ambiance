@@ -1,6 +1,6 @@
 """Shared on-disk helpers for email drivers.
 
-Per `src/guides/EMAILS.md`, every provider produces the same shape:
+Per `src/usr/share/doc/EMAILS.md`, every provider produces the same shape:
     home/communication/email/{account}/
         {YYYY-MM-DD}/{subject-slug}.yaml         # canonical
         {YYYY-MM-DD}/{subject-slug}.prev -> ...  # one-hop walkback

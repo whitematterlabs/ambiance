@@ -2,7 +2,7 @@
 """paifs_init — lay out the v3 FHS skeleton at $PAI_ROOT.
 
 Idempotent. Creates the quasi-Linux directory tree described in
-src/guides/FILESYSTEM_v3.md, symlinks repo-owned source slots into the
+src/usr/share/doc/FILESYSTEM_v3.md, symlinks repo-owned source slots into the
 FHS (so dev edits stay live), seeds etc/config.yaml from src/seed/ on
 first run, exposes each driver's events.yaml under etc/drivers/, and
 provisions a self-contained Python venv at usr/lib/venv/ with runtime
@@ -64,6 +64,7 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("usr/src", REPO_ROOT / "src"),
     ("usr/lib/drivers", REPO_ROOT / "src" / "drivers"),
     ("usr/share/prompts", REPO_ROOT / "src" / "prompts"),
+    ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
 )
 
 # (seed_in_repo, dest_under_root). Copied on first run; never overwritten —

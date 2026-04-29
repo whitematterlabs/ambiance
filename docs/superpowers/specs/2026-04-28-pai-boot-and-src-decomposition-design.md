@@ -107,7 +107,7 @@ Run inside the kernel after `/sbin/init` execs in:
 | `src/migrate.py` | `~/.pai/sbin/` |
 | `src/reset.py` | `~/.pai/sbin/` |
 | `src/prompts/` | `~/.pai/usr/share/prompts/` |
-| `src/guides/` | `~/.pai/usr/share/doc/` |
+| `src/usr/share/doc/` | `~/.pai/usr/share/doc/` |
 | `src/seed/` | *removed* — fold into bundle `defaults/` |
 
 ## Component contracts

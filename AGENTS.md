@@ -46,4 +46,4 @@ One message per line, append-only, date in filename. `me` for the agent/owner's 
 - Plain text over databases — everything should be greppable, tailable, appendable
 - Symlinks over duplication — single source of truth, linked from multiple contexts
 - The `home/` directory is the agent's world; `src/` is the machinery that operates on it
-- The scaffolding doc (`src/guides/SCAFFOLDING.md`) is the authoritative spec for the `home/` directory structure
+- The scaffolding doc (`src/usr/share/doc/SCAFFOLDING.md`) is the authoritative spec for the `home/` directory structure

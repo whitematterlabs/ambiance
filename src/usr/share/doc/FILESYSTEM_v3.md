@@ -89,7 +89,7 @@ in Open Questions.
 | `src/migrate.py` | `~/.pai/sbin/` | One-shot kernelPAI op |
 | `src/reset.py` | `~/.pai/sbin/` | One-shot kernelPAI op |
 | `src/prompts/` | `~/.pai/usr/share/prompts/` | Shipped baseline prompts |
-| `src/guides/` | `~/.pai/usr/share/doc/` | Shipped documentation |
+| `src/usr/share/doc/` | `~/.pai/usr/share/doc/` | Shipped documentation |
 | `src/seed/` | *removed* | Folded into bundle `defaults/` |
 
 ## Mental model: bundle → instance → process
@@ -323,7 +323,7 @@ Code, libraries, shipped data.
 - `usr/lib/venv/` — Python virtualenv.
 - `usr/share/prompts/` — shipped baseline prompts.
 - `usr/share/doc/` — shipped documentation (architecture guides,
-  filesystem spec, etc.). Where `src/guides/` lands at install time.
+  filesystem spec, etc.). Where `src/usr/share/doc/` lands at install time.
 - `usr/src/` — Python source (libraries shared across kernel +
   PAIs). The kernel itself lives at `/boot/`, not here.
 
