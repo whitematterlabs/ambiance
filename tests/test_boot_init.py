@@ -26,7 +26,7 @@ def test_init_fails_loudly_on_missing_layout(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode != 0
-    assert "missing" in result.stderr.lower() or "not found" in result.stderr.lower()
+    assert "missing" in result.stderr.lower()
 
 
 def test_init_check_only_passes_on_complete_layout(tmp_path: Path) -> None:

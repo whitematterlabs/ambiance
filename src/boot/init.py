@@ -56,6 +56,7 @@ def main() -> int:
 
     # Hand off: this process becomes the kernel. No return on success.
     os.execvp(sys.executable, [sys.executable, "-u", "-m", "boot.entry"])
+    raise AssertionError("execvp returned without replacing process")
 
 
 if __name__ == "__main__":
