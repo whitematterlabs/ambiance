@@ -9,6 +9,7 @@ follow-up plan that introduces PID-keyed proc.
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 # Import the module, not the name: PAI_ROOT is resolved at import time
 # from os.environ. Tests reload boot.paths after monkeypatching PAI_ROOT;
@@ -16,7 +17,7 @@ import shutil
 from .. import paths
 
 
-def _wipe_dir_contents(path) -> None:
+def _wipe_dir_contents(path: Path) -> None:
     if not path.is_dir():
         return
     for child in path.iterdir():
@@ -28,5 +29,5 @@ def _wipe_dir_contents(path) -> None:
 
 def run() -> None:
     _wipe_dir_contents(paths.PAI_ROOT / "tmp")
-    _wipe_dir_contents(paths.PAI_ROOT / "run" / "pai" / "events")
+    _wipe_dir_contents(paths.EVENTS_DIR)
     print("[boot] clean: wiped tmp/ and run/pai/events/", flush=True)

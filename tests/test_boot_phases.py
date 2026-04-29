@@ -54,3 +54,24 @@ def test_clean_wipes_run_pai_events(laid_out_root: Path) -> None:
     clean.run()
     assert not stale.exists()
     assert events.is_dir()
+
+
+def test_clean_removes_nested_subdir_in_tmp(laid_out_root: Path) -> None:
+    nested = laid_out_root / "tmp" / "workspace" / "file.txt"
+    nested.parent.mkdir()
+    nested.write_text("data")
+    from boot.phases import clean
+    clean.run()
+    assert not (laid_out_root / "tmp" / "workspace").exists()
+    assert (laid_out_root / "tmp").is_dir()
+
+
+def test_clean_removes_symlink_not_target(laid_out_root: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "precious.txt").write_text("keep")
+    stray = laid_out_root / "tmp" / "stray_link"
+    stray.symlink_to(outside)
+    from boot.phases import clean
+    clean.run()
+    assert not stray.exists()
+    assert (outside / "precious.txt").exists()
