@@ -76,6 +76,10 @@ SEEDS: tuple[tuple[Path, str], ...] = (
 # symlink wins; ensure_symlink will remove an existing empty dir.
 SYMLINK_TARGETS = {p for p, _ in SYMLINKS}
 
+# Scripts that get installed into /sbin/ instead of /usr/bin/. These are
+# privileged kernel/owner ops, not PAI-callable tools.
+SBIN_SCRIPTS: frozenset[str] = frozenset({"init"})
+
 
 def ensure_dir(path: Path) -> None:
     if path.is_symlink() or path.exists():
@@ -172,19 +176,23 @@ def install_pth(venv_dir: Path, root: Path) -> None:
 
 
 def install_bin_shims(venv_dir: Path, root: Path) -> None:
-    """Generate shim files at usr/bin/<name> for each [project.scripts]
-    entry. Each shim shebangs the FHS venv's python and import-calls
-    the target. Idempotent — overwritten on every run so the bin set
-    tracks pyproject."""
+    """Generate shim files for each [project.scripts] entry.
+
+    Splits by privilege: SBIN_SCRIPTS go to sbin/, the rest to usr/bin/.
+    Each shim shebangs the FHS venv's python and import-calls the target.
+    Idempotent — overwritten on every run so the bin set tracks pyproject."""
     bin_dir = root / "usr" / "bin"
-    if bin_dir.is_symlink():
-        bin_dir.unlink()
-    bin_dir.mkdir(parents=True, exist_ok=True)
+    sbin_dir = root / "sbin"
+    for d in (bin_dir, sbin_dir):
+        if d.is_symlink():
+            d.unlink()
+        d.mkdir(parents=True, exist_ok=True)
     py = venv_dir / "bin" / "python"
     scripts = _load_pyproject().get("project", {}).get("scripts", {})
     for name, target in scripts.items():
         module, _, attr = target.partition(":")
-        shim = bin_dir / name
+        dest_dir = sbin_dir if name in SBIN_SCRIPTS else bin_dir
+        shim = dest_dir / name
         shim.write_text(
             f"#!{py}\n"
             f"from {module} import {attr}\n"
