@@ -78,7 +78,7 @@ SYMLINK_TARGETS = {p for p, _ in SYMLINKS}
 
 # Scripts that get installed into /sbin/ instead of /usr/bin/. These are
 # privileged kernel/owner ops, not PAI-callable tools.
-SBIN_SCRIPTS: frozenset[str] = frozenset({"init"})
+SBIN_SCRIPTS: frozenset[str] = frozenset({"init", "migrate", "reset", "tui"})
 
 
 def ensure_dir(path: Path) -> None:
