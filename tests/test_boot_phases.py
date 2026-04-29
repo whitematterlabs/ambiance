@@ -75,3 +75,13 @@ def test_clean_removes_symlink_not_target(laid_out_root: Path, tmp_path_factory:
     clean.run()
     assert not stray.exists()
     assert (outside / "precious.txt").exists()
+
+
+def test_probe_logs_each_driver(laid_out_root: Path, capsys) -> None:
+    from boot.phases import probe
+    # Drivers shipped: imessage, email. paifs_init exposes events.yaml
+    # for each at etc/drivers/<name>/events.yaml.
+    probe.run()
+    out = capsys.readouterr().out
+    assert "imessage" in out
+    assert "ok" in out.lower() or "missing" in out.lower()
