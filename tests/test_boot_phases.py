@@ -32,4 +32,6 @@ def test_sanity_raises_on_missing_dir(laid_out_root: Path) -> None:
     from boot.phases import sanity
     with pytest.raises(sanity.SanityError) as exc_info:
         sanity.run()
-    assert "var/log" in str(exc_info.value) or "var" in str(exc_info.value)
+    err = str(exc_info.value)
+    assert "var/lib" in err
+    assert "var/log" in err

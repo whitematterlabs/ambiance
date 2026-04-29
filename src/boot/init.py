@@ -12,16 +12,7 @@ import sys
 from pathlib import Path
 
 from .paths import PAI_ROOT
-
-REQUIRED_DIRS: tuple[str, ...] = (
-    "etc",
-    "var/lib",
-    "var/log",
-    "proc",
-    "run",
-    "boot",
-    "usr",
-)
+from .phases.sanity import REQUIRED as REQUIRED_DIRS
 
 
 def check_layout(root: Path) -> list[str]:
