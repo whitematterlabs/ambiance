@@ -35,3 +35,22 @@ def test_sanity_raises_on_missing_dir(laid_out_root: Path) -> None:
     err = str(exc_info.value)
     assert "var/lib" in err
     assert "var/log" in err
+
+
+def test_clean_wipes_tmp(laid_out_root: Path) -> None:
+    junk = laid_out_root / "tmp" / "junk.txt"
+    junk.write_text("stale")
+    from boot.phases import clean
+    clean.run()
+    assert not junk.exists()
+    assert (laid_out_root / "tmp").is_dir()  # dir itself preserved
+
+
+def test_clean_wipes_run_pai_events(laid_out_root: Path) -> None:
+    events = laid_out_root / "run" / "pai" / "events"
+    stale = events / "20240101T000000-test.yaml"
+    stale.write_text("kind: stale")
+    from boot.phases import clean
+    clean.run()
+    assert not stale.exists()
+    assert events.is_dir()
