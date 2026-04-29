@@ -9,14 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
-import os
 import sys
 import traceback
 from collections import defaultdict
 from datetime import date, datetime
-from pathlib import Path
-
-import yaml
 
 from drivers.email.gmail import inbound as gmail_in
 from drivers.imessage import inbound as imessage_in
@@ -434,94 +430,6 @@ def _install_stdout_tee() -> None:
     sys.stderr = _Tee(sys.stderr, f)
 
 
-def _ensure_etc_symlink() -> None:
-    """Surface etc/ inside home/ as `home/etc -> ../etc/`.
-
-    PAI's shell cwd is HOME_DIR and the operating instructions forbid
-    path prefixes. The symlink lets PAI read kernelspace control plane
-    files (etc/config.yaml, etc/drivers/*/events.yaml) without leaving
-    its world. Idempotent."""
-    link = P.HOME_DIR / "etc"
-    target = "../etc"
-    if link.is_symlink() and os.readlink(link) == target:
-        return
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    P.HOME_DIR.mkdir(parents=True, exist_ok=True)
-    link.symlink_to(target, target_is_directory=True)
-
-
-def _migrate_legacy_me_dir() -> None:
-    """Lift flat home/communication/messages/me/*.md into me/1/*.md.
-
-    Pre-reconcile: keeps existing-fleet boots working when the owner's
-    me/ thread predates the per-pid layout."""
-    me_dir = P.HOME_DIR / "communication" / "messages" / "me"
-    if not me_dir.exists():
-        return
-    pid1_dir = me_dir / "1"
-    pid1_dir.mkdir(parents=True, exist_ok=True)
-    for child in me_dir.iterdir():
-        if not child.is_file() or child.suffix != ".md":
-            continue
-        dest = pid1_dir / child.name
-        if dest.exists():
-            continue
-        child.rename(dest)
-
-
-_LEGACY_PAI_RENAMES: dict[str, str] = {
-    # Pre-config slug → reconcile slug. The reserved-pid invariant means
-    # these renames are safe: the on-disk pid stays the same.
-    "1": "kernel_manager",
-}
-
-
-def _migrate_legacy_pai_slug() -> None:
-    """Backfill `pid` on pre-config specs and rename legacy slugs.
-
-    Pre-reconcile: reconcile relies on `spec["pid"]` being present and on
-    slug names matching `etc/config.yaml`. Anything not handled here would
-    look like a removed-then-added PAI to reconcile."""
-    if not P.PROC_DIR.exists():
-        return
-    for child in list(P.PROC_DIR.iterdir()):
-        if not child.is_dir() or child.name.startswith("."):
-            continue
-        spec_path = child / "spec.yaml"
-        if not spec_path.exists():
-            continue
-        try:
-            with spec_path.open() as f:
-                spec = yaml.safe_load(f) or {}
-        except Exception:
-            continue
-        if spec.get("kind") != "pai":
-            continue
-
-        if "pid" not in spec and child.name.isdigit():
-            spec["pid"] = int(child.name)
-            with spec_path.open("w") as f:
-                yaml.safe_dump(spec, f, sort_keys=False)
-            print(f"[kernel] backfilled pid={spec['pid']} on {child.name}/spec.yaml", flush=True)
-
-        new_slug = _LEGACY_PAI_RENAMES.get(child.name)
-        if new_slug and not (P.PROC_DIR / new_slug).exists():
-            target = P.PROC_DIR / new_slug
-            child.rename(target)
-            # Update the spec's `slug` field if present.
-            spec_path = target / "spec.yaml"
-            try:
-                with spec_path.open() as f:
-                    spec = yaml.safe_load(f) or {}
-                if spec.get("slug") != new_slug:
-                    spec["slug"] = new_slug
-                    with spec_path.open("w") as f:
-                        yaml.safe_dump(spec, f, sort_keys=False)
-            except Exception:
-                pass
-            print(f"[kernel] renamed legacy proc {child.name!r} → {new_slug!r}", flush=True)
-
 
 async def _handle_reload_config() -> None:
     """Drain in-flight nudges, then reconcile. On error, nudge pid 1."""
@@ -583,16 +491,14 @@ async def _supervise_driver(slug: str, coro) -> None:
 async def run() -> None:
     _install_stdout_tee()
     loop = asyncio.get_running_loop()
-    _ensure_etc_symlink()
-    _migrate_legacy_me_dir()
-    _migrate_legacy_pai_slug()
-    C.reconcile_from_config()
+    # NOTE: layout/legacy migrations moved to boot.phases. Reconcile is
+    # now phase 4 and runs before this function is invoked.
     contacts.sync_to_people(M.PEOPLE_DIR)
     heap = T.rebuild_from_proc()
     watcher = EventWatcher(P.EVENTS_DIR, loop)
     watcher.start()
     await supervisor.resume_from_disk()
-    print(f"[kernel] started — {len(heap)} timers loaded", flush=True)
+    print(f"[kernel] supervise: started — {len(heap)} timers loaded", flush=True)
 
     drivers = [
         asyncio.create_task(
