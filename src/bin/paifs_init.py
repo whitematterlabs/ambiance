@@ -26,7 +26,6 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # Directories to create under $PAI_ROOT.
 SKELETON: tuple[str, ...] = (
-    "boot/recovery",
     "bin",
     "sbin",
     "etc/drivers",
@@ -61,6 +60,7 @@ SKELETON: tuple[str, ...] = (
 # are NOT symlinks — we provision a real venv + a real bin dir so the
 # FHS root is portable and not tethered to the repo's dev .venv.
 SYMLINKS: tuple[tuple[str, Path], ...] = (
+    ("boot", REPO_ROOT / "src" / "boot"),
     ("usr/src", REPO_ROOT / "src"),
     ("usr/lib/drivers", REPO_ROOT / "src" / "drivers"),
     ("usr/share/prompts", REPO_ROOT / "src" / "prompts"),
