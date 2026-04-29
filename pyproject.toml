@@ -16,6 +16,7 @@ dependencies = [
     "textual>=0.80",
     "watchdog>=6.0.0",
     "pytest>=8.0",
+    "pytest-timeout>=2.3",
 ]
 
 [project.scripts]
