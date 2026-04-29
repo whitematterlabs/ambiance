@@ -21,8 +21,9 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from boot.paths import HOME_DIR
+
 ANIMUS_GRAPH = Path.home() / "Projects" / "animus" / "memory" / "twin.json"
-HOME_DIR = Path(__file__).resolve().parent.parent / "home"
 YEAR = "2026"
 
 

@@ -9,9 +9,7 @@ from pathlib import Path
 
 import yaml
 
-HOME_DIR = Path(__file__).resolve().parent.parent.parent / "home"
-PROC_DIR = HOME_DIR / "proc"
-EVENTS_DIR = HOME_DIR / "events"
+from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR
 
 VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed"}
 

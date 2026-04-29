@@ -28,7 +28,7 @@ from pathlib import Path
 
 import yaml
 
-from kernel.messages import MESSAGES_DIR, PEOPLE_DIR, slugify
+from boot.messages import MESSAGES_DIR, PEOPLE_DIR, slugify
 
 
 def _die(msg: str) -> None:

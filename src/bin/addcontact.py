@@ -35,7 +35,7 @@ import argparse
 import sys
 from datetime import datetime
 
-from kernel.messages import (
+from boot.messages import (
     MESSAGES_DIR,
     PEOPLE_DIR,
     _create_person,

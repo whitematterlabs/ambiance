@@ -35,13 +35,19 @@ from typing import Optional
 
 import yaml
 
-from kernel import outbound_echo
-from kernel import processes as P
+from boot import outbound_echo
+from boot import processes as P
 
-from ..tailer import HOME_DIR, Tailer
+from boot import paths
 
-MESSAGES_ROOT = HOME_DIR / "communication" / "messages"
-PEOPLE_ROOT = HOME_DIR / "memory" / "people"
+from ..tailer import Tailer
+
+# Watch the canonical spool directly. v3: messages live at
+# /var/spool/communication/ and are shared across the fleet (each PAI's
+# /home/<pai>/communication/ is just a symlink view); the outbound
+# driver is system-shared, not per-PAI.
+MESSAGES_ROOT = paths.var_spool_messages()
+PEOPLE_ROOT = paths.var_lib_memory() / "people"
 
 # Bracketed prefix — log entries (inbound, canonical me:, kernel notes).
 # Never treated as send requests; only bare lines are.

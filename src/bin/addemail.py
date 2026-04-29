@@ -35,7 +35,7 @@ import yaml
 
 from drivers.email.gmail import api as gapi
 from drivers.email.gmail import auth as gauth
-from kernel import processes as P  # noqa: F401  — triggers .env.local load
+from boot import processes as P  # noqa: F401  — triggers .env.local load
 
 EMAIL_ROOT = P.HOME_DIR / "communication" / "email"
 TMP_ROOT = P.HOME_DIR / "tmp" / "drivers" / "gmail-in"

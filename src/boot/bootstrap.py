@@ -14,9 +14,7 @@ from typing import Optional
 
 import yaml
 
-from .processes import HOME_DIR
-
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+from .paths import HOME_DIR, REPO_ROOT
 
 MYSELF_DIR = HOME_DIR / "memory" / "myself"
 IDENTITY_PATH = MYSELF_DIR / "identity.yaml"

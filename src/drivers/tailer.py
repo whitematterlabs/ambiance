@@ -18,7 +18,8 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-HOME_DIR = Path(__file__).resolve().parent.parent.parent / "home"
+from boot.paths import HOME_DIR, PAI_ROOT
+
 DRIVERS_STATE_DIR = HOME_DIR / "tmp" / "drivers"
 
 OnLine = Callable[[Path, str], Awaitable[None]]
@@ -27,7 +28,10 @@ OwnedPredicate = Callable[[Path], bool]
 
 
 def _rel(path: Path) -> str:
-    return str(path.resolve().relative_to(HOME_DIR.resolve()))
+    """Stable cursor key — FHS-root-relative. Watched roots sit anywhere
+    under PAI_ROOT (e.g. /var/spool/... for messages), so relativizing
+    against PAI_ROOT works regardless of which subtree fires the event."""
+    return str(path.resolve().relative_to(PAI_ROOT.resolve()))
 
 
 class _Handler(FileSystemEventHandler):

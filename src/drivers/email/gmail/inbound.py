@@ -28,7 +28,7 @@ import yaml
 from drivers.email import shared
 from drivers.email.gmail import api as gapi
 from drivers.email.gmail import auth as gauth
-from kernel import processes as P
+from boot import processes as P
 
 DRIVER_SLUG = "gmail-in"
 EMAIL_ROOT = P.HOME_DIR / "communication" / "email"

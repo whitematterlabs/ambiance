@@ -7,6 +7,21 @@ wheels/
 *.egg-info
 
 .venv
-home/
 .env
 .env.local
+
+# FHS slots — runtime state lives at $PAI_ROOT (default ~/.pai). These
+# only appear at the repo root if someone runs paifs-init in-tree.
+/boot/
+/bin/
+/home/
+/mnt/
+/opt/
+/proc/
+/root/
+/run/
+/sbin/
+/sys/
+/tmp/
+/usr/
+/var/

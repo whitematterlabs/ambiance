@@ -28,7 +28,7 @@ from pathlib import Path
 
 import yaml
 
-from kernel import processes as P
+from boot import processes as P
 
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")

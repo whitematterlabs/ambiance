@@ -44,8 +44,8 @@ from drivers.imessage.inbound import (
     _mac_date_to_iso,
     _save_cursor as _save_in_cursor,
 )
-from kernel import processes as P
-from kernel.messages import MESSAGES_DIR, ingest
+from boot import processes as P
+from boot.messages import MESSAGES_DIR, ingest
 
 OUT_DRIVER_SLUG = "imessage-out"
 IN_DRIVER_SLUG = "imessage-in"

@@ -11,7 +11,7 @@ import argparse
 import shutil
 from pathlib import Path
 
-HOME_DIR = Path(__file__).resolve().parent.parent / "home"
+from boot.paths import HOME_DIR
 
 SCAFFOLD_DIRS = [
     "communication/messages",

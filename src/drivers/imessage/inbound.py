@@ -31,7 +31,7 @@ from typing import Optional
 
 import yaml
 
-from kernel import processes as P
+from boot import processes as P
 
 CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 CURSOR_DIR = P.HOME_DIR / "tmp" / "drivers" / "imessage_in"

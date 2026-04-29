@@ -32,10 +32,10 @@ from typing import Any
 import yaml
 
 from . import processes as P
+from . import paths
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-CONFIG_PATH = REPO_ROOT / "etc" / "config.yaml"
-PACKAGES_DIR = REPO_ROOT / "packages"
+CONFIG_PATH = paths.etc() / "config.yaml"
+PACKAGES_DIR = paths.usr_lib_pais()
 
 RESERVED_PIDS: dict[int, str] = {1: "kernel_manager", 2: "pai"}
 

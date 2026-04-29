@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from kernel import bootstrap, main as M
-from kernel import processes as P
+from boot import bootstrap, main as M
+from boot import processes as P
 
 
 def _spawn(

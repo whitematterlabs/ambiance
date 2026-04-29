@@ -18,7 +18,7 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from kernel.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_spec, read_status
+from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_spec, read_status
 
 ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
 KERNEL_LOG = HOME_DIR / "tmp" / "kernel.log"

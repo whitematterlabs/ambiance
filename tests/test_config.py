@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from kernel import config as C
-from kernel import processes as P
+from boot import config as C
+from boot import processes as P
 
 
 def _write_config(repo_root: Path, body: str) -> Path:

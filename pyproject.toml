@@ -27,6 +27,7 @@ edit-file = "bin.edit_file:main"
 imessage-backfill = "bin.imessage_backfill:main"
 ipc = "bin.ipc:main"
 paictl = "bin.paictl:main"
+paifs-init = "bin.paifs_init:main"
 resolve-contact = "bin.resolve_contact:main"
 subagent = "bin.subagent:main"
 
@@ -35,5 +36,5 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kernel", "src/drivers", "src/tui", "src/bin"]
+packages = ["src/boot", "src/drivers", "src/tui", "src/bin"]
 

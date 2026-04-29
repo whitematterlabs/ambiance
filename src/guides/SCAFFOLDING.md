@@ -3,7 +3,7 @@
 > **Status: v1, superseded.** This document describes the *current* on-disk
 > layout. The forward-looking target is `FILESYSTEM.md`, an FHS-aligned
 > redesign (per-PAI homes under `/home/<pai>/`, canonical state in
-> `/var/lib/pai/`, kernelPAI in `/root/`, etc.). Treat this file as the
+> `/var/lib/`, kernelPAI in `/root/`, etc.). Treat this file as the
 > source of truth for what *exists today*; treat `FILESYSTEM.md` as the
 > source of truth for where we're going. Do not extend this layout — new
 > structural decisions should be made against `FILESYSTEM.md`.

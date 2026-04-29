@@ -7,7 +7,7 @@ import argparse
 import os
 import sys
 
-from kernel import processes as P
+from boot import processes as P
 
 
 def main(argv: list[str] | None = None) -> int:

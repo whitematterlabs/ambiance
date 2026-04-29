@@ -18,7 +18,7 @@ from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Input, Static, TabbedContent, TabPane
 
-from kernel.processes import HOME_DIR, emit_event, _iter_pai_specs, read_status
+from boot.processes import HOME_DIR, emit_event, _iter_pai_specs, read_status
 
 PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
 PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek")]

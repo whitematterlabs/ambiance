@@ -14,7 +14,7 @@ import signal
 import subprocess
 import sys
 
-from kernel.processes import HOME_DIR
+from boot.processes import HOME_DIR
 from tui.app import TuiApp
 
 
@@ -29,7 +29,7 @@ def main() -> int:
     log.flush()
 
     kernel = subprocess.Popen(
-        [sys.executable, "-u", "-m", "kernel", "run"],
+        [sys.executable, "-u", "-m", "boot", "run"],
         stdin=subprocess.DEVNULL,
         stdout=log,
         stderr=subprocess.STDOUT,
