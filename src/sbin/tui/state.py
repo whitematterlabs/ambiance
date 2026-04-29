@@ -79,14 +79,17 @@ class MeThreadWatcher:
 
     def start(self) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
-        my_dir = self.dir
+        # macOS FSEvents reports realpath, not the symlink-included path.
+        # `home/<pai>/communication` is a symlink into `var/spool/communication`,
+        # so a naive `p.parent == self.dir` filter rejects every event.
+        my_dir = self.dir.resolve()
         handler = _Poker(
             self.loop,
             self.queue,
             path_filter=lambda p: p.suffix == ".md" and p.parent == my_dir,
         )
         obs = Observer()
-        obs.schedule(handler, str(self.dir), recursive=False)
+        obs.schedule(handler, str(my_dir), recursive=False)
         obs.start()
         self._observer = obs
         # Prime the queue so on_mount gets an initial snapshot.
