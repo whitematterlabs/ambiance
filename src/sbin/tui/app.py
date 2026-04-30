@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
+import shlex
 from datetime import datetime
+
+from rich.text import Text
+
+from boot.paths import PAI_ROOT
 
 _PAI_CMD = re.compile(r"^\[pai(?::[^\]]+)?\] \$ ")
 _PAI_REPLY = re.compile(r"^\[pai(?::[^\]]+)?\] ")
@@ -328,13 +334,15 @@ class TuiApp(App):
             tail.write_line(line)
             activity.ingest(line)
 
+            pid = self._active_pid()
+            label = f"pai {pid}" if pid is not None else "pai"
             if "nudge failed" in line or "nudge complete" in line:
                 status.update("idle")
             elif line.startswith("[kernel] nudge:"):
-                status.update("PAI is thinking…")
+                status.update(f"{label} is thinking…")
             elif _PAI_CMD.match(line):
                 # Still working — commands keep arriving.
-                status.update("PAI is thinking…")
+                status.update(f"{label} is thinking…")
             elif _PAI_REPLY.match(line):
                 # PAI's final text reply.
                 status.update("idle")
@@ -349,6 +357,10 @@ class TuiApp(App):
         pid = self._active_pid()
         if pid is None:
             self.query_one("#status", Static).update("no PAI tab active")
+            return
+
+        if text.startswith("!"):
+            await self._run_shell(text[1:].strip(), pid)
             return
 
         # 1. Append to today's me/{pid}/ day-file.
@@ -370,6 +382,45 @@ class TuiApp(App):
             f"sent → pid {pid}, waiting for kernel…"
         )
 
+    async def _run_shell(self, cmd: str, pid: int) -> None:
+        """Run a shell command (from `!cmd` input) with PAI's PATH and context."""
+        chat = self.query_one(f"#chat-{pid}", ChatPane)
+        status = self.query_one("#status", Static)
+        if not cmd:
+            status.update("shell: empty command")
+            return
+
+        slug = self._slug_for_pid(pid)
+        env = os.environ.copy()
+        pai_path = f"{PAI_ROOT/'bin'}:{PAI_ROOT/'usr'/'bin'}"
+        env["PATH"] = f"{pai_path}:{env.get('PATH', '')}"
+        env["PAI_SLUG"] = slug
+        env["PAI_ROOT"] = str(PAI_ROOT)
+
+        chat.write(Text(f"$ {cmd}", style="bold yellow"))
+        status.update(f"shell: running {shlex.split(cmd)[0]}…")
+
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(PAI_ROOT),
+                env=env,
+            )
+            out, _ = await proc.communicate()
+            rc = proc.returncode or 0
+        except Exception as e:
+            chat.write(Text(f"shell: {e}", style="red"))
+            status.update("shell: error")
+            return
+
+        text = out.decode(errors="replace").rstrip()
+        if text:
+            for line in text.splitlines():
+                chat.write(Text(line, style="dim" if rc == 0 else "red"))
+        status.update(f"shell: exit {rc}")
+
     def set_provider(self, key: str) -> None:
         _write_provider(key)
 
@@ -377,5 +428,5 @@ class TuiApp(App):
         pid = self._active_pid() or 1
         emit_event({"source": "tui", "kind": "interrupt", "pai": pid})
         self.query_one("#status", Static).update(
-            f"interrupt sent → pid {pid}, cancelling…"
+            f"interrupt sent → pid {pid}, cancelled"
         )

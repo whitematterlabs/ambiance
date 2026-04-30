@@ -32,6 +32,7 @@ import os
 import re
 import sys
 
+from boot import config as C
 from boot import processes as P
 
 
@@ -68,43 +69,82 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     if not args.slug:
         print("error: --slug is required", file=sys.stderr)
         return 1
-    if not args.prompt:
-        print("error: --prompt is required", file=sys.stderr)
+    if not args.persistent and not args.prompt:
+        print("error: --prompt is required (omit only with --persistent)", file=sys.stderr)
+        return 1
+    if args.package and not args.persistent:
+        print("error: --package only applies with --persistent", file=sys.stderr)
         return 1
 
-    provider, _, model = args.model.partition("/")
+    bundle: dict = {}
+    if args.package:
+        try:
+            bundle = C.resolve_subagent_package(args.package)
+        except C.ConfigError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+
+    # Resolution: explicit --model wins; else bundle's provider/model;
+    # else DEFAULT_MODEL.
+    if args.model:
+        model_str = args.model
+    elif bundle.get("provider") and bundle.get("model"):
+        model_str = f"{bundle['provider']}/{bundle['model']}"
+    else:
+        model_str = DEFAULT_MODEL
+    provider, _, model = model_str.partition("/")
     if not provider or not model:
-        print(f"error: --model must be 'provider/model-tag' (got {args.model!r})", file=sys.stderr)
+        print(f"error: --model must be 'provider/model-tag' (got {model_str!r})", file=sys.stderr)
         return 1
 
-    final_slug = _allocate_slug(args.slug)
+    if args.persistent:
+        # Persubs are deterministic singletons under their parent: no date
+        # suffix, namespaced under the parent's slug so two parents can each
+        # have a `memory` child without colliding.
+        parent_slug = os.environ.get("PAI_SLUG")
+        if not parent_slug:
+            print("error: $PAI_SLUG not set — required for --persistent", file=sys.stderr)
+            return 1
+        final_slug = f"{parent_slug}.{args.slug}"
+    else:
+        final_slug = _allocate_slug(args.slug)
+
     child_pid = P.alloc_pai_pid()
+    description = (
+        args.prompt
+        or (bundle.get("description") if bundle else None)
+        or f"persub: {args.slug}"
+    )[:80]
     spec = {
         "kind": "pai",
         "pid": child_pid,
         "parent": parent_pid,
         "persistent": True,
-        "description": args.prompt[:80],
+        "description": description,
         "provider": provider,
         "model": model,
     }
+    if args.persistent:
+        spec["persub"] = True
+    if bundle.get("prompt"):
+        spec["prompt"] = bundle["prompt"]
     try:
         P.spawn(final_slug, spec)
     except P.ProcessExists as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    # Kickoff is just the parent's first IPC to the newborn child — same
-    # event kind any peer would use. The subagent itself talks back via
-    # `bin/subagent reply`, which uses subagent:response so the parent can
-    # tell at a glance that the message is from one of its own children.
-    P.emit_event({
-        "source": "subagent",
-        "kind": "pai_message",
-        "target_pid": child_pid,
-        "sender_pid": parent_pid,
-        "text": args.prompt,
-    })
+    if not args.persistent:
+        # Kickoff is just the parent's first IPC to the newborn child — same
+        # event kind any peer would use. Persubs have no kickoff: they boot
+        # idle and wait for the parent to message them.
+        P.emit_event({
+            "source": "subagent",
+            "kind": "pai_message",
+            "target_pid": child_pid,
+            "sender_pid": parent_pid,
+            "text": args.prompt,
+        })
 
     print(f"{final_slug} (pid {child_pid})")
     return 0
@@ -156,6 +196,13 @@ def cmd_done(args: argparse.Namespace) -> int:
     if spec.get("kind") != "pai" or "parent" not in spec:
         print(f"error: {args.slug!r} is not a subagent", file=sys.stderr)
         return 1
+    if spec.get("persub"):
+        print(
+            f"error: {args.slug!r} is a persistent subagent and cannot be resolved; "
+            f"remove it from /etc/config.yaml `dependencies:` and reload",
+            file=sys.stderr,
+        )
+        return 1
     if parent_pid != int(spec["parent"]) and parent_pid != int(spec["pid"]):
         print(
             f"error: {args.slug!r} can only be resolved by its parent (pid {spec['parent']}) "
@@ -197,16 +244,31 @@ def main(argv: list[str] | None = None) -> int:
             "relationship."
         ),
     )
-    sp.add_argument("--slug", required=True, help="base slug (date is auto-appended)")
+    sp.add_argument("--slug", required=True, help="base slug (date is auto-appended unless --persistent)")
     sp.add_argument(
         "--prompt",
-        required=True,
-        help="task for the subagent (just the work — lifecycle is auto-injected)",
+        help="task for the subagent (required for ephemeral; optional for --persistent)",
     )
     sp.add_argument(
         "--model",
-        default=DEFAULT_MODEL,
-        help=f"provider/model-tag (default: {DEFAULT_MODEL})",
+        default=None,
+        help=f"provider/model-tag (overrides --package; default: {DEFAULT_MODEL})",
+    )
+    sp.add_argument(
+        "--persistent",
+        action="store_true",
+        help=(
+            "spawn as a persub (persistent subagent): deterministic slug "
+            "<parent>.<name>, no kickoff prompt, cannot be resolved by `done`"
+        ),
+    )
+    sp.add_argument(
+        "--package",
+        default=None,
+        help=(
+            "(with --persistent) name of a /usr/lib/subagents/<name>/ bundle "
+            "to pull prompt/provider/model from"
+        ),
     )
     sp.set_defaults(func=cmd_spawn)
 

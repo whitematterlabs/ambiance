@@ -169,6 +169,7 @@ async def nudge(
         parent=parent_pid,
         prompt_path=pai_spec.get("prompt"),
         home_dir=str(stitch.home_for(pai_slug)),
+        persub=bool(pai_spec.get("persub")),
     )
     sender = f"{from_kind}:{from_}" if from_ is not None else None
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)
@@ -248,7 +249,13 @@ async def nudge(
 
     if reply:
         print(f"[pai:{pai_slug}] {reply}", flush=True)
-        if not parent_str:
+        # Top-level fleet PAIs (no parent) write back to the owner's
+        # me-thread so the TUI chat tab shows their replies. Persubs
+        # are also owner-addressable (the user opens a tab for them
+        # in the TUI), so their replies belong in the me-thread too.
+        # Plain ephemeral subagents talk to their parent via
+        # subagent:response, not the me-thread, so they're excluded.
+        if not parent_str or pai_spec.get("persub"):
             _append_to_me_thread(pai_pid, reply)
     print("[kernel] nudge complete", flush=True)
     try:

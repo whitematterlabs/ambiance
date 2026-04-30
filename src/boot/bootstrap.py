@@ -13,18 +13,21 @@ from typing import Optional
 
 import yaml
 
-from .paths import HOME_DIR, PAI_ROOT, REPO_ROOT
+from .paths import HOME_DIR, PAI_ROOT, REPO_ROOT, usr_lib_skills
 
 
 OPERATING_INSTRUCTIONS = """\
 You are PAI. You run only when the kernel nudges you. The event that caused
 this wake is in the user turn below.
 
-Your world is the filesystem. You are standing inside it. Your shell's
-working directory is the root of your world — every path you type is
-relative to it. Never prefix a path. `ls` shows you everything you have.
-To learn anything beyond what's in this prompt, run shell commands and
-read files. Do not guess.
+Your world is the filesystem — an FHS layout (`/etc/`, `/usr/`,
+`/var/`, `/proc/`, `/run/`, `/sys/`, `/boot/`, `/sbin/`, `/bin/`,
+`/opt/`, `/home/`, `/root/`, `/tmp/`). Use absolute or relative
+paths freely; the shell tool transparently rewrites FHS prefixes to
+live under your world. Your cwd is your home, so `ls` shows your
+home contents and bare names work as before. To learn anything
+beyond what's in this prompt, run shell commands and read files.
+Do not guess.
 
 Before acting, traverse what's relevant:
 - If the event references a person, read their about.yaml and their
@@ -210,12 +213,44 @@ def _list_skills(path: Path) -> str:
     return "\n".join(sorted(entries))
 
 
+def _list_system_skills(path: Path) -> str:
+    """System skills live at /usr/lib/skills/<name>/SKILL.md with YAML
+    frontmatter. Emit `<name>: <description>` per line so PAI can pick
+    which to read without opening every file."""
+    if not path.exists():
+        return ""
+    entries: list[str] = []
+    for skill_dir in sorted(path.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        desc = ""
+        try:
+            text = skill_md.read_text()
+        except OSError:
+            continue
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            if end != -1:
+                front = text[3:end]
+                try:
+                    meta = yaml.safe_load(front) or {}
+                    desc = str(meta.get("description", "")).strip()
+                except yaml.YAMLError:
+                    desc = ""
+        entries.append(f"{skill_dir.name}: {desc}" if desc else skill_dir.name)
+    return "\n".join(entries)
+
+
 @lru_cache(maxsize=32)
 def build_system_prompt(
     pai: int = 1,
     parent: Optional[int] = None,
     prompt_path: Optional[str] = None,
     home_dir: Optional[str] = None,
+    persub: bool = False,
 ) -> str:
     # home_dir is a string for hashability under @lru_cache; callers
     # (nudge.py) resolve it from the PAI's slug — root → /root/, else
@@ -224,6 +259,7 @@ def build_system_prompt(
     home = Path(home_dir) if home_dir else HOME_DIR
     bins = _list_dir(home / "bin")
     skills = _list_skills(home / "memory" / "skills")
+    system_skills = _list_system_skills(usr_lib_skills())
 
     parent_label = str(parent) if parent is not None else "kernel"
     pai_line = (
@@ -236,7 +272,8 @@ def build_system_prompt(
 
     subagent_block = ""
     if parent is not None:
-        subagent_tmpl = _read_or_empty(PAI_ROOT / "usr/share/prompts/subagent.md")
+        tmpl_name = "subagent-persistent.md" if persub else "subagent.md"
+        subagent_tmpl = _read_or_empty(PAI_ROOT / "usr/share/prompts" / tmpl_name)
         if subagent_tmpl:
             subagent_block = (
                 f"<subagent-mode>\n{subagent_tmpl.format(parent=parent)}</subagent-mode>\n\n"
@@ -252,6 +289,14 @@ def build_system_prompt(
         f"<skills>\nSkills in memory/skills/ (organized as "
         f"`{{topic}}/{{name}}`; read on demand with "
         f"`cat memory/skills/<topic>/<name>`):\n{skills}\n</skills>\n\n"
+        f"<system-skills>\nSystem skills — shared infra docs and procedures "
+        f"(kernel internals, driver/skill authoring, fleet tooling, "
+        f"self-healing). Listed below as `<name>: <description>`. Read on "
+        f"demand with `cat /usr/lib/skills/<name>/SKILL.md`. Shipped "
+        f"long-form docs live under `/usr/share/doc/` (e.g. "
+        f"`cat /usr/share/doc/KERNEL.md`). Pull a skill in whenever its "
+        f"description plausibly applies — the cost is one shell command."
+        f"\n{system_skills}\n</system-skills>\n\n"
         # Anchor the shell's cwd visually, without naming it — naming it
         # encourages the model to prefix commands with that name.
         "~ $ "

@@ -148,6 +148,22 @@ def _driver_rows() -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def _persub_rows() -> list[tuple[str, str, str, str]]:
+    """Walk /proc for kind:pai entries with `persub: true`. Persubs are
+    declared under a parent's `dependencies:`, not in top-level `pais:`,
+    so they don't surface via the config scan."""
+    rows: list[tuple[str, str, str, str]] = []
+    for slug, spec in P._iter_pai_specs():
+        if not spec.get("persub"):
+            continue
+        active = spec.get("active", True)
+        parent = spec.get("parent", "")
+        desc = f"persub of {parent}" if parent else "persub"
+        rows.append((slug, "yes" if active else "no", _runtime_status(slug), desc))
+    rows.sort(key=lambda r: r[0])
+    return rows
+
+
 def cmd_ls(args: argparse.Namespace) -> int:
     data = _load_raw(C.CONFIG_PATH)
     pais = data.get("pais") or []
@@ -159,13 +175,14 @@ def cmd_ls(args: argparse.Namespace) -> int:
         active = entry.get("active", True)
         pai_rows.append((name, "yes" if active else "no", _runtime_status(name),
                          entry.get("description", "")))
+    persub_rows = _persub_rows()
     drv_rows = _driver_rows()
 
-    if not pai_rows and not drv_rows:
+    if not pai_rows and not persub_rows and not drv_rows:
         print("(no fleet entries)")
         return 0
 
-    all_rows = pai_rows + drv_rows
+    all_rows = pai_rows + persub_rows + drv_rows
     name_w = max(len(r[0]) for r in all_rows)
     status_w = max(len(r[2]) for r in all_rows)
 
@@ -178,6 +195,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
             print(f"{name:<{name_w}}  {active:<6}  {status:<{status_w}}  {desc}")
 
     _print_section("PAIs:", pai_rows)
+    _print_section("Persubs:", persub_rows)
     _print_section("Drivers:", drv_rows)
     return 0
 

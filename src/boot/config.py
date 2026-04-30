@@ -32,6 +32,7 @@ from . import paths
 
 CONFIG_PATH = paths.etc() / "config.yaml"
 PACKAGES_DIR = paths.usr_lib_pais()
+SUBAGENTS_DIR = paths.usr_lib_subagents()
 
 RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 
@@ -40,8 +41,13 @@ RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 # preserved across reconciles.
 CONFIG_MANAGED_FIELDS = (
     "description", "prompt", "provider", "model", "wake_on",
-    "fallback", "parent", "persistent", "active",
+    "fallback", "parent", "persistent", "active", "dependencies",
 )
+
+# Fields a `dependencies:` entry can carry (each entry materializes a persub
+# child of the declaring PAI). `name` is required; everything else inherits
+# from the parent or has a sensible default.
+DEP_FIELDS = ("name", "description", "prompt", "provider", "model", "package")
 
 
 class ConfigError(Exception):
@@ -73,6 +79,22 @@ def resolve_package(name: str) -> dict:
     kind = data.get("kind")
     if kind != "pai":
         raise NotImplementedError(f"package kind {kind!r} not yet supported")
+    return data
+
+
+def resolve_subagent_package(name: str) -> dict:
+    """Load and validate a subagent bundle from `/usr/lib/subagents/{name}/`.
+    Used by `dependencies:` entries that say `package: <name>` to pull
+    prompt/provider/model defaults from a shared bundle."""
+    pkg_path = SUBAGENTS_DIR / name / "package.yaml"
+    if not pkg_path.exists():
+        raise ConfigError(f"subagent package {name!r} not found: {pkg_path}")
+    data = _load_yaml(pkg_path)
+    kind = data.get("kind")
+    if kind != "subagent":
+        raise ConfigError(
+            f"subagent package {name!r}: expected kind=subagent, got {kind!r}"
+        )
     return data
 
 
@@ -110,6 +132,60 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
         raise ConfigError(f"{source}: entry {name!r} active must be bool")
     if "parent" in entry and not isinstance(entry["parent"], int):
         raise ConfigError(f"{source}: entry {name!r} parent must be int")
+    if "dependencies" in entry:
+        deps = entry["dependencies"]
+        if not isinstance(deps, list):
+            raise ConfigError(f"{source}: entry {name!r} dependencies must be a list")
+        seen: set[str] = set()
+        for dep in deps:
+            if not isinstance(dep, dict):
+                raise ConfigError(
+                    f"{source}: entry {name!r} dependencies items must be mappings "
+                    f"(bare-name shorthand not yet supported); got {dep!r}"
+                )
+            dep_name = dep.get("name")
+            if not isinstance(dep_name, str) or not dep_name:
+                raise ConfigError(
+                    f"{source}: entry {name!r} dependency missing string `name`: {dep!r}"
+                )
+            if "/" in dep_name or "." in dep_name or dep_name.startswith("-"):
+                raise ConfigError(
+                    f"{source}: entry {name!r} invalid dependency name {dep_name!r}"
+                )
+            if dep_name in seen:
+                raise ConfigError(
+                    f"{source}: entry {name!r} duplicate dependency {dep_name!r}"
+                )
+            seen.add(dep_name)
+            if "description" not in dep or not isinstance(dep["description"], str):
+                raise ConfigError(
+                    f"{source}: entry {name!r} dependency {dep_name!r} missing string `description`"
+                )
+            for k in ("prompt", "provider", "model", "package"):
+                if k in dep and not isinstance(dep[k], str):
+                    raise ConfigError(
+                        f"{source}: entry {name!r} dependency {dep_name!r} field {k!r} must be a string"
+                    )
+            if "provider" in dep and dep["provider"] not in L.PROVIDERS:
+                known = ", ".join(sorted(L.PROVIDERS))
+                raise ConfigError(
+                    f"{source}: entry {name!r} dependency {dep_name!r} unknown provider "
+                    f"{dep['provider']!r} (known: {known})"
+                )
+            for k in dep:
+                if k not in DEP_FIELDS:
+                    raise ConfigError(
+                        f"{source}: entry {name!r} dependency {dep_name!r} unknown field {k!r}"
+                    )
+            if "package" in dep:
+                # Fail fast at load time so missing/malformed bundles
+                # never half-spawn a persub.
+                try:
+                    resolve_subagent_package(dep["package"])
+                except ConfigError as e:
+                    raise ConfigError(
+                        f"{source}: entry {name!r} dependency {dep_name!r} {e}"
+                    )
 
 
 def load_config(path: Path | None = None) -> dict[str, dict]:
@@ -259,6 +335,11 @@ def reconcile_from_config(path: Path | None = None) -> None:
 
     # Removed.
     for name in sorted(actual_names - desired_names):
+        # Persubs and ad-hoc subagents are owned by their parent, not the
+        # top-level fleet config — skip them so reconcile doesn't cancel
+        # children just because they're absent from /etc/config.yaml.
+        if "parent" in actual[name]:
+            continue
         # Only remove cleanly-managed PAIs (skip ones already cancelled to
         # avoid log churn). We treat any non-running status as already-removed.
         try:
@@ -314,3 +395,83 @@ def reconcile_from_config(path: Path | None = None) -> None:
             except P.ProcessNotFound:
                 pass
             print(f"[kernel] reconcile: stopped inactive pai {name!r}", flush=True)
+
+    _reconcile_persubs(desired)
+
+
+def _reconcile_persubs(desired: dict[str, dict]) -> None:
+    """For each parent declaring `dependencies:`, spawn each persub child
+    if its /proc dir does not yet exist. Idempotent — does not update or
+    teardown existing persubs in this pass (see plan for out-of-scope items)."""
+    for parent_name, parent_spec in sorted(desired.items()):
+        deps = parent_spec.get("dependencies") or []
+        if not deps:
+            continue
+        if not parent_spec.get("active", True):
+            continue
+        parent_pid = parent_spec.get("pid")
+        if parent_pid is None:
+            # Parent didn't have an explicit pid in config; read from disk.
+            parent_pid = P.read_pai_pid(parent_name)
+        if parent_pid is None:
+            print(
+                f"[kernel] reconcile: cannot spawn persubs for {parent_name!r} — no pid",
+                flush=True,
+            )
+            continue
+        for dep in deps:
+            dep_name = dep["name"]
+            slug = f"{parent_name}.{dep_name}"
+            if (P.PROC_DIR / slug).exists():
+                # Persub already exists; heal its status if shutdown left it
+                # at "stopped" (or anything else). Fleet members get the same
+                # treatment in the reconcile_from_config "Changed" branch.
+                try:
+                    status = P.read_status(slug)
+                except P.ProcessNotFound:
+                    continue
+                if status != "running":
+                    (P.PROC_DIR / slug / "status").write_text("running\n")
+                    try:
+                        P.append_log(slug, f"kernel: status healed ({status} → running)")
+                    except P.ProcessNotFound:
+                        pass
+                    print(
+                        f"[kernel] reconcile: healed persub {slug!r} ({status} → running)",
+                        flush=True,
+                    )
+                continue
+            # Resolution chain (highest wins): dep override → bundle → parent.
+            bundle: dict = {}
+            if dep.get("package"):
+                bundle = resolve_subagent_package(dep["package"])
+            prompt = dep.get("prompt") or bundle.get("prompt")
+            provider = (
+                dep.get("provider")
+                or bundle.get("provider")
+                or parent_spec.get("provider")
+            )
+            model = (
+                dep.get("model")
+                or bundle.get("model")
+                or parent_spec.get("model")
+            )
+            child_pid = P.alloc_pai_pid()
+            P.spawn_pai(
+                pid=child_pid,
+                slug=slug,
+                description=dep["description"],
+                prompt=prompt,
+                provider=provider,
+                model=model,
+                parent=parent_pid,
+                extra={"persistent": True, "persub": True},
+            )
+            try:
+                P.append_log(slug, "kernel: spawned persub via reconcile")
+            except P.ProcessNotFound:
+                pass
+            print(
+                f"[kernel] reconcile: spawned persub {slug!r} (pid={child_pid}, parent={parent_pid})",
+                flush=True,
+            )

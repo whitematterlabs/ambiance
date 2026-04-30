@@ -1,8 +1,7 @@
 """Thin Anthropic SDK wrapper — system prompt + user turn + tool loop.
 
-Runs the tool-call loop until the model stops calling tools or we hit
-the iteration cap. Returns the final assistant text (may be empty if
-PAI chose not to respond).
+Runs the tool-call loop until the model stops calling tools. Returns
+the final assistant text (may be empty if PAI chose not to respond).
 
 Provider + model are passed in per call (ultimately sourced from each
 PAI's `spec.yaml`, which is reconciled from `etc/config.yaml`). Clients
@@ -21,7 +20,6 @@ from anthropic import AsyncAnthropic
 from . import shell_tool
 
 MAX_TOKENS = 4096
-MAX_ITERATIONS = 25
 
 # provider key -> (base_url or None, api_key env var, default model, extra_body)
 PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
@@ -169,7 +167,7 @@ async def _loop(
     system_blocks = [
         {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
     ]
-    for _ in range(MAX_ITERATIONS):
+    while True:
         response = await client.messages.create(
             model=model,
             max_tokens=MAX_TOKENS,
@@ -214,5 +212,3 @@ async def _loop(
                 })
 
         messages.append({"role": "user", "content": tool_results})
-
-    return "[max iterations reached]", messages

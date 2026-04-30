@@ -71,7 +71,7 @@ def _print_kinds(kinds: dict[str, list[str]]) -> None:
     print("Available event kinds (use exact strings or fnmatch globs):")
     for driver, ks in kinds.items():
         print(f"  {driver}: {', '.join(ks)}")
-    print("  e.g. 'gmail:*' matches every kind starting with 'gmail:'.")
+    print("  e.g. 'email:*' matches every kind starting with 'email:'.")
     print("  Leave blank if this PAI should only be a `fallback` (catches unrouted events).")
 
 

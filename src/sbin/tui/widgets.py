@@ -73,13 +73,12 @@ class ProcList(DataTable):
 
     def render_rows(self, rows: list[ProcRow]) -> None:
         self.clear()
-        # Sort: rows with a deadline ascending first, then cron/others.
-        def key(r: ProcRow):
-            return (0 if r.when and r.when[0:4].isdigit() else 1, r.when, r.slug)
-
-        for r in sorted(rows, key=key):
+        # Rows arrive pre-ordered by ProcWatcher (tree pre-order: roots
+        # first, subagents indented under their parent via tree_prefix).
+        for r in rows:
             when = _short_when(r.when)
-            self.add_row(r.slug, r.pid or "-", r.type, r.parent or "-", when)
+            slug = f"{r.tree_prefix}{r.slug}"
+            self.add_row(slug, r.pid or "-", r.type, r.parent or "-", when)
 
 
 class EventStrip(RichLog):

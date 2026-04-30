@@ -38,6 +38,7 @@ paidel = "bin.paidel:main"
 paifs-init = "bin.paifs_init:main"
 paiman = "bin.paiman:main"
 pai = "bin.pai:main"
+ps = "bin.ps:main"
 resolve-contact = "bin.resolve_contact:main"
 subagent = "bin.subagent:main"
 

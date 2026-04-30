@@ -20,23 +20,30 @@ from . import paths
 
 def _stitch_links(home: Path, instance: Path) -> None:
     # Symlink targets are relative so the home tree is portable if PAI_ROOT moves.
-    # /root/ → 1 level up; /home/<slug>/ → 2 levels up.
-    depth = len(home.relative_to(paths.PAI_ROOT).parts)
-    up = Path(*[".."] * depth)
-    inst_rel = up / instance.relative_to(paths.PAI_ROOT)
-    mem_rel = up / paths.var_lib_memory().relative_to(paths.PAI_ROOT)
-    skills_rel = up / paths.usr_lib_skills().relative_to(paths.PAI_ROOT)
+    # Each link's `..`-prefix is computed from the link's *own* depth under
+    # PAI_ROOT (not the home's), so a link nested under `memory/` adds one
+    # more `..` than a top-level link in the home.
+    home_under_root = home.relative_to(paths.PAI_ROOT)
+    inst_under_root = instance.relative_to(paths.PAI_ROOT)
+    mem_under_root = paths.var_lib_memory().relative_to(paths.PAI_ROOT)
+    skills_under_root = paths.usr_lib_skills().relative_to(paths.PAI_ROOT)
+    doc_under_root = paths.usr_share_doc().relative_to(paths.PAI_ROOT)
 
     links: tuple[tuple[str, Path], ...] = (
-        ("inbox", inst_rel / "inbox"),
-        ("workspace", inst_rel / "workspace"),
-        ("memory/private", inst_rel / "memory" / "private"),
-        ("memory/shared", mem_rel),
-        ("memory/skills", skills_rel),
+        ("inbox", inst_under_root / "inbox"),
+        ("workspace", inst_under_root / "workspace"),
+        ("memory/private", inst_under_root / "memory" / "private"),
+        ("memory/shared", mem_under_root),
+        ("memory/skills", skills_under_root),
+        ("memory/doc", doc_under_root),
     )
-    for rel, target in links:
+    for rel, target_under_root in links:
         link = home / rel
         link.parent.mkdir(parents=True, exist_ok=True)
+        # Depth of the link's parent dir under PAI_ROOT — that's how many
+        # `..` segments are needed to climb back to PAI_ROOT.
+        link_parent_depth = len(home_under_root.parts) + rel.count("/")
+        target = Path(*[".."] * link_parent_depth) / target_under_root
         if link.is_symlink():
             if link.readlink() == target:
                 continue

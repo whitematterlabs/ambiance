@@ -9,19 +9,47 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
+from . import stitch
+from .paths import PAI_ROOT
 from .processes import HOME_DIR
 
 TOOL_NAME = "bash"
 TOOL_DESCRIPTION = (
-    "Run a bash command in PAI's world. The working directory IS the "
-    "root of PAI's world — paths are relative to it; never prefix a "
-    "directory name. Use this to read, search, and write files — cat, "
-    "ls, rg, find, head, tail, echo >>, tee, mkdir, ln -s, etc. Output "
-    "is captured stdout + stderr; exit code is reported separately."
+    "Run a bash command in PAI's world. PAI's filesystem is rooted at "
+    "an FHS layout — `/etc/`, `/usr/`, `/var/`, `/proc/`, `/run/`, "
+    "`/sys/`, `/boot/`, `/sbin/`, `/bin/`, `/opt/`, `/home/`, `/root/`, "
+    "`/tmp/` all refer to PAI's world. Use absolute or relative paths "
+    "freely; the harness rewrites FHS prefixes to PAI's root before "
+    "exec. Output is captured stdout + stderr; exit code is reported."
 )
+
+
+# FHS slot prefixes that should be rewritten to live under PAI_ROOT.
+# /dev and /mnt are intentionally NOT rewritten — /dev/null, /dev/stdin
+# etc. are real OS facilities PAI legitimately uses.
+_FHS_SLOTS = (
+    "etc", "usr", "var", "proc", "run", "sys",
+    "boot", "sbin", "bin", "opt", "home", "root", "tmp",
+)
+_FHS_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_./])"                    # not mid-token / not a hostname
+    r"(/(?:" + "|".join(_FHS_SLOTS) + r"))"   # the FHS prefix
+    r"(?=/|\s|$|[\"'`\);\],:|&>])"            # boundary: path continues, or shell delimiter
+)
+
+
+def rewrite_fhs_paths(command: str, root: str) -> str:
+    """Rewrite leading-slash FHS paths to live under `root`.
+
+    Substring substitution with anchored boundaries — robust across
+    quoting, heredocs, and `bash -c` / `python -c` strings, since we
+    operate on the raw command before bash tokenizes anything.
+    """
+    return _FHS_PATTERN.sub(lambda m: f"{root}{m.group(1)}", command)
 TOOL_SCHEMA = {
     "name": TOOL_NAME,
     "description": TOOL_DESCRIPTION,
@@ -61,11 +89,16 @@ async def run(
     timeout: float = 30.0,
     env: Optional[dict] = None,
 ) -> ShellResult:
-    HOME_DIR.mkdir(parents=True, exist_ok=True)
+    # Per-PAI cwd: each PAI's stitched home (root → /root/, others → /home/<slug>/).
+    # Falls back to the global HOME_DIR if the caller didn't pass PAI_SLUG.
+    slug = (env or {}).get("PAI_SLUG")
+    cwd = stitch.home_for(slug) if slug else HOME_DIR
+    cwd.mkdir(parents=True, exist_ok=True)
+    command = rewrite_fhs_paths(command, str(PAI_ROOT))
     proc_env = {**os.environ, **env} if env else None
     proc = await asyncio.create_subprocess_shell(
         command,
-        cwd=str(HOME_DIR),
+        cwd=str(cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=proc_env,

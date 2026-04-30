@@ -15,7 +15,8 @@ import traceback
 from collections import defaultdict
 from datetime import date, datetime
 
-from drivers.email.gmail import inbound as gmail_in
+from drivers.email.macmail import inbound as macmail_in
+from drivers.email.macmail import outbound as macmail_out
 from drivers.imessage import inbound as imessage_in
 from drivers.imessage import outbound as imessage_out
 
@@ -374,6 +375,37 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         for pid in _route_to_pids("imessage:send_failed"):
             _dispatch_nudge(pid, "send failed", context=ctx)
 
+    elif kind == "new_email":
+        ctx = {
+            "account": event.get("account"),
+            "thread_slug": event.get("thread_slug"),
+            "subject": event.get("subject"),
+            "from": event.get("from"),
+            "direction": event.get("direction"),
+            "path": event.get("path"),
+        }
+        tag = "new email" if event.get("direction") == "inbound" else "outbound email"
+        for pid in _route_to_pids("email:new"):
+            _dispatch_nudge(pid, tag, context=ctx)
+
+    elif kind == "email_backlog":
+        ctx = {
+            "since": event.get("since"),
+            "accounts": event.get("accounts") or [],
+            "total": int(event.get("total") or 0),
+        }
+        for pid in _route_to_pids("email:backlog"):
+            _dispatch_nudge(pid, "email backlog", context=ctx)
+
+    elif kind == "draft_failed":
+        ctx = {
+            "account": event.get("account"),
+            "path": event.get("path"),
+            "reason": event.get("reason"),
+        }
+        for pid in _route_to_pids("email:draft_failed"):
+            _dispatch_nudge(pid, "draft failed", context=ctx)
+
     elif kind == "kernel:reload_config":
         await _handle_reload_config()
 
@@ -460,7 +492,8 @@ async def _handle_reload_config() -> None:
 DRIVER_SPECS: tuple[tuple[str, object], ...] = (
     ("imessage-out", lambda: imessage_out.run()),
     ("imessage-in",  lambda: imessage_in.run()),
-    ("gmail-in",     lambda: gmail_in.run()),
+    ("macmail-in",   lambda: macmail_in.run()),
+    ("macmail-out",  lambda: macmail_out.run()),
 )
 
 _driver_tasks: dict[str, asyncio.Task] = {}

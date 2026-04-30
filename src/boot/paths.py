@@ -68,6 +68,10 @@ def var_spool_messages() -> Path:
     return PAI_ROOT / "var" / "spool" / "communication" / "messages"
 
 
+def var_spool_email() -> Path:
+    return PAI_ROOT / "var" / "spool" / "communication" / "email"
+
+
 def var_log() -> Path:
     return PAI_ROOT / "var" / "log"
 
@@ -92,8 +96,16 @@ def usr_lib_pais() -> Path:
     return PAI_ROOT / "usr" / "lib" / "pais"
 
 
+def usr_lib_subagents() -> Path:
+    return PAI_ROOT / "usr" / "lib" / "subagents"
+
+
 def usr_share_prompts() -> Path:
     return PAI_ROOT / "usr" / "share" / "prompts"
+
+
+def usr_share_doc() -> Path:
+    return PAI_ROOT / "usr" / "share" / "doc"
 
 
 def usr_src() -> Path:

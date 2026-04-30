@@ -19,6 +19,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_spec, read_status
+from boot.proctree import order_as_tree
 
 ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
 KERNEL_LOG = HOME_DIR / "tmp" / "kernel.log"
@@ -124,6 +125,7 @@ class ProcRow:
     when: str  # deadline ISO or cron schedule, for display
     description: str
     status: str
+    tree_prefix: str = ""  # box-drawing indent for nested subagents
 
 
 def _infer_type(spec: dict) -> str:
@@ -169,13 +171,21 @@ class ProcWatcher:
 
     async def next(self) -> list[ProcRow]:
         await self.queue.get()
-        rows: list[ProcRow] = []
+        # Gather raw specs first so we can pass them to order_as_tree, then
+        # build ProcRows in tree order with box-drawing prefixes attached.
+        # Drivers (no pid) end up as roots and render flat alongside.
+        specs: list[dict] = []
         for slug in list_procs(status_filter="running"):
             try:
                 spec = read_spec(slug)
                 status = read_status(slug)
             except Exception:
                 continue
+            specs.append({**spec, "_slug": slug, "_status": status})
+
+        rows: list[ProcRow] = []
+        for spec, prefix in order_as_tree(specs):
+            slug = spec["_slug"]
             ptype = _infer_type(spec)
             when = str(spec.get("deadline") or spec.get("schedule") or "")
             desc = str(spec.get("description", ""))
@@ -185,7 +195,8 @@ class ProcWatcher:
             pid_str = str(pid_val) if isinstance(pid_val, int) else ""
             rows.append(ProcRow(
                 slug=slug, pid=pid_str, type=ptype, parent=parent_str,
-                when=when, description=desc, status=status,
+                when=when, description=desc, status=spec["_status"],
+                tree_prefix=prefix,
             ))
         return rows
 
