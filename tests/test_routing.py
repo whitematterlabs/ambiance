@@ -27,14 +27,14 @@ def _spawn(
 
 
 def test_route_explicit_match_excludes_fallback(live_dir: Path) -> None:
-    # kernel_manager claims kernel:*, pai is fallback → only kernel_manager fires.
-    _spawn("kernel_manager", pid=1, wake_on=["kernel:*"])
+    # root claims kernel:*, pai is fallback → only root fires.
+    _spawn("root", pid=1, wake_on=["kernel:*"])
     _spawn("pai", pid=2, fallback=True)
     assert M._route_to_pids("kernel:reload_failed") == [1]
 
 
 def test_route_falls_through_to_fallback(live_dir: Path) -> None:
-    _spawn("kernel_manager", pid=1, wake_on=["kernel:*"])
+    _spawn("root", pid=1, wake_on=["kernel:*"])
     _spawn("pai", pid=2, fallback=True)
     # Nothing matches imessage:new → fallback PAI fires.
     assert M._route_to_pids("imessage:new") == [2]
@@ -49,13 +49,13 @@ def test_route_multiple_explicit_fanout(live_dir: Path) -> None:
 
 
 def test_route_no_fallback_uses_default_pid(live_dir: Path) -> None:
-    _spawn("kernel_manager", pid=1, wake_on=["kernel:*"])
+    _spawn("root", pid=1, wake_on=["kernel:*"])
     # No fallback PAI, no match → default fallback_pid.
     assert M._route_to_pids("imessage:new", fallback_pid=7) == [7]
 
 
 def test_route_skips_non_running_fallback(live_dir: Path) -> None:
-    _spawn("kernel_manager", pid=1, wake_on=["kernel:*"])
+    _spawn("root", pid=1, wake_on=["kernel:*"])
     _spawn("pai", pid=2, fallback=True)
     P.resolve("pai", "cancelled")
     assert M._route_to_pids("imessage:new", fallback_pid=99) == [99]
@@ -82,6 +82,16 @@ def test_build_system_prompt_includes_role(tmp_path: Path, monkeypatch: pytest.M
     bootstrap.build_system_prompt.cache_clear()
     out = bootstrap.build_system_prompt(pai=2, prompt_path="role.md")
     assert "<role>\nyou are the test role\n</role>" in out
+
+
+def test_build_user_turn_renders_sender_verbatim() -> None:
+    # build_user_turn no longer adds its own "pai:" prefix — callers pass
+    # the fully-formatted handle. This lets nudge.py distinguish subagent
+    # senders ("subagent:7") from generic PAI peers ("pai:42").
+    out = bootstrap.build_user_turn("subagent response", sender="subagent:7")
+    assert "from: subagent:7" in out
+    out = bootstrap.build_user_turn("peer message", sender="pai:42")
+    assert "from: pai:42" in out
 
 
 def test_build_system_prompt_no_role_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

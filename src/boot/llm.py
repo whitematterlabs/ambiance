@@ -3,6 +3,11 @@
 Runs the tool-call loop until the model stops calling tools or we hit
 the iteration cap. Returns the final assistant text (may be empty if
 PAI chose not to respond).
+
+Provider + model are passed in per call (ultimately sourced from each
+PAI's `spec.yaml`, which is reconciled from `etc/config.yaml`). Clients
+are cached by provider key — different PAIs on the same provider share
+one HTTP client.
 """
 
 from __future__ import annotations
@@ -11,19 +16,15 @@ import asyncio
 import os
 from typing import Optional
 
-import yaml
 from anthropic import AsyncAnthropic
 
 from . import shell_tool
-from .processes import HOME_DIR
 
 MAX_TOKENS = 4096
 MAX_ITERATIONS = 25
 
-PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
-
 # provider key -> (base_url or None, api_key env var, default model, extra_body)
-_PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
+PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
     "anthropic": (None, "ANTHROPIC_API_KEY", "claude-sonnet-4-6", {}),
     # Deepseek's Anthropic-compatible endpoint defaults thinking=enabled, which
     # demands thinking blocks be preserved in tool-call history. Our histories
@@ -37,35 +38,30 @@ _PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
 }
 DEFAULT_PROVIDER = "anthropic"
 
-
-def _read_provider_key() -> str:
-    try:
-        data = yaml.safe_load(PROVIDER_CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    except FileNotFoundError:
-        return DEFAULT_PROVIDER
-    key = data.get("provider") if isinstance(data, dict) else None
-    return key if key in _PROVIDERS else DEFAULT_PROVIDER
+# provider_key -> AsyncAnthropic client (one per provider).
+_clients: dict[str, AsyncAnthropic] = {}
 
 
-# Cached (provider_key, client, model, extra_body). Rebuilt on swap.
-_cached: Optional[tuple[str, AsyncAnthropic, str, dict]] = None
+def _resolve(provider: Optional[str], model: Optional[str]) -> tuple[AsyncAnthropic, str, dict]:
+    """Return (client, model, extra_body) for a (provider, model) pair.
 
-
-def _get_client_and_model() -> tuple[AsyncAnthropic, str, dict]:
-    global _cached
-    key = _read_provider_key()
-    if _cached is not None and _cached[0] == key:
-        return _cached[1], _cached[2], _cached[3]
-    base_url, api_key_env, default_model, extra_body = _PROVIDERS[key]
-    api_key = os.environ.get(api_key_env)
-    kwargs: dict = {}
-    if api_key:
-        kwargs["api_key"] = api_key
-    if base_url:
-        kwargs["base_url"] = base_url
-    client = AsyncAnthropic(**kwargs)
-    _cached = (key, client, default_model, extra_body)
-    return client, default_model, extra_body
+    Both args may be None: provider falls back to DEFAULT_PROVIDER; model
+    falls back to the provider's default. Unknown providers raise."""
+    key = provider or DEFAULT_PROVIDER
+    if key not in PROVIDERS:
+        raise ValueError(f"unknown provider: {key!r}")
+    base_url, api_key_env, default_model, extra_body = PROVIDERS[key]
+    client = _clients.get(key)
+    if client is None:
+        api_key = os.environ.get(api_key_env)
+        kwargs: dict = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = AsyncAnthropic(**kwargs)
+        _clients[key] = client
+    return client, model or default_model, extra_body
 
 
 class TurnCancelled(Exception):
@@ -105,8 +101,16 @@ async def run_turn(
     user: str,
     history: Optional[list[dict]] = None,
     env: Optional[dict] = None,
+    *,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     """Run one nudge through the model.
+
+    `provider` and `model` come from the calling PAI's spec.yaml (which
+    is reconciled from etc/config.yaml). Both default to the global
+    fallback when omitted, so subagent code paths that don't carry a
+    spec still work.
 
     Returns (final assistant text, full messages list after the turn).
     The returned list = `history` + the user turn + every assistant/
@@ -114,7 +118,7 @@ async def run_turn(
 
     On cancellation raises TurnCancelled with the pruned partial history.
     """
-    client, model, extra_body = _get_client_and_model()
+    client, model, extra_body = _resolve(provider, model)
     messages: list[dict] = list(history) if history else []
     messages.append({"role": "user", "content": user})
 

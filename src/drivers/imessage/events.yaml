@@ -1,7 +1,7 @@
 # Event spec for the imessage driver.
 #
 # `kind` is the routing key — the string `_route_to_pids` in
-# src/kernel/main.py matches against `wake_on` patterns. Use these
+# src/boot/main.py matches against `wake_on` patterns. Use these
 # strings (or globs over them) in etc/config.yaml `wake_on:` lists.
 #
 # `raw_kind` is the YAML `kind:` field on the event file in

@@ -1,13 +1,34 @@
-Staged sequence (smallest → biggest)
+# PAI roadmap
 
-  1. Drop /pai/ nesting — rename any */pai/* path segments out (e.g. usr/share/pai/prompts/ → usr/share/prompts/, var/lib/pai/memory/ → var/lib/memory/). Pure rename + import/path-string
-  fixups.
-  2. Per-PAI home shape — move flat home/ contents under home/<pai>/ (identity.yaml, directives.md, memory/, inbox/, workspace/, tmp/), introduce home/<pai>/memory/{shared →
-  /var/lib/memory, private/} split.
-  3. Prompt resolution layering — split prompts across usr/share/prompts/ (shipped), etc/prompts/ (override), home/<pai>/prompts/ (per-PAI); add the 3-tier lookup helper.
-  4. Driver triad split — move driver code → usr/lib/drivers/<name>/, config (events.yaml) → etc/drivers/<name>/, runtime state → sys/drivers/<name>/.
-  5. /proc/<pai>/<svc>/ namespacing — today's run/ (or proc/) gets a <pai>/ level inserted so multi-PAI service supervision works from day one.
-  6. bin/+sbin/ skeleton — stub paictl, paimount, paiman entrypoints (paictl first, since service supervision already exists; paimount/paiman are no-ops until /opt/ lands).
-  7. Earmarked-but-empty dirs — boot/recovery/, opt/, var/cache/, var/lib/packages/, dev/, run/ (lockfiles sense). Just .gitkeeps + a README per the reserved, not built principle.
+The v3 FHS migration is complete. Source of truth for layout is
+`src/usr/share/doc/FILESYSTEM_v3.md`.
 
-  Deferred (don't touch in early commits): privileged-write enforcement, jailing, /opt/ bundle stitching, modular kernel composition.
+## Done
+
+- Full FHS skeleton at `$PAI_ROOT` (defaults to `~/.pai/`), provisioned by
+  `paifs-init` (boot, etc, usr, var, proc, sys, run, sbin, bin, home,
+  root, opt, mnt, tmp, dev).
+- Kernel decomposed into `src/boot/` with phased init: sanity → clean →
+  probe → reconcile → start → entry. `/sbin/init` is the entrypoint.
+- Three-location driver split: config in `/etc/drivers/<name>/`, code in
+  `/usr/lib/drivers/<name>/`, runtime state in `/sys/drivers/<name>/`.
+- `/proc/<pai>/` namespacing for multi-PAI service supervision.
+- Tooling: `paiman init` (bundles), `paiadd` / `paidel` (configure
+  instances), `paictl` (instance runtime via `active:` flag),
+  `paicron` (services, the cron/systemctl analogue).
+
+## Next
+
+1. **`/opt/` bundle stitching.** Make `paiman install <url>` real:
+   clone to `/opt/<pkg>/<ver>/`, resolve declared deps, expose drivers
+   and skills via `/usr/lib/`. Unlocks shipping bundles via git.
+2. `paiman` verbs beyond `init`: `install`, `uninstall`, `upgrade`,
+   `list`. Depends on (1).
+
+## Deferred
+
+- Privileged-write enforcement (capability system: kernelPAI as the sole
+  writer to `/etc/`, `/usr/`, `/opt/`, `/var/lib/memory/`; workers route
+  through `/root/inbox/` elevation).
+- Jailing (`/home/<pai>/` and `/root/` as enforced sandboxes).
+- Modular kernel composition.

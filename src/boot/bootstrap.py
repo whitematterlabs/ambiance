@@ -1,8 +1,7 @@
 """Bootstrap — assemble the system prompt and per-nudge user turn.
 
-Pure functions. No LLM, no I/O beyond reading the three inlined files.
-The system prompt is composed once per process lifetime; restart the
-kernel to pick up edits to identity/directives/PAI.md.
+Pure functions. No LLM. The system prompt is composed once per process
+lifetime; restart the kernel to pick up edits to the role prompt.
 """
 
 from __future__ import annotations
@@ -14,14 +13,7 @@ from typing import Optional
 
 import yaml
 
-from .paths import HOME_DIR, REPO_ROOT
-
-MYSELF_DIR = HOME_DIR / "memory" / "myself"
-IDENTITY_PATH = MYSELF_DIR / "identity.yaml"
-DIRECTIVES_PATH = MYSELF_DIR / "directives.md"
-WORLD_PATH = HOME_DIR / "PAI.md"
-BIN_DIR = HOME_DIR / "bin"
-SKILLS_DIR = HOME_DIR / "memory" / "skills"
+from .paths import HOME_DIR, PAI_ROOT, REPO_ROOT
 
 
 OPERATING_INSTRUCTIONS = """\
@@ -49,31 +41,33 @@ Event reasons you will see, and how to handle them:
 - `messages backlog` — kernel just came up and found messages that landed
   while it was down. Context has `threads` (per-thread `inbound` /
   `outbound` counts and `last_text`) and `since`. The lines are already
-  written to the thread day-files. Default: post a short recap in
-  `communication/messages/me/{pid}/{today}.md` (your own pid) in this shape:
+  written to the thread day-files. Default: produce a short recap as your
+  assistant reply (the kernel posts it to the me/ thread for you), in
+  this shape:
     While you were offline:
     - Arda talked to {contact}: N messages.
     - {contact}: N unread messages
   `outbound` = Arda sent from his phone, `inbound` = someone messaged
   you. Decide per thread whether anything actually needs a reply from
-  you, and read the thread files before replying.
+  you, and read the thread files before replying. Do NOT echo the recap
+  into the me/ thread yourself — that double-posts.
 - `proc completed` / `proc failed` / `proc expired` — a service you (or
   the kernel) started has finished. The event's `slug` names it.
   Default behavior: read `proc/{slug}/log.md` and `result.md` if present,
-  then append a short summary to
-  `communication/messages/me/{pid}/{today}.md` (your own pid) so the owner sees what
-  happened. Include the outcome and (for failures) the reason if
-  obvious. Suppress the summary only if the service is internal
-  maintenance (nightly consolidation, sweeps) and nothing notable
-  happened — even then, a one-line `pai:` note is preferred over
-  silence.
+  then produce a short summary as your assistant reply (the kernel posts
+  it to the me/ thread for you). Include the outcome and (for failures)
+  the reason if obvious. Suppress the summary only if the service is
+  internal maintenance (nightly consolidation, sweeps) and nothing
+  notable happened — even then, a one-line reply is preferred over
+  silence. Do NOT echo the summary into the me/ thread yourself.
 - `schedule fired` — a timed reminder fired (schedule with no `run:`).
   Surface it to the owner if the reminder was meant for them; otherwise
   do whatever the reminder asked for.
 - `cron fired (rc=N)` — a cron-with-run service's per-fire subprocess
   just finished. Check the log for its output, then summarize to the
-  owner in `communication/messages/me/{pid}/{today}.md` (your own pid). For high-frequency
-  or purely-internal crons you may stay quiet — the owner can set
+  owner as your assistant reply (the kernel posts it to the me/ thread
+  for you — do not echo it yourself). For high-frequency or
+  purely-internal crons you may stay quiet — the owner can set
   `announce: false` on the spec to suppress the nudge entirely.
 - `deadline reached` — a service hit its deadline without completing.
   Investigate and report.
@@ -82,6 +76,13 @@ Event reasons you will see, and how to handle them:
   has `thread`, `text`, and `reason`. Tell the owner so they can follow
   up manually; the line you wrote is still in the thread file but was
   never sent. Don't silently retry — the cursor already advanced.
+- `nudge failed` — another PAI's turn raised before producing a reply
+  (e.g., LLM API error, credit outage, transport bug). You receive this
+  only if you are root. Context has `target` (slug), `target_pid`,
+  `original_reason` (what they were being nudged for), and `error` (the
+  exception repr). The kernel does not retry — the original event is
+  gone. Decide whether to tell the owner, re-nudge the target later,
+  or just note it and move on.
 
 To act, write to files or invoke tools:
 - Sending a message to a contact = append a plain text line to
@@ -119,18 +120,32 @@ To act, write to files or invoke tools:
   Sync tools run inside this turn and return their output to you inline.
   Use `bin/<name> --help` or `head bin/<name>` to learn usage.
 - Delegating async work (subagent, watcher, cron, timed reminder) = run
-  `bin/paictl start --slug NAME --run 'CMD' [--schedule EXPR] ...`. The
+  `bin/paicron start --slug NAME --run 'CMD' [--schedule EXPR] ...`. The
   kernel supervises the service; when it finishes, the kernel nudges you
-  back with the result. `paictl --help` for the full surface (start, stop,
+  back with the result. `paicron --help` for the full surface (start, stop,
   restart, status, ls, logs).
-- Resolving an async service = `bin/paictl stop SLUG`. The kernel handles
+- Resolving an async service = `bin/paicron stop SLUG`. The kernel handles
   the rest.
 - Delegating to a subagent (another PAI instance owned by you) =
   `bin/subagent spawn --slug NAME --prompt "what you want it to do"`.
-  The subagent runs one turn with full shell access, then the kernel
-  resolves it and nudges you with the slug. Read
-  `proc/<slug>/messages.jsonl` for its full transcript and
-  `proc/<slug>/log.md` for the shell commands it ran.
+  The call returns immediately with `{slug} (pid {N})`. The subagent
+  runs in the background; it is *persistent* — it stays alive across
+  turns and does not resolve on its own. Conversation is non-blocking:
+  - To talk to your subagent: `bin/ipc --to {child pid} --content "..."`
+    (this is the same generic peer-IPC channel you'd use for any PAI).
+  - When the subagent has something for you, you'll be nudged with
+    `reason: subagent response` and `from: subagent:{child pid}` —
+    that's your signal it's one of your own children, not a PAI peer.
+    (Generic peer messages arrive as `from: pai:{pid}`.)
+  - If you ARE a subagent and need to respond to your parent, run
+    `bin/subagent reply --content "..."` (it knows your parent from
+    `$PAI_PARENT`).
+  Terminate the subagent when its work is done with
+  `bin/subagent done --slug NAME` — that resolves the child and you'll
+  be nudged once more with `proc completed`. Read
+  `proc/<slug>/messages.jsonl` for the full transcript and
+  `proc/<slug>/log.md` for the shell commands it ran. You can run
+  many subagents concurrently; each is independent.
 - Managing your own conversation context = `bin/clear` wipes your LLM
   history after this turn finishes; `bin/compact "<your summary>"`
   replaces it with the summary you pass in. Both archive the old history
@@ -141,9 +156,9 @@ To act, write to files or invoke tools:
 
 `etc/` is the kernel control plane — agent-readable and agent-editable.
 `etc/config.yaml` declares the long-running PAI fleet (your `wake_on:`
-patterns live here). `etc/drivers/{driver}/events.yaml` enumerates
+patterns live here). `usr/lib/drivers/{driver}/events.yaml` enumerates
 what events each driver emits, their payloads, and the routing kinds
-that `wake_on` matches against. `cat etc/drivers/imessage/events.yaml`
+that `wake_on` matches against. `cat usr/lib/drivers/imessage/events.yaml`
 before editing `wake_on:` so you know what kinds exist, or when you
 receive an unfamiliar event reason.
 
@@ -200,12 +215,15 @@ def build_system_prompt(
     pai: int = 1,
     parent: Optional[int] = None,
     prompt_path: Optional[str] = None,
+    home_dir: Optional[str] = None,
 ) -> str:
-    identity = _read_or_empty(IDENTITY_PATH)
-    directives = _read_or_empty(DIRECTIVES_PATH)
-    world = _read_or_empty(WORLD_PATH)
-    bins = _list_dir(BIN_DIR)
-    skills = _list_skills(SKILLS_DIR)
+    # home_dir is a string for hashability under @lru_cache; callers
+    # (nudge.py) resolve it from the PAI's slug — root → /root/, else
+    # /home/<slug>/. Defaults to the legacy global HOME_DIR for
+    # subagent code paths that don't carry a slug yet.
+    home = Path(home_dir) if home_dir else HOME_DIR
+    bins = _list_dir(home / "bin")
+    skills = _list_skills(home / "memory" / "skills")
 
     parent_label = str(parent) if parent is not None else "kernel"
     pai_line = (
@@ -216,12 +234,18 @@ def build_system_prompt(
     role = _read_or_empty(REPO_ROOT / prompt_path) if prompt_path else ""
     role_block = f"<role>\n{role}</role>\n\n" if role else ""
 
+    subagent_block = ""
+    if parent is not None:
+        subagent_tmpl = _read_or_empty(PAI_ROOT / "usr/share/prompts/subagent.md")
+        if subagent_tmpl:
+            subagent_block = (
+                f"<subagent-mode>\n{subagent_tmpl.format(parent=parent)}</subagent-mode>\n\n"
+            )
+
     return (
-        f"<identity>\n{identity}</identity>\n\n"
         f"<pai-instance>\n{pai_line}</pai-instance>\n\n"
         f"{role_block}"
-        f"<directives>\n{directives}</directives>\n\n"
-        f"<world>\n{world}</world>\n\n"
+        f"{subagent_block}"
         f"<operating-instructions>\n{OPERATING_INSTRUCTIONS}</operating-instructions>\n\n"
         f"<bin>\nBinaries in bin/ (run as `bin/<name>`; use `bin/<name> --help` "
         f"or `head bin/<name>` for usage):\n{bins}\n</bin>\n\n"
@@ -240,10 +264,13 @@ def build_user_turn(
     context: Optional[dict] = None,
     sender: Optional[str] = None,
 ) -> str:
+    # `sender` is the full prefixed handle, e.g. "pai:42" or "subagent:7".
+    # The caller (nudge.py) is responsible for choosing the prefix; we just
+    # render it.
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     event_block: dict = {"reason": reason}
     if sender:
-        event_block["from"] = f"pai:{sender}"
+        event_block["from"] = sender
     if slug:
         event_block["slug"] = slug
     if context:

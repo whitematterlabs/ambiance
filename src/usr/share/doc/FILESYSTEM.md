@@ -91,7 +91,7 @@ model a sysadmin uses on Linux. No bespoke ontology to learn — the world
 ├── tmp/                           ephemeral, cleared on boot
 │
 ├── usr/                           secondary hierarchy
-│   ├── bin/                       PAI-callable CLI tools (e.g. paictl)
+│   ├── bin/                       PAI-callable CLI tools (e.g. paicron)
 │   ├── sbin/                      kernel-only tools (self-heal, fleet ops)
 │   ├── lib/
 │   │   └── pai/
@@ -203,7 +203,7 @@ System-wide ephemeral. Cleared on boot. Per-PAI ephemerals belong in
 ### `/usr/`
 The secondary hierarchy: most of the OS lives here.
 
-- `/usr/bin/` — executables PAIs can call (e.g. `paictl`)
+- `/usr/bin/` — executables PAIs can call (e.g. `paicron`)
 - `/usr/sbin/` — kernel-only executables (self-heal scripts, fleet ops,
   package manager)
 - `/usr/lib/pai/drivers/<name>/` — driver source code
@@ -347,7 +347,7 @@ This layout changes several things relative to v1:
   Events get addressed to a specific PAI rather than dropped into a
   global inbox.
 - **`home/bin/` → `/usr/bin/` (PAI-callable) and `/usr/sbin/` (kernel-only).**
-  Split by privilege. `paictl` lives in `/usr/bin/`; self-heal and
+  Split by privilege. `paicron` lives in `/usr/bin/`; self-heal and
   package manager live in `/usr/sbin/`.
 - **`home/tmp/drivers/` → `/sys/drivers/<name>/`.** Driver runtime state
   (cursors, last event) moves to sysfs, where Linux puts live driver

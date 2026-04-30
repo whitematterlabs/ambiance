@@ -2,7 +2,7 @@
 
 Each watcher wraps a watchdog Observer running in a background thread.
 FS events are marshalled back to the asyncio loop via call_soon_threadsafe
-(same pattern as src/kernel/events.py). Widgets await `next()` on a watcher
+(same pattern as src/boot/events.py). Widgets await `next()` on a watcher
 to receive the next snapshot.
 """
 

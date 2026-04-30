@@ -11,7 +11,7 @@ import yaml
 
 from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR
 
-VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed"}
+VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed", "stopped"}
 
 # Resolutions that wake PAI after the fact. "cancelled" is excluded because
 # cancellation is typically initiated by PAI or the owner — the initiating
@@ -157,6 +157,7 @@ def spawn_pai(
     description: str = "Main PAI",
     *,
     prompt: str | None = None,
+    provider: str | None = None,
     model: str | None = None,
     wake_on: list[str] | None = None,
     fallback: bool | None = None,
@@ -166,15 +167,16 @@ def spawn_pai(
     """Spawn a `kind: pai` proc with an explicit PID. Slug defaults to
     str(pid) for the main PAI / back-compat; subagents pass a name.
 
-    Optional fields (prompt, model, wake_on) are persisted into spec.yaml
-    when provided. `prompt` and `wake_on` are honored by bootstrap.py
-    and main.py respectively; `model` is still inert (llm.py reads from
-    provider.yaml)."""
+    Optional fields are persisted into spec.yaml when provided.
+    `prompt`/`wake_on` are honored by bootstrap.py and main.py;
+    `provider`/`model` are read by nudge.py and routed to llm.run_turn."""
     if slug is None:
         slug = str(pid)
     spec: dict = {"kind": "pai", "pid": pid, "slug": slug, "description": description}
     if prompt is not None:
         spec["prompt"] = prompt
+    if provider is not None:
+        spec["provider"] = provider
     if model is not None:
         spec["model"] = model
     if wake_on is not None:

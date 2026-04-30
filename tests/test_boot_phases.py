@@ -79,8 +79,8 @@ def test_clean_removes_symlink_not_target(laid_out_root: Path, tmp_path_factory:
 
 def test_probe_logs_each_driver(laid_out_root: Path, capsys) -> None:
     from boot.phases import probe
-    # Drivers shipped: imessage, email. paifs_init exposes events.yaml
-    # for each at etc/drivers/<name>/events.yaml.
+    # Drivers shipped: imessage, email. probe reads events.yaml from
+    # /usr/lib/drivers/<name>/events.yaml.
     probe.run()
     out = capsys.readouterr().out
     assert "imessage" in out

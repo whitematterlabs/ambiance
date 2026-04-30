@@ -34,7 +34,7 @@ def test_load_minimal(repo_root):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -43,8 +43,8 @@ pais:
 """,
     )
     cfg = C.load_config()
-    assert set(cfg) == {"kernel_manager", "pai"}
-    assert cfg["kernel_manager"]["pid"] == 1
+    assert set(cfg) == {"root", "pai"}
+    assert cfg["root"]["pid"] == 1
     assert cfg["pai"]["description"] == "dflt"
 
 
@@ -58,10 +58,10 @@ def test_duplicate_name(repo_root):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: a
-  - name: kernel_manager
+  - name: root
     pid: 2
     description: b
 """,
@@ -75,7 +75,7 @@ def test_duplicate_pid(repo_root):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: a
   - name: pai
@@ -92,12 +92,12 @@ def test_reserved_pid_wrong_name(repo_root):
         repo_root,
         """
 pais:
-  - name: not_kernel_manager
+  - name: not_root
     pid: 1
     description: nope
 """,
     )
-    with pytest.raises(C.ConfigError, match="reserved for 'kernel_manager'"):
+    with pytest.raises(C.ConfigError, match="reserved for 'root'"):
         C.load_config()
 
 
@@ -106,7 +106,7 @@ def test_reserved_name_wrong_pid(repo_root):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 99
     description: oops
 """,
@@ -120,7 +120,7 @@ def test_missing_description(repo_root):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
 """,
     )
@@ -128,12 +128,48 @@ pais:
         C.load_config()
 
 
+def test_provider_unknown(repo_root):
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+    provider: not-a-provider
+""",
+    )
+    with pytest.raises(C.ConfigError, match="unknown provider"):
+        C.load_config()
+
+
+def test_provider_persisted(repo_root, live_dir):
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+    provider: deepseek
+    model: deepseek-v4-pro
+  - name: pai
+    pid: 2
+    description: dflt
+""",
+    )
+    C.reconcile_from_config()
+    spec = P.read_spec("root")
+    assert spec["provider"] == "deepseek"
+    assert spec["model"] == "deepseek-v4-pro"
+
+
 def test_wake_on_type(repo_root):
     _write_config(
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
     wake_on: "not-a-list"
@@ -163,7 +199,7 @@ def test_package_merge(repo_root):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -189,7 +225,7 @@ def test_package_kind_unsupported(repo_root):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -216,10 +252,10 @@ def test_reconcile_cold_boot(repo_root, live_dir):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
-    prompt: src/prompts/kernel_manager.md
+    prompt: src/prompts/root.md
     model: deepseek-v4-pro
     wake_on: ['kernel:*']
   - name: pai
@@ -232,11 +268,11 @@ pais:
     )
     C.reconcile_from_config()
     actual = dict(P._iter_pai_specs())
-    assert set(actual) == {"kernel_manager", "pai"}
-    assert actual["kernel_manager"]["pid"] == 1
+    assert set(actual) == {"root", "pai"}
+    assert actual["root"]["pid"] == 1
     assert actual["pai"]["pid"] == 2
     assert actual["pai"]["wake_on"] == ["*"]
-    assert P.read_status("kernel_manager") == "running"
+    assert P.read_status("root") == "running"
 
 
 def test_reconcile_add(repo_root, live_dir):
@@ -245,7 +281,7 @@ def test_reconcile_add(repo_root, live_dir):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -259,7 +295,7 @@ pais:
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -280,7 +316,7 @@ def test_reconcile_remove(repo_root, live_dir):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -298,7 +334,7 @@ pais:
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -317,7 +353,7 @@ def test_reconcile_change_rewrites_spec(repo_root, live_dir):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: original
   - name: pai
@@ -330,7 +366,7 @@ pais:
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: updated
     wake_on: ['kernel:*']
@@ -340,7 +376,7 @@ pais:
 """,
     )
     C.reconcile_from_config()
-    spec = P.read_spec("kernel_manager")
+    spec = P.read_spec("root")
     assert spec["description"] == "updated"
     assert spec["wake_on"] == ["kernel:*"]
     assert spec["pid"] == 1  # unchanged
@@ -351,7 +387,7 @@ def test_reconcile_pid_invariant(repo_root, live_dir):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -368,7 +404,7 @@ pais:
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -389,7 +425,7 @@ def test_reconcile_preserves_unmanaged_fields(repo_root, live_dir):
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: km
   - name: pai
@@ -399,7 +435,7 @@ pais:
     )
     C.reconcile_from_config()
     # Manually set an unmanaged field.
-    spec_path = live_dir / "proc" / "kernel_manager" / "spec.yaml"
+    spec_path = live_dir / "proc" / "root" / "spec.yaml"
     with spec_path.open() as f:
         spec = yaml.safe_load(f)
     spec["persistent"] = True
@@ -410,7 +446,7 @@ pais:
         repo_root,
         """
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: changed
   - name: pai
@@ -419,6 +455,6 @@ pais:
 """,
     )
     C.reconcile_from_config()
-    spec = P.read_spec("kernel_manager")
+    spec = P.read_spec("root")
     assert spec["persistent"] is True
     assert spec["description"] == "changed"

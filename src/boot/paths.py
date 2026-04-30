@@ -76,6 +76,10 @@ def proc(name: str) -> Path:
     return PAI_ROOT / "proc" / name
 
 
+def run_pais(name: str) -> Path:
+    return PAI_ROOT / "run" / "pais" / name
+
+
 def usr_lib_drivers() -> Path:
     return PAI_ROOT / "usr" / "lib" / "drivers"
 

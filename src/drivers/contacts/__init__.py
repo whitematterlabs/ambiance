@@ -128,7 +128,7 @@ def sync_to_people(people_dir: Path) -> tuple[int, int]:
         return 0, 0
 
     # Lazy import to avoid a circular dep with kernel.messages.
-    from .messages import slugify
+    from drivers.messages import slugify
 
     store = Contacts.CNContactStore.alloc().init()
     keys = [

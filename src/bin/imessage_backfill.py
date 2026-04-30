@@ -45,7 +45,7 @@ from drivers.imessage.inbound import (
     _save_cursor as _save_in_cursor,
 )
 from boot import processes as P
-from boot.messages import MESSAGES_DIR, ingest
+from drivers.messages import MESSAGES_DIR, ingest
 
 OUT_DRIVER_SLUG = "imessage-out"
 IN_DRIVER_SLUG = "imessage-in"
@@ -121,7 +121,7 @@ def backfill(start_d: date, end_d: date, seed: bool = True) -> int:
     if seed:
         blockers = [s for s in (OUT_DRIVER_SLUG, IN_DRIVER_SLUG) if _proc_running(s)]
         if blockers:
-            stop_cmd = " && ".join(f"bin/paictl stop {s}" for s in blockers)
+            stop_cmd = " && ".join(f"bin/paicron stop {s}" for s in blockers)
             print(
                 f"refusing: {', '.join(blockers)} running. Stop them so backfill "
                 f"stays silent (no replays, no nudges):\n  {stop_cmd}",

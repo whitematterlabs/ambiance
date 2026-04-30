@@ -22,7 +22,7 @@ home/        # agent's runtime workspace (see below)
 `etc/config.yaml` is reconciled against `home/proc/` at boot and on a
 `kernel:reload_config` event. See `src/kernel/config.py` for the schema.
 
-`etc/drivers/{driver}/events.yaml` enumerates the event-kinds each
+`usr/lib/drivers/{driver}/events.yaml` enumerates the event-kinds each
 driver emits — their `wake_on` routing keys, raw event-file kinds,
 emitter source paths, and payload shapes. Single source of truth for
 both PAI (writing `wake_on:` patterns) and humans (debugging routing).
@@ -81,7 +81,8 @@ home/
 │       ├── status                       # spawned | running | completed | expired | cancelled | failed
 │       └── log.md                       # append-only activity log + subprocess output
 ├── bin/                                 # executables
-│   ├── paictl                           # service control (systemctl-shaped)
+│   ├── paicron                          # service control (systemctl-shaped)
+│   ├── paictl                           # PAI instance lifecycle (active flag)
 │   └── {tool-name}                      # sync tools PAI runs inline
 ├── events/                              # kernel inbox — consumed on read
 │   └── {timestamp}-{source}.yaml        # one event per file
@@ -312,7 +313,7 @@ deadline: 2026-04-22T20:00:00      # optional; kernel auto-expires and kills sub
 schedule: "0 9 * * *"              # cron expr (recurring) OR ISO datetime (one-shot)
 
 # Metadata (optional)
-spawned: 2026-04-21T14:00:00       # stamped by paictl
+spawned: 2026-04-21T14:00:00       # stamped by paicron
 description: "Dinner with kaia at 8"
 people: [kaia]
 ```
@@ -327,7 +328,7 @@ Append-only, same `[HH:MM]` format as messages. Subprocess stdout/stderr are tee
 
 ### bin/
 
-`home/bin/` holds executables. Sync tools (e.g. `bin/slugify`, `bin/weather`) are run inline by PAI during a nudge. `bin/paictl` is the ergonomic frontend for spawning, stopping, and inspecting services.
+`home/bin/` holds executables. Sync tools (e.g. `bin/slugify`, `bin/weather`) are run inline by PAI during a nudge. `bin/paicron` is the ergonomic frontend for spawning, stopping, and inspecting services. `bin/paictl` controls PAI instance lifecycle.
 
 ## events/
 

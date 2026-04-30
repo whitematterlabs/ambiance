@@ -26,9 +26,10 @@
   symlink to the current `/proc/<pid>/`, an `inbox/`, and a `pid` file.
   Subagents get `/proc/` entries but no `/run/pais/` entry — making
   "addressable by name" an explicit privilege granted by `paiadd`.
-- **Three-tool split.** `paiman` (bundles) / `paiadd` (instances) /
-  `paictl` (processes). Each tool owns one noun, one layer, one path.
-  No flags that cross layers.
+- **Four-tool split.** `paiman` (bundles) / `paiadd`+`paidel` (configure
+  instances) / `paictl` (instance runtime: flip `active:` on fleet entries) /
+  `paicron` (services: cron jobs, watchers, async work). Each tool owns
+  one noun, one layer, one path. No flags that cross layers.
 - **Bundle / instance / process as three explicit layers.** A bundle is
   a template. Adding a bundle produces an instance. Starting an instance
   produces a process. Each transition is one tool.
@@ -65,26 +66,34 @@ clear which is which:
   layout is conventional Python (`pyproject.toml`, `src/`, `tests/`,
   etc.) — *not* FHS-shaped.
 - **The installed system** is an actual quasi-Linux filesystem rooted at
-  `/`. Install lays the repo's contents into FHS slots: Python source
-  goes to `/usr/src/`, baseline skills/drivers go to `/usr/lib/`,
-  shipped prompts go to `/usr/share/prompts/`, the three CLI tools go
-  to `/bin/`, and so on.
+  `/`. Install lays the repo's contents into FHS slots: **kernel source
+  goes to `/boot/`** (the kernel is not a userspace program — it does
+  not live under `/usr/`); userspace source (drivers, skills, PAI
+  bundles) goes under `/usr/lib/`; shipped prompts go to
+  `/usr/share/prompts/`; the three CLI tools go to `/bin/`; and so on.
+
+> **Hard rule.** `/boot/` and `/usr/` are not interchangeable. Kernel
+> code (the supervisor and its helper libraries) belongs in `/boot/`.
+> Anything a PAI or a driver runs against (drivers, skills, bundles,
+> shipped data) belongs in `/usr/`. If you find yourself reaching for
+> `/usr/src/` or `/usr/lib/` for kernel code, stop — that's a layering
+> mistake. Likewise, do not put driver code in `/boot/`.
 
 Everything in this document describes the **installed system**, not the
 repo. The repo is the build input; `/` is the runtime.
 
-How install actually works (symlink the repo's `src/` into `/usr/src/`?
-copy at install time? bind-mount?) is an implementation detail tracked
-in Open Questions.
+How install actually works (symlink the repo's `src/boot/` into `/boot/`
+and `src/drivers/` into `/usr/lib/drivers/`? copy at install time?
+bind-mount?) is an implementation detail tracked in Open Questions.
 
 ### Today's `src/` → FHS slots
 
 | Source (today) | Destination | Notes |
 |---|---|---|
 | `src/pai.py` | `~/.pai/sbin/init` | Refactored into the kernel entrypoint |
-| `src/kernel/` | `~/.pai/boot/` | Supervisor "image" — the running kernel |
-| `src/drivers/<name>/` | split three ways | `events.yaml` → `/etc/drivers/<name>/`, code → `/usr/lib/drivers/<name>/`, runtime → `/sys/drivers/<name>/` |
-| `src/bin/` | `~/.pai/usr/bin/` (or `/bin/`) | PAI-callable tools |
+| `src/boot/` | `~/.pai/boot/` | Kernel source — the supervisor and its helper libraries (PID 1's image). Not userspace; never under `/usr/`. |
+| `src/drivers/<name>/` | split two ways | Code + shipped manifest → `/usr/lib/drivers/<name>/` (events.yaml ships here, not in /etc/). Live runtime state → `/sys/drivers/<name>/`. Driver enable/disable rides on `/proc/<slug>/spec.yaml` `active:` like any other process. |
+| `src/bin/` | `~/.pai/usr/bin/` | PAI-callable tools (`/bin/` is a symlink to `usr/bin/`) |
 | `src/tui/` | `~/.pai/sbin/` | Owner's terminal client (privileged ops) |
 | `src/migrate.py` | `~/.pai/sbin/` | One-shot kernelPAI op |
 | `src/reset.py` | `~/.pai/sbin/` | One-shot kernelPAI op |
@@ -111,28 +120,31 @@ two instances with different names). An instance can be started and
 stopped many times across its life. A process exists only while the
 instance is running.
 
-## The three tools
+## The four tools
 
 ```
-/bin/paiman   ── bundles    (apt   analogue)
-/bin/paiadd   ── instances  (useradd analogue)   /bin/paidel
-/bin/paictl   ── processes  (systemctl analogue)
+/bin/paiman   ── bundles            (apt analogue)
+/bin/paiadd   ── instance config    (useradd analogue)   /bin/paidel
+/bin/paictl   ── instance runtime   (the `active:` flag in /etc/config.yaml)
+/bin/paicron  ── services           (systemctl/cron analogue for /proc/<svc>/)
 ```
 
 | Tool | Operates on | Verbs |
 |---|---|---|
 | `paiman` | `/opt/<pkg>/<ver>/` | `init`, `install`, `uninstall`, `upgrade`, `list` |
-| `paiadd` / `paidel` | `/home/<pai>/`, `/var/lib/instances/<pai>/`, `/etc/config.yaml` | `paiadd <name>`, `paidel <name> [--purge]`, `paiadd list` |
-| `paictl` | `/proc/<pai>/` | `start`, `stop`, `restart`, `status`, `logs` |
+| `paiadd` / `paidel` | `/home/<pai>/`, `/var/lib/instances/<pai>/`, `/etc/config.yaml` | `paiadd <name>`, `paidel <name> [--purge]` |
+| `paictl` | `/etc/config.yaml` `active:` flag, reconciled into `/proc/<pai>/` | `ls`, `status`, `start`, `stop`, `logs`, `reload` |
+| `paicron` | `/proc/<slug>/` (services) | `start`, `stop`, `restart`, `status`, `ls`, `logs` |
 
 `paiman` doesn't know what an instance is. `paiadd` doesn't know what a
-process is. `paictl` doesn't know what a bundle is. Crossing layers
-means composing tools, not adding flags.
+process is. `paictl` doesn't know what a bundle is. `paicron` doesn't
+know what a PAI is. Crossing layers means composing tools, not adding flags.
 
-`paictl` operates at PAI granularity only. Want to restart a driver
-inside email-pai? Restart email-pai, or send it a message asking it
-to recycle the driver. Internal supervision is the PAI's job, not
-kernelPAI's.
+`paictl` operates at PAI granularity only — it flips `active: true|false`
+on a fleet entry and emits `kernel:reload_config`; the kernel's reconcile
+spawns or stops the proc. Want to restart a driver inside email-pai?
+Stop and start email-pai, or send it a message asking it to recycle the
+driver. Internal supervision is the PAI's job, not kernelPAI's.
 
 ## Top-level tree
 
@@ -140,7 +152,7 @@ kernelPAI's.
 /
 ├── boot/                  kernel source code (the supervisor "image")
 │   └── recovery/          snapshots before kernelPAI mutations (deferred)
-├── bin/                   PAI-callable tools (paiman, paiadd, paidel, paictl, …)
+├── bin/ → usr/bin/        symlink — one bin for PAI-callable tools
 ├── sbin/                  kernelPAI-only tools, plus init
 │   └── init               entrypoint — execs into the kernel as PID 1
 ├── etc/                   config (read by all, written by kernelPAI)
@@ -148,12 +160,10 @@ kernelPAI's.
 │   ├── drivers/<name>/events.yaml
 │   └── prompts/           per-install prompt overrides
 ├── home/<pai>/            per-PAI workspace — stitched symlink tree
-│   ├── identity.yaml      → /var/lib/instances/<pai>/identity.yaml
-│   ├── directives.md      → /var/lib/instances/<pai>/directives.md
-│   ├── prompts/           → /var/lib/instances/<pai>/prompts/
 │   ├── memory/
 │   │   ├── shared         → /var/lib/memory/
-│   │   └── private        → /var/lib/instances/<pai>/memory/private/
+│   │   ├── private        → /var/lib/instances/<pai>/memory/private/
+│   │   └── skills         → /usr/lib/skills/
 │   ├── inbox              → /var/lib/instances/<pai>/inbox/
 │   ├── workspace          → /var/lib/instances/<pai>/workspace/
 │   └── tmp/               real dir, ephemeral
@@ -198,10 +208,14 @@ kernelPAI mutates it, for rollback on failed reload. Hot-swappable
 kernel modules also deferred.
 
 ### `/bin/` and `/sbin/`
-Privilege-split binaries. `/bin/` = any PAI may call. `/sbin/` =
-kernelPAI-only (self-heal, fleet ops) plus the system entrypoint.
-The three core PAI tools (`paiman`, `paiadd`, `paidel`, `paictl`)
-all live in `/bin/`. No usrmerge.
+Privilege-split binaries. `/bin/` = any PAI may call (e.g. `paictl`,
+which only flips status files in `/proc/`). `/sbin/` = kernel/owner
+ops that mutate `/etc/`, the fleet, or system state — `paiman`,
+`paiadd`, `paidel`, plus self-heal tools and the system entrypoint.
+
+`/bin/` itself is a relative symlink to `usr/bin/` — one bin for
+PAI-callable tools, modern-distro style. The meaningful split is
+`/bin/` vs `/sbin/`, not `/bin/` vs `/usr/bin/`.
 
 `/sbin/init` is the entrypoint. It's a thin shim that verifies
 `~/.pai/` layout, then `exec`s into the kernel from `/boot/`. After
@@ -214,11 +228,13 @@ Boot sequence:
 
 1. **Sanity check** — verify required dirs exist (`etc/`, `var/lib/`,
    `proc/`, `run/`); bail loudly if not.
-2. **Clean ephemeral state** — wipe `/tmp/`, `/run/pais/`, stale
-   `/proc/<pid>/` dirs from prior boots.
-3. **Driver probe** — for each driver in `/etc/drivers/`, run a
-   `health()` check (paths exist, deps importable, credentials
-   present). Log to `/var/log/kernel/boot.log`.
+2. **Clean ephemeral state** — wipe `/tmp/` and `/run/pai/events/`.
+   Stale `/proc/<name>/` and `/run/pais/<name>/` dirs are *not*
+   wiped here — they are declared-state mirrors managed by `paiadd` /
+   `paidel`. A future PID-keyed proc layer may take this over.
+3. **Driver probe** — for each driver shipped under
+   `/usr/lib/drivers/`, run a `health()` check (events.yaml readable,
+   code importable, credentials present). Log to `/var/log/kernel/boot.log`.
 4. **Reconcile fleet** — read `/etc/config.yaml`, populate
    `/run/pais/<name>/` for each declared PAI (registered, not started).
 5. **Start kernelPAI first** — privileged agent must be up before
@@ -234,8 +250,14 @@ System config. Read by all, written by kernelPAI (by convention).
   `{ name, bundle, version, source }`. No `services:` array per PAI —
   internal supervision is the PAI's concern. Reconciled into `/proc/`
   at boot and on `kernel:reload_config`.
-- `etc/drivers/<name>/events.yaml` — per-driver event-kind manifest.
 - `etc/prompts/` — per-install overrides on top of `/usr/share/prompts/`.
+
+There is no `etc/drivers/`. Drivers are a code-time registry in the
+kernel; their shipped manifest (`events.yaml`) lives next to the code
+at `/usr/lib/drivers/<name>/events.yaml`, and their runtime state
+lives in `/proc/<slug>/` like any other process. `/proc/<slug>/spec.yaml`
+carries an `active:` flag (default true) that paictl flips to start/stop
+them. Reconcile is event-driven via `kernel:reload_config` — no polling.
 
 ### `/home/<pai>/`
 A PAI's workspace. **Built fresh by `paiadd` as a directory of symlinks.**
@@ -304,7 +326,7 @@ spawns can claim. Name validation/sanitization happens once, in
 ### `/sys/drivers/<name>/`
 Live driver runtime state — sysfs analogue. Cursors, last event,
 queue depth. Read-mostly window into "what's running right now."
-Distinct from driver code (`/usr/lib/drivers/`) and config (`/etc/drivers/`).
+Distinct from driver code + manifest (`/usr/lib/drivers/`).
 
 Unchanged from v2.
 
@@ -324,8 +346,9 @@ Code, libraries, shipped data.
 - `usr/share/prompts/` — shipped baseline prompts.
 - `usr/share/doc/` — shipped documentation (architecture guides,
   filesystem spec, etc.). Where `src/usr/share/doc/` lands at install time.
-- `usr/src/` — Python source (libraries shared across kernel +
-  PAIs). The kernel itself lives at `/boot/`, not here.
+- `usr/src/` — userspace Python source: shared libraries used by
+  drivers, skills, and PAI bundles. **Kernel code does not live here**
+  — the kernel image is `/boot/`.
 
 ### `/var/`
 All persistent mutable state.
@@ -345,14 +368,11 @@ A bundle is the template a PAI is instantiated from.
 ```
 /opt/<pkg>/<version>/                     (release; from paiman install)
 /usr/lib/pais/<name>/                     (dev; authored in place)
-├── manifest.yaml      what this PAI declares it needs and provides
-└── defaults/          template files seeded into instance on paiadd
-    ├── identity.yaml
-    ├── directives.md
-    └── prompts/
+├── package.yaml       what this PAI declares it needs and provides
+└── prompt.md          role prompt for this PAI
 ```
 
-The manifest declares:
+The `package.yaml` manifest declares:
 
 - bundle name, version, description
 - required drivers (by name, with version constraints)
@@ -369,9 +389,10 @@ both need the `gmail` driver share one installed copy. Version pinning
 in the manifest handles ABI drift; the system can hold multiple installed
 versions of a skill/driver if bundles disagree.
 
-This means a bundle is small — it's mostly identity, directives, prompts,
-and a manifest. The heavy code (drivers, skills) is shared infrastructure
-managed by `paiman` at the system layer, not duplicated per-bundle.
+This means a bundle is small — mostly a manifest, plus any defaults it
+wants to seed into a new instance. The heavy code (drivers, skills) is
+shared infrastructure managed by `paiman` at the system layer, not
+duplicated per-bundle.
 
 Bundle content is **immutable** post-install. Edits go to instance state.
 
@@ -383,13 +404,18 @@ accumulated state.
 ```
 /var/lib/instances/<pai>/
 ├── .meta.yaml         { bundle, version, source, added_at }
-├── identity.yaml      seeded from defaults; user/PAI may edit
-├── directives.md      seeded from defaults
-├── prompts/           seeded from defaults
 ├── memory/private/    PAI's own writable memory
 ├── workspace/         persistent scratch
 └── inbox/             events addressed to this PAI
 ```
+
+A PAI's identity (name, owner, role) is not stored as a text file in the
+home or instance — it's already in `/etc/config.yaml` (declared) and
+`/proc/<pid>/spec.yaml` (live). Behavioral guidance accumulates in
+`memory/private/` like any other learned context, not as a monolithic
+`directives.md`. Per-instance prompt overrides happen by pointing
+`config.yaml`'s `prompt:` at a different file under `/usr/share/prompts/`,
+not by stashing prompts in the instance.
 
 `/home/<pai>/` is a directory of symlinks pointing into here (for private
 state) and into `/var/lib/memory/` (for shared state).
@@ -491,21 +517,49 @@ Which symlinks exist controls which threads a PAI sees.
 
 | Path | Role |
 |---|---|
-| `/etc/drivers/<name>/events.yaml` | Config (event manifest, settings) |
-| `/usr/lib/drivers/<name>/` | Source code |
+| `/usr/lib/drivers/<name>/` | Code + shipped `events.yaml` manifest |
 | `/sys/drivers/<name>/` | Live runtime state |
+| `/proc/<slug>/spec.yaml` | Per-driver `active:` flag (paictl-flippable) |
 
-Linux's three-way split between code, config, and runtime.
+Drivers ship as code-owned bundles under `/usr/lib/drivers/`; runtime
+state is split between `/sys/drivers/` (driver-internal cursors) and
+`/proc/<slug>/` (kernel-managed lifecycle, same as PAIs). There is no
+`/etc/drivers/` — the kernel's driver registry is the source of truth
+for which drivers exist.
+
+## Event vocabulary
+
+Events are the kernel's routing currency. Every event has a `kind:`
+string of the shape `<namespace>:<name>` — `imessage:new`,
+`gmail:incoming`, `kernel:reload_config`, etc. The namespaces:
+
+- **Driver kinds** — declared in `/usr/lib/drivers/<driver>/events.yaml`
+  under the `events:` list. That file is the contract: any kind a
+  driver emits must appear there with a `description` and `payload`
+  shape. Reading `events.yaml` is the canonical way to learn what
+  kinds exist.
+- **Kernel kinds** (`kernel:*`) — emitted by the kernel itself, not
+  by a driver. Examples: `kernel:reload_config`, `kernel:reload_failed`,
+  `kernel:proc_failed`. Handled by the root PAI by default.
+
+A PAI's `wake_on:` list in `/etc/config.yaml` is a list of fnmatch
+globs over kind strings. The kernel fan-outs each event to every PAI
+whose `wake_on:` matches; if zero PAIs match, every PAI with
+`fallback: true` is nudged instead; if still none, root catches it.
+
+`paiadd` enumerates known kinds at wizard time so the operator can pick
+without grepping events.yaml manually.
 
 ## Prompt resolution
 
 When PAI loads a prompt, it walks in order:
 
-1. `/home/<pai>/prompts/<name>` — per-PAI customization
-2. `/etc/prompts/<name>` — per-install override
-3. `/usr/share/prompts/<name>` — shipped baseline
+1. `/etc/prompts/<name>` — per-install override
+2. `/usr/share/prompts/<name>` — shipped baseline
 
 First hit wins. Same pattern as Debian's `/etc/` shadowing `/usr/share/`.
+Per-instance overrides happen by pointing the PAI's `prompt:` field in
+`/etc/config.yaml` at a different file, not by per-home prompt dirs.
 
 ## Workflows
 
@@ -517,10 +571,8 @@ paiman init email-pai
 # Creates /usr/lib/pais/email-pai/ with manifest stub + defaults stubs
 
 # kernelPAI authors the bundle:
-#   /usr/lib/pais/email-pai/manifest.yaml      (deps, capabilities)
-#   /usr/lib/pais/email-pai/defaults/identity.yaml
-#   /usr/lib/pais/email-pai/defaults/directives.md
-#   /usr/lib/pais/email-pai/defaults/prompts/
+#   /usr/lib/pais/email-pai/package.yaml       (deps, defaults)
+#   /usr/lib/pais/email-pai/prompt.md          (role prompt)
 
 # Resolve declared deps (drivers, skills); error or scaffold if missing.
 
@@ -562,7 +614,7 @@ paiman uninstall weather-pai        # removes /opt/weather-pai/; refuses if inst
 ```bash
 paiman install weather-pai@1.3.0    # installs alongside 1.2.0 in /opt/
 paiadd upgrade weather-pai          # three-way diff defaults; bumps .meta.yaml version
-paictl restart weather-pai          # relaunches against the new bundle
+paictl stop weather-pai && paictl start weather-pai   # relaunches against the new bundle
 ```
 
 ## Earmarked, deferred
@@ -592,9 +644,10 @@ paictl restart weather-pai          # relaunches against the new bundle
 
 - **Install mechanism: repo → `/`.** The repo is a Python package + git
   repo with conventional Python layout; the installed system is FHS at
-  `/`. How install gets from one to the other — symlink `src/` into
-  `/usr/src/`? copy at install time? a bootstrap script that lays out
-  `/` from the package? — is undecided. Symlink keeps "what humans edit"
+  `/`. How install gets from one to the other — symlink `src/boot/`
+  into `/boot/` and `src/drivers/` into `/usr/lib/drivers/`? copy at
+  install time? a bootstrap script that lays out `/` from the package?
+  — is undecided. Symlink keeps "what humans edit"
   and "what PAI sees" in sync; copy gives reproducible installs.
 - **Multiple instances of the same bundle.** Can `weather-pai` be added
   twice with different names? Trivially supported; worth confirming we

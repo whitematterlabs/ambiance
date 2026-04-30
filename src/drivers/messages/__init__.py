@@ -15,11 +15,13 @@ from typing import Optional
 
 import yaml
 
-from . import contacts
-from .processes import HOME_DIR
+from boot import paths
+from drivers import contacts
 
-MESSAGES_DIR = HOME_DIR / "communication" / "messages"
-PEOPLE_DIR = HOME_DIR / "memory" / "people"
+# v3: messages and people live in canonical shared state, not per-PAI
+# home views. The home stitching surfaces them via symlinks.
+MESSAGES_DIR = paths.var_spool_messages()
+PEOPLE_DIR = paths.var_lib_memory() / "people"
 
 FILLER_WORDS = {
     "a", "an", "the", "and", "or", "but", "for", "from", "about",

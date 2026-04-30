@@ -4,8 +4,8 @@
 Idempotent. Creates the quasi-Linux directory tree described in
 src/usr/share/doc/FILESYSTEM_v3.md, symlinks repo-owned source slots into the
 FHS (so dev edits stay live), seeds etc/config.yaml from src/seed/ on
-first run, exposes each driver's events.yaml under etc/drivers/, and
-provisions a self-contained Python venv at usr/lib/venv/ with runtime
+first run, and provisions a self-contained Python venv at
+usr/lib/venv/ with runtime
 deps + console-script shims at usr/bin/ — so the FHS root is runnable
 without reaching back into the repo's own .venv.
 """
@@ -25,9 +25,8 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # Directories to create under $PAI_ROOT.
 SKELETON: tuple[str, ...] = (
-    "bin",
     "sbin",
-    "etc/drivers",
+    "dev",
     "etc/prompts",
     "home",
     "root",
@@ -75,21 +74,23 @@ DEFAULT_CONFIG_YAML = """\
 # home/proc/ against this file at boot and on a `kernel:reload_config` event.
 # In git, agent-editable.
 #
-# Field rules (see src/kernel/config.py for the authoritative schema):
+# Field rules (see src/boot/config.py for the authoritative schema):
 #   name         (required) stable proc-dir slug; unique
 #   pid          required for reserved entries (1 and 2); auto-allocated otherwise
 #   description  required
 #   package      (optional) pulls defaults from packages/{package}/package.yaml
 #   prompt       per-PAI role file (resolved relative to repo root)
-#   model        accepted, persisted into spec.yaml — INERT in v1
+#   provider     LLM provider key (anthropic | deepseek). Drives base_url + key.
+#   model        model id within the provider; defaults to provider's default
 #   wake_on      list of fnmatch globs over event-kind; matching PAIs are nudged
 #   fallback     if true, this PAI is nudged only when no wake_on pattern matched
 
 pais:
-  - name: kernel_manager
+  - name: root
     pid: 1
     description: kernel-internal events + errored nudges
-    prompt: src/prompts/kernel_manager.md
+    prompt: src/prompts/root.md
+    provider: deepseek
     model: deepseek-v4-pro
     wake_on: ['kernel:*']
 
@@ -97,6 +98,7 @@ pais:
     pid: 2
     description: owner-facing PAI; catch-all for unclaimed events
     prompt: src/prompts/pai_default.md
+    provider: deepseek
     model: deepseek-v4-pro
     fallback: true
 
@@ -112,7 +114,15 @@ SYMLINK_TARGETS = {p for p, _ in SYMLINKS}
 
 # Scripts that get installed into /sbin/ instead of /usr/bin/. These are
 # privileged kernel/owner ops, not PAI-callable tools.
-SBIN_SCRIPTS: frozenset[str] = frozenset({"init", "migrate", "reset", "tui"})
+SBIN_SCRIPTS: frozenset[str] = frozenset({
+    "init",
+    "migrate",
+    "reset",
+    "tui",
+    "paiman",
+    "paiadd",
+    "paidel",
+})
 
 
 def ensure_dir(path: Path) -> None:
@@ -150,18 +160,6 @@ def ensure_default_config(root: Path) -> None:
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(DEFAULT_CONFIG_YAML)
-
-
-def expose_driver_events(root: Path) -> None:
-    """For each driver shipping an events.yaml next to its source code,
-    expose it at /etc/drivers/<name>/events.yaml as the FHS spec requires."""
-    drivers_src = REPO_ROOT / "src" / "drivers"
-    if not drivers_src.is_dir():
-        return
-    for events_file in drivers_src.glob("*/events.yaml"):
-        driver_name = events_file.parent.name
-        link = root / "etc" / "drivers" / driver_name / "events.yaml"
-        ensure_symlink(link, events_file)
 
 
 def _load_pyproject() -> dict:
@@ -224,6 +222,11 @@ def install_bin_shims(venv_dir: Path, root: Path) -> None:
     for name, target in scripts.items():
         module, _, attr = target.partition(":")
         dest_dir = sbin_dir if name in SBIN_SCRIPTS else bin_dir
+        # Remove any stale shim in the *other* dir so privilege moves
+        # (bin → sbin or back) don't leave duplicates.
+        stale = (bin_dir if dest_dir is sbin_dir else sbin_dir) / name
+        if stale.exists() or stale.is_symlink():
+            stale.unlink()
         shim = dest_dir / name
         shim.write_text(
             f"#!{py}\n"
@@ -250,11 +253,43 @@ def lay_out(root: Path) -> None:
         ensure_dir(root / rel)
     for rel, target in SYMLINKS:
         ensure_symlink(root / rel, target)
+    # /bin → usr/bin (relative). One bin for PAI-callable tools; /sbin
+    # holds the kernel-only ones.
+    ensure_symlink(root / "bin", Path("usr/bin"))
     ensure_default_config(root)
-    expose_driver_events(root)
     venv_dir = ensure_venv(root)
     install_pth(venv_dir, root)
     install_bin_shims(venv_dir, root)
+    expose_pai_command(root)
+
+
+def expose_pai_command(root: Path) -> None:
+    """Symlink the `pai` entrypoint into the first writable system bin dir.
+
+    Tries /usr/local/bin → /opt/homebrew/bin → ~/.local/bin (created if absent).
+    Only `pai` is exposed; PAI itself doesn't need a launcher once running.
+    """
+    target = root / "usr" / "bin" / "pai"
+    candidates = [
+        Path("/usr/local/bin"),
+        Path("/opt/homebrew/bin"),
+        Path.home() / ".local" / "bin",
+    ]
+    for parent in candidates:
+        if parent == Path.home() / ".local" / "bin":
+            parent.mkdir(parents=True, exist_ok=True)
+        if not parent.exists() or not os.access(parent, os.W_OK):
+            continue
+        link = parent / "pai"
+        if link.is_symlink() and link.readlink() == target:
+            print(f"`pai` available at {link}")
+            return
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(target)
+        print(f"`pai` available at {link}")
+        return
+    print(f"note: no writable bin dir found; add {target.parent} to PATH manually")
 
 
 def main() -> int:

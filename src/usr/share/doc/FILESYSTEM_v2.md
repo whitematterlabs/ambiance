@@ -33,7 +33,7 @@
 ```
 /
 ├── boot/recovery/         snapshots before kernelPAI mutations (deferred)
-├── bin/                   PAI-callable tools (paictl, paimount, paiman, …)
+├── bin/                   PAI-callable tools (paicron, paimount, paiman, …)
 ├── sbin/                  kernelPAI-only tools (self-heal, …)
 ├── etc/                   config (read by all, written by kernelPAI)
 │   ├── config.yaml
@@ -90,10 +90,10 @@ knows about its own layer; they compose, they don't overlap.
 |---|---|---|
 | `paiman` | bundles | `/opt/<pkg>/<ver>/` — install, uninstall, upgrade, list bundles |
 | `paimount` | instances | `/var/lib/instances/<pai>/` + `/home/<pai>/` + `/etc/config.yaml` — scaffold, mount, unmount, list PAIs |
-| `paictl` | services | `/proc/<pai>/<svc>/` — status, restart, logs, reload (the systemctl analogue) |
+| `paicron` | services | `/proc/<pai>/<svc>/` — status, restart, logs, reload (the systemctl analogue) |
 
 `paiman` doesn't know what an instance is. `paimount` doesn't know what
-a service is. `paictl` doesn't know what a bundle is. Crossing layers
+a service is. `paicron` doesn't know what a bundle is. Crossing layers
 means composing the tools, not adding flags to one of them.
 
 No usrmerge symlinks — `/bin/` and `/sbin/` are real directories with

@@ -85,6 +85,15 @@ Events are produced by external watchers — lightweight processes that bridge a
 
 The kernel doesn't know or care how events are produced. It just watches the directory.
 
+### Inter-PAI messaging (`pai_message`, `subagent:response`)
+
+PAIs talk to each other through the event bus. Two directed event kinds, both routed point-to-point via `target_pid` (no `wake_on` glob fan-out):
+
+- **`pai_message`** — generic peer IPC, used in either direction by any PAI talking to any other PAI. Emitted by `bin/ipc --to <pid> --content "..."`. The spawn kickoff prompt also rides this channel — it's just the parent's first IPC to the newborn child.
+- **`subagent:response`** — narrower kind for child→parent only. Emitted by `bin/subagent reply --content "..."` (which reads `$PAI_PARENT` to know where to send). The parent receives a nudge with `reason: subagent response` and can tell at a glance "this is from one of my own children" without inspecting the sender's spec.
+
+A spawned subagent has `persistent: true` in its spec, so it stays alive across turns and only resolves when the parent calls `bin/subagent done --slug <name>`. Until then, parent and child can exchange any number of messages. This is why a parent can drive N concurrent subagents without blocking — every turn is mediated by the bus, not by a synchronous call.
+
 ## Process Directory (`proc/`)
 
 ```
@@ -110,7 +119,7 @@ home/proc/
 run: bin/subagent "research flights to istanbul"
 restart: never                     # never | on-failure | always (default: never)
 deadline: 2026-04-22T15:00:00      # optional; kernel auto-expires and kills subprocess
-spawned: 2026-04-22T14:00:00       # stamped by paictl
+spawned: 2026-04-22T14:00:00       # stamped by paicron
 description: "Research flights"    # optional; free text for humans
 people: [kaia]                     # optional; related people
 
@@ -242,15 +251,15 @@ def resolve(proc_slug, new_status):
 
 ## Spawning
 
-Use `bin/paictl start` — the systemctl-shaped frontend. It writes the three files and hands off to the kernel via filesystem watch. No IPC.
+Use `bin/paicron start` — the systemctl-shaped frontend. It writes the three files and hands off to the kernel via filesystem watch. No IPC.
 
 ```
-bin/paictl start --slug research-flights \
+bin/paicron start --slug research-flights \
     --run "bin/subagent 'flights to istanbul'" \
     --restart never
 ```
 
-`paictl` appends `-YYYY-MM-DD` to the slug automatically (falls back to full timestamp on same-day collision). Under the hood it just calls `processes.spawn()`:
+`paicron` appends `-YYYY-MM-DD` to the slug automatically (falls back to full timestamp on same-day collision). Under the hood it just calls `processes.spawn()`:
 
 ```python
 def spawn(slug, spec):
@@ -266,7 +275,7 @@ The kernel's `proc_watcher` picks up the new directory and:
 - Hands to the supervisor if `run:` is present without a `schedule:` (background service).
 
 Spawning happens from:
-1. **PAI itself** — runs `bin/paictl start ...` from its shell when it needs async work or a timed reminder.
+1. **PAI itself** — runs `bin/paicron start ...` from its shell when it needs async work or a timed reminder.
 2. **The owner / humans** — same command, same surface.
 3. **The kernel itself** — spawning follow-ups when a service completes, or seeding internal cron jobs on first boot.
 

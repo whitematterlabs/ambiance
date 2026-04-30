@@ -4,48 +4,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-PAI (Personal AI) — an always-on AI agent that uses the filesystem as its primary data structure. Source code lives in `src/`, the agent's live workspace lives in `home/`.
+PAI (Personal AI) — an always-on AI agent that uses the filesystem as its primary data structure.
 
-## Architecture
+The repo is a Python package + git repo. The **runtime** is a quasi-Linux FHS at `$PAI_ROOT` (defaults to `~/.pai`). See `src/usr/share/doc/FILESYSTEM_v3.md` — that is the authoritative layout spec; it overrides anything here that drifts.
 
-**Everything is a filesystem.** The agent navigates its world using standard shell primitives. No custom APIs. Relationships are symlinks. Data is plain text (YAML for structured data, Markdown for prose/logs).
+## Hard rules — directory semantics
 
-### Key directories
+These are not interchangeable. Do not put kernel code under `/usr/`, and do not put userspace under `/boot/`.
 
-- `src/` — agent source code (Python 3.14, managed with uv)
-- `etc/` — kernel control plane, agent-readable via the `home/etc` symlink. `config.yaml` declares the long-running PAI fleet (reconciled into `home/proc/` at boot and on `kernel:reload_config`). `drivers/{driver}/events.yaml` enumerates each driver's event-kinds — the source of truth for `wake_on:` patterns.
-- `packages/` — reusable PAI/skill/driver bundles (groundwork for a package manager; only `kind: pai` is honored in v1)
-- `home/` — the agent's runtime workspace, structured as:
-  - `communication/messages/{contact-or-group}/` — append-only message logs, one file per day (`YYYY-MM-DD.md`)
-  - `memory/myself/` — identity (`identity.yaml`) and behavioral directives (`directives.md`)
-  - `memory/people/{name}/about.yaml` — structured profiles with freeform wiki entries
-  - `memory/topics/{topic}/` — cross-conversation topic tracking with date subdirs, symlinks to source messages, and `summary.md`
-  - `memory/journal/{date}/` — daily aggregation with symlinks to day's conversations
-  - `memory/skills/` — reusable agent capabilities (TBD)
-  - `tmp/` — ephemeral storage
-  - `workspace/` — persistent storage
+- **`/boot/`** — the kernel image. The supervisor (PID 1, pure Python) and every helper library it links against. The kernel is *not* a userspace program. Repo source for it lives at `src/boot/`.
+- **`/usr/`** — userspace. Drivers, skills, PAI bundles, shipped data. Anything a PAI or a driver runs against. Never holds kernel code.
+- **`/sbin/`** — kernelPAI-only tools, plus `/sbin/init` (the entrypoint that `exec`s into the kernel).
+- **`/bin/`** — PAI-callable tools (`paiman`, `paiadd`, `paictl`, `paicron`, etc.).
 
-### Symlink conventions
+## Driver layout
 
-Symlinks express relationships without duplicating data. Thread folders symlink participants to `memory/people/{name}/`. Topic date-dirs symlink to the relevant `communication/messages/` day-files. Journal entries symlink to that day's conversations.
+Drivers ship as code-owned bundles, not user-editable config. There is no `/etc/drivers/`.
 
-### Message format
+| Slot | Holds | Repo source |
+|---|---|---|
+| `/usr/lib/drivers/<name>/` | Source code + shipped `events.yaml` manifest | `src/drivers/<name>/` |
+| `/sys/drivers/<name>/` | Driver-internal runtime state (cursors, last event) | written at runtime |
+| `/proc/<slug>/` | Kernel-managed lifecycle (status, log, `active:` flag for paictl) | written at runtime |
 
-```
-[HH:MM] sender: message text
-```
+Drivers are a code-time registry in the kernel (see `DRIVER_SPECS` in `src/boot/main.py`). `paictl start/stop <slug>` flips `/proc/<slug>/spec.yaml` `active:` and emits `kernel:reload_config`; reconcile is event-driven, never polled.
 
-One message per line, append-only, date in filename. `me` for the agent/owner's messages.
+If something owns the on-disk shape of an external surface (messages, email, calendar, contacts), it is a **driver**. It is not kernel.
 
-## Build & Dev
+## Bundle / instance / process
 
-- **Python**: 3.14, managed via uv
-- **Install deps**: `uv sync`
-- **Run**: `uv run python src/<script>.py`
+- **Bundle** (template) — `/opt/<pkg>/<ver>/` (release) or `/usr/lib/pais/<name>/` (dev source).
+- **Instance** (configured PAI) — `/var/lib/instances/<pai>/` (sacred state) + `/home/<pai>/` (stitched symlink view).
+- **Process** (running PAI) — `/proc/<pai>/`.
 
-## Design Principles
+Four tools, one layer each: `paiman` (bundles) / `paiadd`+`paidel` (configure instances) / `paictl` (instance runtime: start/stop fleet members via `active:` flag) / `paicron` (services: cron jobs, watchers, async work).
 
-- Plain text over databases — everything should be greppable, tailable, appendable
-- Symlinks over duplication — single source of truth, linked from multiple contexts
-- The `home/` directory is the agent's world; `src/` is the machinery that operates on it
-- The scaffolding doc (`src/usr/share/doc/SCAFFOLDING.md`) is the authoritative spec for the `home/` directory structure
+## Build & dev
+
+- **Python**: 3.14, managed via uv.
+- **Install deps**: `uv sync`.
+- **Tests**: `uv run python -m pytest`.
+- **Run kernel from FHS root**: `cd ~/.pai && usr/bin/python -m boot run`.
+- **Run kernel from repo (dev)**: `uv run python -m boot run`.
+
+`paifs-init` provisions `~/.pai/` from the repo: creates the FHS skeleton, symlinks `/usr/src/`/`/usr/lib/drivers/`/`/usr/share/prompts/` at the live repo, builds a self-contained venv at `/usr/lib/venv/`, generates console-script shims at `/usr/bin/`.
+
+## Design principles
+
+- Plain text over databases — everything should be greppable, tailable, appendable.
+- Symlinks over duplication — single source of truth, linked from multiple contexts.
+- Config is the source of truth: `/etc/config.yaml` declares the fleet (name, provider, model, prompt, wake_on, fallback). Reconcile rewrites `/proc/<pai>/spec.yaml` from it.
+- The kernel routes events; it does not know what a "message" is. On-disk shape decisions belong to drivers.

@@ -1,175 +1,217 @@
 #!/usr/bin/env python
-"""paictl — systemctl-shaped control for PAI services.
+"""paictl — control PAI instances and kernel-owned drivers.
 
-Talks to the running kernel only through the filesystem: writes spec files,
-flips status, reads log tails. No IPC, no socket. The kernel's own watchers
-pick up changes and act on them.
+Manages the runtime state of two things:
+  - PAIs: declared in /etc/config.yaml `pais:`, source of truth on disk.
+  - Drivers: declared by the kernel registry, runtime state in /proc/<slug>/.
 
-Usage summary (see `paictl <cmd> --help` for specifics):
+The mechanism is one bit: an `active:` flag (default true) on the entry.
+paictl flips it (in /etc/config.yaml for PAIs, in /proc/<slug>/spec.yaml
+for drivers) and emits `kernel:reload_config`; the kernel's reconcile
+takes care of the rest — spawning, stopping, status-healing.
 
-    paictl start --slug NAME --run 'CMD' [--restart POLICY] [--deadline ISO]
-    paictl start --slug NAME --schedule 'EXPR' [--run 'CMD']
-    paictl start --slug NAME --spec path/to/spec.yaml
-    paictl stop     SLUG
-    paictl restart  SLUG
-    paictl status   SLUG
-    paictl ls       [--status STATUS]
-    paictl logs     SLUG [-f]
+For services (cron jobs, watchers, one-shot async work), see paicron.
+For bundles, see paiman. For configuring/removing fleet members, see
+paiadd / paidel.
+
+Usage:
+
+    paictl ls                  list fleet entries with active + runtime status
+    paictl status NAME         show entry + /proc state
+    paictl start NAME          set active: true, reload (spawns if needed)
+    paictl stop NAME           set active: false, reload (resolves running proc)
+    paictl logs NAME [-f]      print/tail /proc/<name>/log.md
+    paictl reload              emit kernel:reload_config
 """
 
 from __future__ import annotations
 
 import argparse
-import datetime as dt
-import re
 import sys
 import time
 from pathlib import Path
 
 import yaml
 
+from boot import config as C
+from boot import paths
 from boot import processes as P
 
 
-DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")
+def _load_raw(path: Path) -> dict:
+    if not path.exists():
+        raise SystemExit(f"paictl: {path} not found")
+    with path.open() as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise SystemExit(f"paictl: {path} top level must be a mapping")
+    return data
 
 
-def _today_slug_suffix() -> str:
-    return dt.date.today().isoformat()
+def _set_active(name: str, value: bool) -> bool:
+    """Flip `active` on the named entry. Returns True if the file changed.
+
+    Looks first in /etc/config.yaml `pais:` (PAIs are config-driven). If
+    not found there, falls back to /proc/<name>/spec.yaml — that's where
+    kernel-owned drivers live (they have no /etc/ entry; the kernel
+    registry is their source of truth)."""
+    data = _load_raw(C.CONFIG_PATH)
+    pais = data.get("pais") or []
+    if not isinstance(pais, list):
+        raise SystemExit(f"paictl: {C.CONFIG_PATH}: `pais` must be a list")
+
+    for entry in pais:
+        if isinstance(entry, dict) and entry.get("name") == name:
+            current = entry.get("active", True)
+            if current == value:
+                return False
+            entry["active"] = value
+            tmp = C.CONFIG_PATH.with_suffix(C.CONFIG_PATH.suffix + ".tmp")
+            with tmp.open("w") as f:
+                yaml.safe_dump(data, f, sort_keys=False)
+            tmp.rename(C.CONFIG_PATH)
+            return True
+
+    spec_path = paths.proc(name) / "spec.yaml"
+    if spec_path.exists():
+        with spec_path.open() as f:
+            spec = yaml.safe_load(f) or {}
+        current = spec.get("active", True)
+        if current == value:
+            return False
+        spec["active"] = value
+        tmp = spec_path.with_suffix(spec_path.suffix + ".tmp")
+        with tmp.open("w") as f:
+            yaml.safe_dump(spec, f, sort_keys=False)
+        tmp.rename(spec_path)
+        return True
+
+    raise SystemExit(f"paictl: {name!r} not found in pais or /proc/")
 
 
-def _full_slug_suffix() -> str:
-    return dt.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+def _emit_reload(source: str, **extra: object) -> None:
+    payload: dict[str, object] = {"kind": "kernel:reload_config", "source": source}
+    payload.update(extra)
+    P.emit_event(payload)
 
 
-def _allocate_slug(base: str) -> str:
-    """Append today's date; fall back to full timestamp if that collides."""
-    candidate = f"{base}-{_today_slug_suffix()}"
-    if not (P.PROC_DIR / candidate).exists():
-        return candidate
-    return f"{base}-{_full_slug_suffix()}"
-
-
-def _base_from_slug(slug: str) -> str:
-    return DATE_SUFFIX.sub("", slug)
-
-
-def _build_spec_from_args(args: argparse.Namespace) -> dict:
-    if args.spec:
-        text = Path(args.spec).read_text()
-        data = yaml.safe_load(text)
-        if not isinstance(data, dict):
-            raise ValueError(f"{args.spec} must contain a YAML object")
-        return data
-
-    spec: dict = {}
-    if args.run:
-        spec["run"] = args.run
-    if args.schedule:
-        spec["schedule"] = args.schedule
-    if args.restart:
-        spec["restart"] = args.restart
-    if args.deadline:
-        spec["deadline"] = args.deadline
-    if args.description:
-        spec["description"] = args.description
-    if args.people:
-        spec["people"] = [p.strip() for p in args.people.split(",") if p.strip()]
-    if args.parent is not None:
-        spec["parent"] = int(args.parent)
-    return spec
+def _runtime_status(name: str) -> str:
+    try:
+        return P.read_status(name)
+    except P.ProcessNotFound:
+        return "-"
 
 
 def cmd_start(args: argparse.Namespace) -> int:
-    if not args.slug:
-        print("error: --slug is required", file=sys.stderr)
-        return 1
-    try:
-        spec = _build_spec_from_args(args)
-    except (OSError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-
-    if "run" not in spec and "schedule" not in spec:
-        print("error: spec must have `run:` or `schedule:`", file=sys.stderr)
-        return 1
-
-    slug = _allocate_slug(args.slug)
-    try:
-        P.spawn(slug, spec)
-    except P.ProcessExists as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    # Stdout is the full slug, nothing else — pipeable.
-    print(slug)
+    changed = _set_active(args.name, True)
+    _emit_reload("paictl", action="start", name=args.name)
+    print(f"{args.name}: active=true{' (no change)' if not changed else ''}, reload emitted")
     return 0
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    try:
-        P.resolve(args.slug, "cancelled")
-    except P.ProcessNotFound:
-        print(f"error: no service {args.slug!r}", file=sys.stderr)
-        return 1
-    print(f"{args.slug} -> cancelled")
+    changed = _set_active(args.name, False)
+    _emit_reload("paictl", action="stop", name=args.name)
+    print(f"{args.name}: active=false{' (no change)' if not changed else ''}, reload emitted")
     return 0
 
 
-def cmd_restart(args: argparse.Namespace) -> int:
-    try:
-        spec = P.read_spec(args.slug)
-    except P.ProcessNotFound:
-        print(f"error: no service {args.slug!r}", file=sys.stderr)
-        return 1
-    try:
-        P.resolve(args.slug, "cancelled")
-    except P.ProcessNotFound:
-        pass
-    spec = {k: v for k, v in spec.items() if k != "spawned"}
-    new_slug = _allocate_slug(_base_from_slug(args.slug))
-    P.spawn(new_slug, spec)
-    print(new_slug)
+def cmd_reload(args: argparse.Namespace) -> int:
+    _emit_reload("paictl")
+    print("kernel:reload_config emitted")
+    return 0
+
+
+def _driver_rows() -> list[tuple[str, str, str, str]]:
+    """Read /proc for kind:driver entries. Drivers have no /etc/ source;
+    /proc is their source of truth."""
+    rows: list[tuple[str, str, str, str]] = []
+    proc_dir = P.PROC_DIR
+    if not proc_dir.exists():
+        return rows
+    for child in sorted(proc_dir.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        spec_path = child / "spec.yaml"
+        if not spec_path.exists():
+            continue
+        try:
+            with spec_path.open() as f:
+                spec = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        if spec.get("kind") != "driver":
+            continue
+        name = child.name
+        active = spec.get("active", True)
+        rows.append((name, "yes" if active else "no", _runtime_status(name), ""))
+    return rows
+
+
+def cmd_ls(args: argparse.Namespace) -> int:
+    data = _load_raw(C.CONFIG_PATH)
+    pais = data.get("pais") or []
+    pai_rows = []
+    for entry in pais:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name", "?")
+        active = entry.get("active", True)
+        pai_rows.append((name, "yes" if active else "no", _runtime_status(name),
+                         entry.get("description", "")))
+    drv_rows = _driver_rows()
+
+    if not pai_rows and not drv_rows:
+        print("(no fleet entries)")
+        return 0
+
+    all_rows = pai_rows + drv_rows
+    name_w = max(len(r[0]) for r in all_rows)
+    status_w = max(len(r[2]) for r in all_rows)
+
+    def _print_section(title: str, rows: list[tuple[str, str, str, str]]) -> None:
+        if not rows:
+            return
+        print(f"\n{title}")
+        print(f"{'NAME':<{name_w}}  ACTIVE  {'STATUS':<{status_w}}  DESCRIPTION")
+        for name, active, status, desc in rows:
+            print(f"{name:<{name_w}}  {active:<6}  {status:<{status_w}}  {desc}")
+
+    _print_section("PAIs:", pai_rows)
+    _print_section("Drivers:", drv_rows)
     return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    try:
-        info = P.show(args.slug)
-    except P.ProcessNotFound:
-        print(f"error: no service {args.slug!r}", file=sys.stderr)
-        return 1
-    print(f"slug:   {info['slug']}")
-    print(f"status: {info['status']}")
-    print("spec:")
-    print(yaml.safe_dump(info["spec"], sort_keys=False).rstrip())
-    print("log (tail):")
-    for line in info["log"].splitlines()[-20:]:
-        print(line)
-    return 0
+    data = _load_raw(C.CONFIG_PATH)
+    pais = data.get("pais") or []
+    entry = next((e for e in pais if isinstance(e, dict) and e.get("name") == args.name), None)
+    if entry is None:
+        # Fall back to /proc — drivers live there, not in /etc/config.yaml.
+        spec_path = paths.proc(args.name) / "spec.yaml"
+        if not spec_path.exists():
+            raise SystemExit(f"paictl: {args.name!r} not found in pais or /proc/")
+        with spec_path.open() as f:
+            entry = yaml.safe_load(f) or {}
 
+    print(f"name:    {args.name}")
+    print(f"active:  {entry.get('active', True)}")
+    print(f"status:  {_runtime_status(args.name)}")
+    print("entry:")
+    print(yaml.safe_dump(entry, sort_keys=False).rstrip())
 
-def cmd_ls(args: argparse.Namespace) -> int:
-    slugs = P.list_procs(status_filter=args.status)
-    if not slugs:
-        print("(no services)")
-        return 0
-    width = max(len(s) for s in slugs)
-    for slug in slugs:
-        try:
-            status = P.read_status(slug)
-            spec = P.read_spec(slug)
-        except P.ProcessNotFound:
-            continue
-        summary = spec.get("description") or spec.get("run") or spec.get("schedule", "")
-        print(f"{slug:<{width}}  {status:<10}  {summary}")
+    log_path = paths.proc(args.name) / "log.md"
+    if log_path.exists():
+        print("log (tail):")
+        for line in log_path.read_text().splitlines()[-20:]:
+            print(line)
     return 0
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
-    log_path = P.PROC_DIR / args.slug / "log.md"
+    log_path = paths.proc(args.name) / "log.md"
     if not log_path.exists():
-        print(f"error: no log for {args.slug!r}", file=sys.stderr)
-        return 1
+        raise SystemExit(f"paictl: no log at {log_path}")
     print(log_path.read_text(), end="")
     if not args.follow:
         return 0
@@ -189,43 +231,33 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="paictl", description="Control PAI services.")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    ap = argparse.ArgumentParser(prog="paictl", description="Control PAI instances.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("start", help="spawn a service")
-    sp.add_argument("--slug", help="base slug (date is auto-appended)")
-    sp.add_argument("--run", help="command to run (background service, or per-fire for cron)")
-    sp.add_argument("--schedule", help="cron expression (recurring) or ISO datetime (one-shot)")
-    sp.add_argument("--restart", choices=["never", "on-failure", "always"])
-    sp.add_argument("--deadline", help="ISO datetime; kernel auto-expires if passed")
-    sp.add_argument("--description", help="free-text description")
-    sp.add_argument("--people", help="comma-separated list of related people")
-    sp.add_argument("--parent", type=int, default=1, help="PID of the owning PAI (default: 1)")
-    sp.add_argument("--spec", help="YAML file with the spec body (mutually exclusive with per-field flags)")
-    sp.set_defaults(func=cmd_start)
+    p = sub.add_parser("ls", help="list fleet entries")
+    p.set_defaults(func=cmd_ls)
 
-    st = sub.add_parser("stop", help="cancel a running service")
-    st.add_argument("slug")
-    st.set_defaults(func=cmd_stop)
+    p = sub.add_parser("status", help="show entry + runtime status")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_status)
 
-    rs = sub.add_parser("restart", help="cancel, then re-spawn with the same spec")
-    rs.add_argument("slug")
-    rs.set_defaults(func=cmd_restart)
+    p = sub.add_parser("start", help="set active: true and reload")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_start)
 
-    sh = sub.add_parser("status", help="show a service's spec, status, and log tail")
-    sh.add_argument("slug")
-    sh.set_defaults(func=cmd_status)
+    p = sub.add_parser("stop", help="set active: false and reload")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_stop)
 
-    ls = sub.add_parser("ls", help="list services")
-    ls.add_argument("--status", help="filter by status")
-    ls.set_defaults(func=cmd_ls)
+    p = sub.add_parser("logs", help="print/tail /proc/<name>/log.md")
+    p.add_argument("name")
+    p.add_argument("-f", "--follow", action="store_true")
+    p.set_defaults(func=cmd_logs)
 
-    lg = sub.add_parser("logs", help="print (or tail with -f) a service's log.md")
-    lg.add_argument("slug")
-    lg.add_argument("-f", "--follow", action="store_true", help="follow the log")
-    lg.set_defaults(func=cmd_logs)
+    p = sub.add_parser("reload", help="emit kernel:reload_config")
+    p.set_defaults(func=cmd_reload)
 
-    args = parser.parse_args(argv)
+    args = ap.parse_args(argv)
     return args.func(args) or 0
 
 

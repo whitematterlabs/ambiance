@@ -1,7 +1,8 @@
 """Kernel control plane — declarative PAI fleet config.
 
-`etc/config.yaml` is the source of truth for which long-running PAIs exist.
-The kernel reconciles `home/proc/` against the config at boot and on a
+`etc/config.yaml` is the source of truth for which long-running PAIs exist
+and how they are wired (provider, model, prompt, wake routing). The kernel
+reconciles `home/proc/` against the config at boot and on a
 `kernel:reload_config` event.
 
 Public API:
@@ -9,14 +10,8 @@ Public API:
     resolve_package(name)    -> dict
     reconcile_from_config()  -> None
 
-Inert fields (v1):
-    `model:` is accepted, validated, and persisted, but the runtime
-    still resolves the model from `provider.yaml`. `prompt:` and
-    `wake_on:` are now wired through (bootstrap.py reads per-PAI prompt
-    files; main.py routes events via wake_on globs).
-
 Reserved PIDs:
-    pid 1 (`kernel_manager`) and pid 2 (`pai`) are reserved. Non-reserved
+    pid 1 (`root`) and pid 2 (`pai`) are reserved. Non-reserved
     entries omit `pid:`; the reconcile auto-allocates via
     `processes.alloc_pai_pid()` and persists into spec.yaml.
 
@@ -31,19 +26,21 @@ from typing import Any
 
 import yaml
 
+from . import llm as L
 from . import processes as P
 from . import paths
 
 CONFIG_PATH = paths.etc() / "config.yaml"
 PACKAGES_DIR = paths.usr_lib_pais()
 
-RESERVED_PIDS: dict[int, str] = {1: "kernel_manager", 2: "pai"}
+RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 
 # Fields the config is authoritative for. Reconcile rewrites these on
 # spec.yaml; everything else on disk (spawned, persistent, etc.) is
 # preserved across reconciles.
 CONFIG_MANAGED_FIELDS = (
-    "description", "prompt", "model", "wake_on", "fallback", "parent", "persistent",
+    "description", "prompt", "provider", "model", "wake_on",
+    "fallback", "parent", "persistent", "active",
 )
 
 
@@ -91,6 +88,16 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
         raise ConfigError(f"{source}: entry {name!r} has non-integer pid")
     if "prompt" in entry and not isinstance(entry["prompt"], str):
         raise ConfigError(f"{source}: entry {name!r} has non-string prompt")
+    if "provider" in entry:
+        prov = entry["provider"]
+        if not isinstance(prov, str):
+            raise ConfigError(f"{source}: entry {name!r} has non-string provider")
+        if prov not in L.PROVIDERS:
+            known = ", ".join(sorted(L.PROVIDERS))
+            raise ConfigError(
+                f"{source}: entry {name!r} unknown provider {prov!r} "
+                f"(known: {known})"
+            )
     if "model" in entry and not isinstance(entry["model"], str):
         raise ConfigError(f"{source}: entry {name!r} has non-string model")
     if "wake_on" in entry:
@@ -99,6 +106,8 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
             raise ConfigError(f"{source}: entry {name!r} wake_on must be list[str]")
     if "fallback" in entry and not isinstance(entry["fallback"], bool):
         raise ConfigError(f"{source}: entry {name!r} fallback must be bool")
+    if "active" in entry and not isinstance(entry["active"], bool):
+        raise ConfigError(f"{source}: entry {name!r} active must be bool")
     if "parent" in entry and not isinstance(entry["parent"], int):
         raise ConfigError(f"{source}: entry {name!r} parent must be int")
 
@@ -128,7 +137,7 @@ def load_config(path: Path | None = None) -> dict[str, dict]:
             if not isinstance(pkg_name, str):
                 raise ConfigError(f"{path}: `package` must be a string, got {pkg_name!r}")
             pkg = resolve_package(pkg_name)
-            for k in ("description", "prompt", "model", "wake_on"):
+            for k in ("description", "prompt", "provider", "model", "wake_on"):
                 if k in pkg:
                     merged[k] = pkg[k]
         for k, v in entry.items():
@@ -200,8 +209,11 @@ def reconcile_from_config(path: Path | None = None) -> None:
     # Every config-declared PAI is, by definition, persistent — long-running
     # fleet members the kernel keeps alive across nudges. The flag drives
     # nudge.py's "don't auto-resolve on completion" behavior.
+    # `active` defaults to True when omitted; paictl flips it to take a PAI
+    # down without removing the fleet entry.
     for spec in desired.values():
         spec["persistent"] = True
+        spec.setdefault("active", True)
     actual = {slug: spec for slug, spec in P._iter_pai_specs()}
 
     desired_names = set(desired)
@@ -220,6 +232,11 @@ def reconcile_from_config(path: Path | None = None) -> None:
     # Added.
     for name in sorted(desired_names - actual_names):
         spec = desired[name]
+        if not spec.get("active", True):
+            # Inactive at first sight: don't materialize a /proc entry. When
+            # paictl flips `active: true`, the next reconcile spawns it.
+            print(f"[kernel] reconcile: skipping inactive pai {name!r}", flush=True)
+            continue
         pid = spec.get("pid")
         if pid is None:
             pid = P.alloc_pai_pid()
@@ -228,6 +245,7 @@ def reconcile_from_config(path: Path | None = None) -> None:
             slug=name,
             description=spec["description"],
             prompt=spec.get("prompt"),
+            provider=spec.get("provider"),
             model=spec.get("model"),
             wake_on=spec.get("wake_on"),
             fallback=spec.get("fallback"),
@@ -270,13 +288,15 @@ def reconcile_from_config(path: Path | None = None) -> None:
                 pass
             print(f"[kernel] reconcile: updated pai {name!r} ({', '.join(diff)})", flush=True)
 
-        # Status heal: persistent PAIs are invariantly running. If anything
-        # left them resolved (legacy bug, manual edit, crash), restore.
+        # Status reconcile.
+        # - active PAIs are invariantly running; heal anything else back.
+        # - inactive PAIs are invariantly stopped; resolve a running proc.
         try:
             status = P.read_status(name)
         except P.ProcessNotFound:
             continue
-        if status != "running":
+        active = desired[name].get("active", True)
+        if active and status != "running":
             (P.PROC_DIR / name / "status").write_text("running\n")
             try:
                 P.append_log(name, f"kernel: status healed ({status} → running)")
@@ -287,3 +307,10 @@ def reconcile_from_config(path: Path | None = None) -> None:
                 f"({status} → running)",
                 flush=True,
             )
+        elif not active and status == "running":
+            try:
+                P.resolve(name, "stopped")
+                P.append_log(name, "kernel: stopped via active=false")
+            except P.ProcessNotFound:
+                pass
+            print(f"[kernel] reconcile: stopped inactive pai {name!r}", flush=True)

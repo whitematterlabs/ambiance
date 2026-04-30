@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import signal
 import sys
 import traceback
 from collections import defaultdict
@@ -20,10 +21,12 @@ from drivers.imessage import outbound as imessage_out
 
 from contextlib import AsyncExitStack
 
+from drivers import contacts
+from drivers import messages as M
+
 from . import config as C
-from . import contacts
-from . import messages as M
 from . import outbound_echo
+from . import paths
 from . import processes as P
 from . import proc_watcher
 from . import supervisor
@@ -252,7 +255,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             "thread": result.slug,
             "sender": result.sender,
             "text": text,
-            "day_file": str(result.day_file.relative_to(P.HOME_DIR)),
+            "day_file": f"communication/messages/{result.day_file.relative_to(paths.var_spool_messages())}",
         }
         for pid in _route_to_pids("imessage:new"):
             _dispatch_nudge(pid, tag, context=ctx)
@@ -331,20 +334,6 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             # No parent: only wake kernel_manager for self-healing on failures.
             _dispatch_nudge(1, f"proc {status}", slug=slug, context={"status": status})
 
-    elif kind == "pai_kickoff":
-        target_pid = event.get("target_pid")
-        text = event.get("text") or ""
-        sender_pid = event.get("sender_pid")
-        if target_pid is None:
-            print(f"[kernel] dropping malformed pai_kickoff event: {event!r}", flush=True)
-            return
-        _dispatch_nudge(
-            int(target_pid),
-            "subagent kickoff",
-            from_=int(sender_pid) if sender_pid is not None else None,
-            context={"text": text},
-        )
-
     elif kind == "pai_message":
         target_pid = event.get("target_pid")
         text = event.get("text") or ""
@@ -356,6 +345,21 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             int(target_pid),
             "peer message",
             from_=int(sender_pid) if sender_pid is not None else None,
+            context={"text": text},
+        )
+
+    elif kind == "subagent:response":
+        target_pid = event.get("target_pid")
+        text = event.get("text") or ""
+        sender_pid = event.get("sender_pid")
+        if target_pid is None:
+            print(f"[kernel] dropping malformed subagent:response event: {event!r}", flush=True)
+            return
+        _dispatch_nudge(
+            int(target_pid),
+            "subagent response",
+            from_=int(sender_pid) if sender_pid is not None else None,
+            from_kind="subagent",
             context={"text": text},
         )
 
@@ -439,6 +443,7 @@ async def _handle_reload_config() -> None:
             await stack.enter_async_context(lock)
         try:
             C.reconcile_from_config()
+            await _reconcile_drivers()
             print("[kernel] reload_config: done", flush=True)
         except Exception as e:
             tb = traceback.format_exc()
@@ -448,8 +453,35 @@ async def _handle_reload_config() -> None:
                 _dispatch_nudge(pid, "config reload failed", context=ctx)
 
 
+# Kernel-owned driver registry. The slug is also the /proc/<slug>/ name.
+# `active:` in /proc/<slug>/spec.yaml (default true) decides whether the
+# coroutine is currently running; paictl flips it and emits
+# kernel:reload_config to trigger _reconcile_drivers.
+DRIVER_SPECS: tuple[tuple[str, object], ...] = (
+    ("imessage-out", lambda: imessage_out.run()),
+    ("imessage-in",  lambda: imessage_in.run()),
+    ("gmail-in",     lambda: gmail_in.run()),
+)
+
+_driver_tasks: dict[str, asyncio.Task] = {}
+
+
+def _driver_active(slug: str) -> bool:
+    """Read `active` from /proc/<slug>/spec.yaml. Missing proc → True."""
+    try:
+        spec = P.read_spec(slug)
+    except P.ProcessNotFound:
+        return True
+    val = spec.get("active", True)
+    return bool(val) if isinstance(val, bool) else True
+
+
 def _ensure_driver_proc(slug: str) -> None:
-    """Idempotent proc entry for a long-running kernel-owned driver."""
+    """Idempotent proc entry for a long-running kernel-owned driver.
+
+    First spawn writes `kind: driver, active: true`. On subsequent spawns
+    the existing spec (including any `active:` flipped by paictl) is left
+    untouched."""
     proc = P.PROC_DIR / slug
     if proc.exists():
         (proc / "status").write_text("running\n")
@@ -458,7 +490,33 @@ def _ensure_driver_proc(slug: str) -> None:
         except P.ProcessNotFound:
             pass
     else:
-        P.spawn(slug, {"kind": "driver"})
+        P.spawn(slug, {"kind": "driver", "active": True})
+
+
+async def _reconcile_drivers() -> None:
+    """Bring running driver tasks into sync with /proc `active:` flags.
+
+    Spawns drivers that should run but aren't, cancels drivers that are
+    running but shouldn't. Idempotent. Called once at boot and on every
+    `kernel:reload_config` event — never on a timer."""
+    for slug, factory in DRIVER_SPECS:
+        active = _driver_active(slug)
+        running = slug in _driver_tasks and not _driver_tasks[slug].done()
+        if active and not running:
+            task = asyncio.create_task(
+                _supervise_driver(slug, factory()),
+                name=slug,
+            )
+            _driver_tasks[slug] = task
+            print(f"[kernel] driver started: {slug}", flush=True)
+        elif not active and running:
+            _driver_tasks[slug].cancel()
+            try:
+                await _driver_tasks[slug]
+            except (asyncio.CancelledError, Exception):
+                pass
+            del _driver_tasks[slug]
+            print(f"[kernel] driver stopped: {slug}", flush=True)
 
 
 async def _supervise_driver(slug: str, coro) -> None:
@@ -491,6 +549,19 @@ async def _supervise_driver(slug: str, coro) -> None:
 async def run() -> None:
     _install_stdout_tee()
     loop = asyncio.get_running_loop()
+    main_task = asyncio.current_task()
+
+    def _request_shutdown(signame: str) -> None:
+        print(f"[kernel] received {signame}, shutting down", flush=True)
+        if main_task is not None:
+            main_task.cancel()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, _request_shutdown, sig.name)
+        except NotImplementedError:
+            pass
+
     # NOTE: layout/legacy migrations moved to boot.phases. Reconcile is
     # now phase 4 and runs before this function is invoked.
     contacts.sync_to_people(M.PEOPLE_DIR)
@@ -500,24 +571,11 @@ async def run() -> None:
     await supervisor.resume_from_disk()
     print(f"[kernel] supervise: started — {len(heap)} timers loaded", flush=True)
 
-    drivers = [
-        asyncio.create_task(
-            _supervise_driver("proc-watcher", proc_watcher.run(heap)),
-            name="proc-watcher",
-        ),
-        asyncio.create_task(
-            _supervise_driver("imessage-out", imessage_out.run()),
-            name="imessage-out",
-        ),
-        asyncio.create_task(
-            _supervise_driver("imessage-in", imessage_in.run()),
-            name="imessage-in",
-        ),
-        asyncio.create_task(
-            _supervise_driver("gmail-in", gmail_in.run()),
-            name="gmail-in",
-        ),
-    ]
+    proc_watcher_task = asyncio.create_task(
+        _supervise_driver("proc-watcher", proc_watcher.run(heap)),
+        name="proc-watcher",
+    )
+    await _reconcile_drivers()
 
     try:
         while True:
@@ -546,12 +604,25 @@ async def run() -> None:
             for t in tasks:
                 t.cancel()
         await supervisor.shutdown()
-        for t in drivers:
+        all_tasks = [proc_watcher_task, *_driver_tasks.values()]
+        for t in all_tasks:
             t.cancel()
-        for t in drivers:
+        for t in all_tasks:
             try:
                 await t
             except (asyncio.CancelledError, Exception):
                 pass
+        _driver_tasks.clear()
         watcher.stop()
+        try:
+            remaining = P.list_procs(status_filter="running")
+            if remaining:
+                print(f"[kernel] shutdown: resolving {len(remaining)} procs", flush=True)
+                for slug in remaining:
+                    try:
+                        P.resolve(slug, "stopped")
+                    except Exception as e:
+                        print(f"[kernel] failed to resolve {slug}: {e!r}", flush=True)
+        except Exception as e:
+            print(f"[kernel] shutdown sweep failed: {e!r}", flush=True)
         print("[kernel] stopped", flush=True)

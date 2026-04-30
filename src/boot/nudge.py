@@ -16,7 +16,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from . import bootstrap, llm
+from . import bootstrap, llm, stitch
 from . import processes as P
 from .processes import HOME_DIR, ProcessNotFound, append_log
 
@@ -126,6 +126,7 @@ async def nudge(
     context: Optional[dict] = None,
     to: int = 1,
     from_: Optional[int] = None,
+    from_kind: str = "pai",
 ) -> None:
     header = f"[kernel] nudge: {reason}"
     if slug:
@@ -164,9 +165,12 @@ async def nudge(
     is_ephemeral = parent_str is not None and not pai_spec.get("persistent")
 
     system = bootstrap.build_system_prompt(
-        pai=pai_pid, parent=parent_pid, prompt_path=pai_spec.get("prompt")
+        pai=pai_pid,
+        parent=parent_pid,
+        prompt_path=pai_spec.get("prompt"),
+        home_dir=str(stitch.home_for(pai_slug)),
     )
-    sender = str(from_) if from_ is not None else None
+    sender = f"{from_kind}:{from_}" if from_ is not None else None
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)
 
     history_path = _history_path(pai_slug)
@@ -179,7 +183,14 @@ async def nudge(
     }
 
     try:
-        reply, new_history = await llm.run_turn(system, user, history=history, env=env)
+        reply, new_history = await llm.run_turn(
+            system,
+            user,
+            history=history,
+            env=env,
+            provider=pai_spec.get("provider"),
+            model=pai_spec.get("model"),
+        )
     except llm.TurnCancelled as c:
         _save_history(history_path, c.messages)
         print(f"[kernel] nudge interrupted (pai={pai_slug})", flush=True)
@@ -214,6 +225,22 @@ async def nudge(
                 P.resolve(pai_slug, "failed")
             except ProcessNotFound:
                 pass
+        # Surface the failure to root so it can decide what to do.
+        # Root itself failing has nowhere to escalate — just stop.
+        if pai_pid != 1:
+            await nudge(
+                reason="nudge failed",
+                slug=pai_slug,
+                context={
+                    "target": pai_slug,
+                    "target_pid": pai_pid,
+                    "original_reason": reason,
+                    "error": repr(e),
+                },
+                to=1,
+                from_=pai_pid,
+                from_kind="pai",
+            )
         return
 
     _save_history(history_path, new_history)
