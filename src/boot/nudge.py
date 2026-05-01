@@ -146,6 +146,26 @@ async def nudge(
     except ProcessNotFound:
         pass
 
+    try:
+        P.mark_busy(pai_slug, log_line)
+    except ProcessNotFound:
+        pass
+
+    try:
+        await _nudge_body(reason, slug, context, pai_pid, pai_slug, from_, from_kind)
+    finally:
+        P.clear_busy(pai_slug)
+
+
+async def _nudge_body(
+    reason: str,
+    slug: Optional[str],
+    context: Optional[dict],
+    pai_pid: int,
+    pai_slug: str,
+    from_: Optional[int],
+    from_kind: str,
+) -> None:
     if slug and slug != pai_slug:
         try:
             append_log(slug, f"kernel: nudge — {reason}")

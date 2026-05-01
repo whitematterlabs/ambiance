@@ -70,7 +70,8 @@ clear which is which:
   goes to `/boot/`** (the kernel is not a userspace program — it does
   not live under `/usr/`); userspace source (drivers, skills, PAI
   bundles) goes under `/usr/lib/`; shipped prompts go to
-  `/usr/share/prompts/`; the three CLI tools go to `/bin/`; and so on.
+  `/usr/share/prompts/`; PAI-callable CLI tools go to `/bin/` and
+  fleet-mutation / kernel ops go to `/sbin/`; and so on.
 
 > **Hard rule.** `/boot/` and `/usr/` are not interchangeable. Kernel
 > code (the supervisor and its helper libraries) belongs in `/boot/`.
@@ -93,10 +94,11 @@ bind-mount?) is an implementation detail tracked in Open Questions.
 | `src/pai.py` | `~/.pai/sbin/init` | Refactored into the kernel entrypoint |
 | `src/boot/` | `~/.pai/boot/` | Kernel source — the supervisor and its helper libraries (PID 1's image). Not userspace; never under `/usr/`. |
 | `src/drivers/<name>/` | split two ways | Code + shipped manifest → `/usr/lib/drivers/<name>/` (events.yaml ships here, not in /etc/). Live runtime state → `/sys/drivers/<name>/`. Driver enable/disable rides on `/proc/<slug>/spec.yaml` `active:` like any other process. |
-| `src/bin/` | `~/.pai/usr/bin/` | PAI-callable tools (`/bin/` is a symlink to `usr/bin/`) |
-| `src/tui/` | `~/.pai/sbin/` | Owner's terminal client (privileged ops) |
-| `src/migrate.py` | `~/.pai/sbin/` | One-shot kernelPAI op |
-| `src/reset.py` | `~/.pai/sbin/` | One-shot kernelPAI op |
+| `src/bin/` | split by privilege | PAI-callable shims (`paictl`, `paicron`, `ipc`, `subagent`, …) → `~/.pai/usr/bin/` (`/bin/` is a symlink to `usr/bin/`). Fleet-mutation / kernel ops (`paiman`, `paiadd`, `paidel`, `paifs-init`) → `~/.pai/sbin/`. Split lives in `SBIN_SCRIPTS` in `bin/paifs_init.py`. |
+| `src/sbin/tui/` | `~/.pai/sbin/tui` | Owner's terminal client (privileged ops) |
+| `src/sbin/migrate.py` | `~/.pai/sbin/migrate` | One-shot kernelPAI op |
+| `src/sbin/reset.py` | `~/.pai/sbin/reset` | One-shot kernelPAI op — destructive; wipes runtime state |
+| `src/sbin/reboot.py` | `~/.pai/sbin/reboot` | Emits `kernel:restart`; kernel drains in-flight nudges, gracefully stops drivers, then `os.execvp`s itself in place (PID 1 preserved). Use to apply on-disk patches to kernel-imported modules. |
 | `src/prompts/` | `~/.pai/usr/share/prompts/` | Shipped baseline prompts |
 | `src/usr/share/doc/` | `~/.pai/usr/share/doc/` | Shipped documentation |
 | `src/seed/` | *removed* | Folded into bundle `defaults/` |
@@ -123,10 +125,14 @@ instance is running.
 ## The four tools
 
 ```
-/bin/paiman   ── bundles            (apt analogue)
-/bin/paiadd   ── instance config    (useradd analogue)   /bin/paidel
+/sbin/paiman  ── bundles            (apt analogue)
+/sbin/paiadd  ── instance config    (useradd analogue)   /sbin/paidel
 /bin/paictl   ── instance runtime   (the `active:` flag in /etc/config.yaml)
 /bin/paicron  ── services           (systemctl/cron analogue for /proc/<svc>/)
+
+Bundle / instance ops (paiman, paiadd, paidel) mutate the fleet and
+live in /sbin/. Runtime ops (paictl, paicron) only flip status files
+in /proc/ and live in /bin/.
 ```
 
 | Tool | Operates on | Verbs |
@@ -540,7 +546,9 @@ string of the shape `<namespace>:<name>` — `imessage:new`,
   kinds exist.
 - **Kernel kinds** (`kernel:*`) — emitted by the kernel itself, not
   by a driver. Examples: `kernel:reload_config`, `kernel:reload_failed`,
-  `kernel:proc_failed`. Handled by the root PAI by default.
+  `kernel:proc_failed`, `kernel:restart` (drains nudges, gracefully
+  stops drivers, then re-execs the kernel in place — emitted by
+  `/sbin/reboot`). Handled by the root PAI by default.
 
 A PAI's `wake_on:` list in `/etc/config.yaml` is a list of fnmatch
 globs over kind strings. The kernel fan-outs each event to every PAI

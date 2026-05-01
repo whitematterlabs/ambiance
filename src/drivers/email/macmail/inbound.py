@@ -21,7 +21,7 @@ import re
 import select
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import unquote, urlparse
@@ -40,9 +40,6 @@ ENVELOPE_INDEX = ENVELOPE_DIR / "Envelope Index"
 CURSOR_DIR = P.HOME_DIR / "tmp" / "drivers" / "macmail"
 CURSOR_PATH = CURSOR_DIR / "cursor.yaml"
 ACCOUNTS_PATH = CURSOR_DIR / "accounts.yaml"
-
-# Mail.app stores `date_received` as seconds since 2001-01-01 UTC (Mac epoch).
-MAC_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 
 # Inbox + Sent. Mail localizes "Sent" but server-side IMAP almost always
 # uses one of these names.
@@ -103,7 +100,10 @@ def _bootstrap_cursor() -> int:
 
 
 def _mac_date_to_dt(secs: int) -> datetime:
-    return (MAC_EPOCH + timedelta(seconds=int(secs))).astimezone()
+    # Despite the column name lineage, Mail.app V10 stores date_received as
+    # Unix epoch seconds, not Mac epoch (2001-01-01). Treating it as Mac
+    # epoch shifts every timestamp forward by 31 years.
+    return datetime.fromtimestamp(int(secs), tz=timezone.utc).astimezone()
 
 
 # ---------- account UUID → email-address resolution ------------------------
@@ -204,7 +204,7 @@ def _build_msg_dict(msg, direction: str, ts: datetime, conversation_id: int) -> 
     to_addrs = E.extract_addresses(msg.get("To"))
     cc_addrs = E.extract_addresses(msg.get("Cc"))
     bcc_addrs = E.extract_addresses(msg.get("Bcc"))
-    subject = msg.get("Subject") or ""
+    subject = str(msg.get("Subject") or "")
     content = E.extract_text(msg)
 
     out: dict = {
@@ -308,12 +308,19 @@ def _query_rows(last_rowid: int) -> Optional[list]:
         conn.close()
 
 
+_last_live_log: tuple[int, int] | None = None
+
+
 def _drain_live(last_rowid: int) -> int:
+    global _last_live_log
     rows = _query_rows(last_rowid)
     if rows is None:
         return last_rowid
     if rows:
-        print(f"[macmail-in] live drain: {len(rows)} rows since rowid={last_rowid}", flush=True)
+        sig = (last_rowid, len(rows))
+        if sig != _last_live_log:
+            print(f"[macmail-in] live drain: {len(rows)} rows since rowid={last_rowid}", flush=True)
+            _last_live_log = sig
 
     accounts = _load_accounts()
     new_last = last_rowid

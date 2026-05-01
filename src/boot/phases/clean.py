@@ -27,7 +27,20 @@ def _wipe_dir_contents(path: Path) -> None:
             child.unlink()
 
 
+def _wipe_busy_flags() -> None:
+    """Drop any stale `busy` flags left by a prior crashed kernel. Each
+    nudge writes /proc/<slug>/busy and clears it in a finally; if the
+    kernel died mid-nudge, the flag is a phantom."""
+    if not paths.PROC_DIR.is_dir():
+        return
+    for child in paths.PROC_DIR.iterdir():
+        if not child.is_dir():
+            continue
+        (child / "busy").unlink(missing_ok=True)
+
+
 def run() -> None:
     _wipe_dir_contents(paths.PAI_ROOT / "tmp")
     _wipe_dir_contents(paths.EVENTS_DIR)
-    print("[boot] clean: wiped tmp/ and run/pai/events/", flush=True)
+    _wipe_busy_flags()
+    print("[boot] clean: wiped tmp/, run/pai/events/, and stale busy flags", flush=True)

@@ -18,7 +18,7 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_spec, read_status
+from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, is_busy, list_procs, read_spec, read_status
 from boot.proctree import order_as_tree
 
 ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
@@ -126,6 +126,7 @@ class ProcRow:
     description: str
     status: str
     tree_prefix: str = ""  # box-drawing indent for nested subagents
+    busy: bool = False  # True iff /proc/<slug>/busy exists (nudge in flight)
 
 
 def _infer_type(spec: dict) -> str:
@@ -196,7 +197,7 @@ class ProcWatcher:
             rows.append(ProcRow(
                 slug=slug, pid=pid_str, type=ptype, parent=parent_str,
                 when=when, description=desc, status=spec["_status"],
-                tree_prefix=prefix,
+                tree_prefix=prefix, busy=is_busy(slug),
             ))
         return rows
 

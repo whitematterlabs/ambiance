@@ -409,6 +409,9 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
     elif kind == "kernel:reload_config":
         await _handle_reload_config()
 
+    elif kind == "kernel:restart":
+        await _handle_restart()
+
     elif kind == "cron_fired":
         slug = event.get("slug")
         rc = event.get("rc")
@@ -465,6 +468,29 @@ def _install_stdout_tee() -> None:
     sys.stdout = _Tee(sys.stdout, f)
     sys.stderr = _Tee(sys.stderr, f)
 
+
+
+class _RestartRequested(BaseException):
+    """Signal from the kernel:restart handler. Bubbles through run()'s
+    finally block so the existing shutdown sequence runs, then is caught
+    by entry.py which re-execs the kernel in place."""
+
+
+# Set by _handle_restart() before raising. entry.py reads this after
+# asyncio.run() returns to decide whether to execvp.
+_restart_requested: bool = False
+
+
+async def _handle_restart() -> None:
+    """Drain in-flight nudges, then trigger a graceful self-restart."""
+    global _restart_requested
+    print("[kernel] restart: draining nudges", flush=True)
+    async with AsyncExitStack() as stack:
+        for lock in list(_pai_locks.values()):
+            await stack.enter_async_context(lock)
+    print("[kernel] restart: triggering shutdown", flush=True)
+    _restart_requested = True
+    raise _RestartRequested()
 
 
 async def _handle_reload_config() -> None:
@@ -632,6 +658,8 @@ async def run() -> None:
                     await _handle_event_file(event_task.result(), heap)
     except asyncio.CancelledError:
         raise
+    except _RestartRequested:
+        pass  # finally runs the shutdown; entry.py execs after run() returns
     finally:
         for tasks in _active_nudges.values():
             for t in tasks:

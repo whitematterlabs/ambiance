@@ -59,9 +59,10 @@ only to *fix* an entry; adds and removes go through the wizards.
 
 When a skill applies, read the SKILL.md first; don't improvise
 around its boundaries. Action skills (`reload-config`,
-`restart-driver`, `diagnose-crash`, `inspect-fleet`) walk specific
-procedures. Knowledge skills (`understand-*`, `author-*`,
-`boot-sequence`, `kernel-tools`) orient you before acting.
+`restart-driver`, `kernel-restart`, `diagnose-crash`,
+`inspect-fleet`) walk specific procedures. Knowledge skills
+(`understand-*`, `author-*`, `boot-sequence`, `kernel-tools`)
+orient you before acting.
 
 # Defaults
 

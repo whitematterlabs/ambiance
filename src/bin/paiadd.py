@@ -9,7 +9,13 @@ Wizard. Prompts for the fields needed to build a fleet entry, then:
 
 Usage:
 
-    paiadd <bundle>          interactively configure a new instance
+    paiadd <bundle>                              interactively configure
+    paiadd <bundle> --yes [--name ...] [...]    non-interactive (for tool-use)
+
+Non-interactive mode (`--yes`) skips all prompts. Any field not given as
+a flag falls back to the bundle's package.yaml default. `--description`
+is required (no sensible default). Use `--wake-on` repeatedly or comma-
+separate; `--fallback` is a boolean flag.
 """
 
 from __future__ import annotations
@@ -99,6 +105,46 @@ def _append_entry(config_path: Path, entry: dict) -> None:
     tmp.rename(config_path)
 
 
+def _build_entry_noninteractive(
+    bundle: str, pkg: dict[str, Any], args: argparse.Namespace
+) -> dict[str, Any]:
+    name = args.name or bundle
+    if "/" in name or name.startswith(".") or not name:
+        raise SystemExit(f"paiadd: invalid name {name!r}")
+    if name in _existing_names(C.CONFIG_PATH):
+        raise SystemExit(f"paiadd: {name!r} already in {C.CONFIG_PATH}")
+    if paths.var_lib_instance(name).exists():
+        raise SystemExit(
+            f"paiadd: instance state already exists at {paths.var_lib_instance(name)}"
+        )
+
+    description = args.description or pkg.get("description")
+    if not description:
+        raise SystemExit("paiadd: --description required (bundle has no default)")
+
+    # --wake-on can repeat or be comma-separated; flatten both.
+    wake_on: list[str] = []
+    for raw in args.wake_on or []:
+        wake_on.extend(g.strip() for g in raw.split(",") if g.strip())
+    if not wake_on:
+        wake_on = list(pkg.get("wake_on") or [])
+
+    entry: dict[str, Any] = {
+        "name": name,
+        "package": bundle,
+        "description": description,
+        "provider": args.provider or pkg.get("provider") or "anthropic",
+    }
+    model = args.model if args.model is not None else pkg.get("model")
+    if model:
+        entry["model"] = model
+    if wake_on:
+        entry["wake_on"] = wake_on
+    if args.fallback:
+        entry["fallback"] = True
+    return entry
+
+
 def _build_entry(bundle: str, pkg: dict[str, Any]) -> dict[str, Any]:
     print(f"\nConfiguring instance from bundle {bundle!r}.")
     print(f"  package defaults: {dict(pkg)}\n")
@@ -150,13 +196,17 @@ def cmd_add(args: argparse.Namespace) -> int:
     except C.ConfigError as e:
         raise SystemExit(f"paiadd: {e}")
 
-    entry = _build_entry(bundle, pkg)
-
-    print("\nFleet entry:")
-    print(yaml.safe_dump([entry], sort_keys=False).rstrip())
-    if not _ask_yn("\nProceed?", default=True):
-        print("aborted.")
-        return 1
+    if args.yes:
+        entry = _build_entry_noninteractive(bundle, pkg, args)
+        print("Fleet entry:")
+        print(yaml.safe_dump([entry], sort_keys=False).rstrip())
+    else:
+        entry = _build_entry(bundle, pkg)
+        print("\nFleet entry:")
+        print(yaml.safe_dump([entry], sort_keys=False).rstrip())
+        if not _ask_yn("\nProceed?", default=True):
+            print("aborted.")
+            return 1
 
     name = entry["name"]
     instance = paths.var_lib_instance(name)
@@ -175,6 +225,13 @@ def cmd_add(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="paiadd", description=__doc__)
     ap.add_argument("bundle", help="bundle name under /usr/lib/pais/")
+    ap.add_argument("-y", "--yes", action="store_true", help="non-interactive; skip wizard and final confirm")
+    ap.add_argument("--name", help="instance name (default: bundle name)")
+    ap.add_argument("--description", help="instance description (default: bundle's)")
+    ap.add_argument("--provider", help="LLM provider (default: bundle's)")
+    ap.add_argument("--model", help="model id (default: bundle's, or provider default)")
+    ap.add_argument("--wake-on", action="append", help="event-kind glob; repeat or comma-separate")
+    ap.add_argument("--fallback", action="store_true", help="mark as last-resort PAI for unrouted events")
     ap.set_defaults(func=cmd_add)
     args = ap.parse_args(argv)
     return args.func(args)

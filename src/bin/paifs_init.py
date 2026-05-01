@@ -117,11 +117,13 @@ SYMLINK_TARGETS = {p for p, _ in SYMLINKS}
 SBIN_SCRIPTS: frozenset[str] = frozenset({
     "init",
     "migrate",
+    "reboot",
     "reset",
     "tui",
     "paiman",
     "paiadd",
     "paidel",
+    "paifs-init",
 })
 
 

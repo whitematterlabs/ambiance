@@ -21,6 +21,13 @@ from typing import Iterable, Optional
 
 import yaml
 
+# Coerce any str subclass (e.g. email.headerregistry header objects returned
+# by stdlib's modern email policy) to plain str so SafeDumper can represent
+# it. Without this, headers like Subject crash represent_undefined.
+def _str_subclass_repr(dumper, data):
+    return dumper.represent_str(str(data))
+yaml.SafeDumper.add_multi_representer(str, _str_subclass_repr)
+
 _RE_PREFIX = re.compile(r"^\s*(re|fw|fwd|aw)\s*[:\-]\s*", re.IGNORECASE)
 _RE_NONALNUM = re.compile(r"[^a-z0-9]+")
 

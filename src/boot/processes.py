@@ -214,6 +214,26 @@ def append_log(slug: str, message: str) -> None:
         f.write(f"[{_now_hm()}] {message}\n")
 
 
+def mark_busy(slug: str, reason: str = "") -> None:
+    """Flag a PAI as actively running a nudge. Presence-based: the file
+    exists iff a nudge is in flight. Body holds the reason for debugging.
+    `_pai_locks` serializes nudges per PAI, so this is binary."""
+    proc = _proc_dir(slug)
+    if not proc.exists():
+        raise ProcessNotFound(slug)
+    (proc / "busy").write_text(f"{reason}\n")
+
+
+def clear_busy(slug: str) -> None:
+    """Clear the busy flag. Idempotent — missing file is fine."""
+    proc = _proc_dir(slug)
+    (proc / "busy").unlink(missing_ok=True)
+
+
+def is_busy(slug: str) -> bool:
+    return (_proc_dir(slug) / "busy").exists()
+
+
 def list_procs(status_filter: str | None = None) -> list[str]:
     if not PROC_DIR.exists():
         return []

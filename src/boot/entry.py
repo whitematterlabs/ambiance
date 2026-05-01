@@ -6,6 +6,7 @@ supervise loop) by delegating to boot.main.run().
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import traceback
 
@@ -31,6 +32,10 @@ def boot() -> int:
         asyncio.run(supervise.run())
     except KeyboardInterrupt:
         pass
+    if supervise._restart_requested:
+        print("[boot] re-exec for kernel:restart", flush=True)
+        os.execvp(sys.executable, [sys.executable, "-u", "-m", "boot.entry"])
+        raise AssertionError("execvp returned without replacing process")
     return 0
 
 

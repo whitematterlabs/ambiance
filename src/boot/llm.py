@@ -20,6 +20,7 @@ from anthropic import AsyncAnthropic
 from . import shell_tool
 
 MAX_TOKENS = 4096
+MAX_ITERATIONS = 100
 
 # provider key -> (base_url or None, api_key env var, default model, extra_body)
 PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
@@ -44,11 +45,18 @@ def _resolve(provider: Optional[str], model: Optional[str]) -> tuple[AsyncAnthro
     """Return (client, model, extra_body) for a (provider, model) pair.
 
     Both args may be None: provider falls back to DEFAULT_PROVIDER; model
-    falls back to the provider's default. Unknown providers raise."""
+    falls back to the provider's default. Unknown providers raise.
+
+    Model ids may carry an OpenRouter-style `provider/` prefix
+    (e.g. `anthropic/claude-opus-4-7`). The prefix is informational —
+    routing is decided by the `provider` field — so we split it off
+    before sending to the API."""
     key = provider or DEFAULT_PROVIDER
     if key not in PROVIDERS:
         raise ValueError(f"unknown provider: {key!r}")
     base_url, api_key_env, default_model, extra_body = PROVIDERS[key]
+    if model and "/" in model:
+        model = model.split("/", 1)[1]
     client = _clients.get(key)
     if client is None:
         api_key = os.environ.get(api_key_env)
@@ -167,7 +175,7 @@ async def _loop(
     system_blocks = [
         {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
     ]
-    while True:
+    for _ in range(MAX_ITERATIONS):
         response = await client.messages.create(
             model=model,
             max_tokens=MAX_TOKENS,
@@ -212,3 +220,5 @@ async def _loop(
                 })
 
         messages.append({"role": "user", "content": tool_results})
+
+    return "[max iterations reached]", messages

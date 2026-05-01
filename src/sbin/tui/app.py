@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import shlex
 from datetime import datetime
 
 from rich.text import Text
 
 from boot.paths import PAI_ROOT
-
-_PAI_CMD = re.compile(r"^\[pai(?::[^\]]+)?\] \$ ")
-_PAI_REPLY = re.compile(r"^\[pai(?::[^\]]+)?\] ")
 
 import yaml
 from functools import partial
@@ -292,6 +288,11 @@ class TuiApp(App):
         if 1 <= n <= len(pids):
             self.query_one("#tabs", TabbedContent).active = f"tab-{pids[n - 1]}"
 
+    async def on_tabbed_content_tab_activated(self) -> None:
+        # Active tab changed — re-derive status from the latest proc rows
+        # so we don't wait for the next /proc/ poke.
+        self._procs.queue.put_nowait(True)
+
     # --- pumps -----------------------------------------------------------
 
     async def _pump_me(self, pid: int) -> None:
@@ -308,6 +309,7 @@ class TuiApp(App):
 
     async def _pump_procs(self) -> None:
         procs = self.query_one("#procs", ProcList)
+        status = self.query_one("#status", Static)
         while True:
             rows = await self._procs.next()
             procs.render_rows(rows)
@@ -318,6 +320,19 @@ class TuiApp(App):
                 await self._add_pai_tab(pid)
             for pid in sorted(existing - current):
                 await self._remove_pai_tab(pid)
+            # Status bar: presence of /proc/<slug>/busy is the truth.
+            self._refresh_status(rows, status)
+
+    def _refresh_status(self, rows: list, status: Static) -> None:
+        active_pid = self._active_pid()
+        if active_pid is None:
+            status.update("idle")
+            return
+        for r in rows:
+            if r.pid == str(active_pid):
+                status.update(f"{r.slug} is thinking…" if r.busy else "idle")
+                return
+        status.update("idle")
 
     async def _pump_events(self) -> None:
         strip = self.query_one("#events", EventStrip)
@@ -326,26 +341,14 @@ class TuiApp(App):
             strip.write_sighting(sight)
 
     async def _pump_log(self) -> None:
+        # Status bar is driven by /proc/<slug>/busy via _pump_procs, not
+        # by log-line classification. Here we just tail and decorate.
         tail = self.query_one("#log", LogTail)
         activity = self.query_one("#activity", PaiActivity)
-        status = self.query_one("#status", Static)
         while True:
             line = await self._log.next()
             tail.write_line(line)
             activity.ingest(line)
-
-            pid = self._active_pid()
-            label = f"pai {pid}" if pid is not None else "pai"
-            if "nudge failed" in line or "nudge complete" in line:
-                status.update("idle")
-            elif line.startswith("[kernel] nudge:"):
-                status.update(f"{label} is thinking…")
-            elif _PAI_CMD.match(line):
-                # Still working — commands keep arriving.
-                status.update(f"{label} is thinking…")
-            elif _PAI_REPLY.match(line):
-                # PAI's final text reply.
-                status.update("idle")
 
     # --- input handler ---------------------------------------------------
 
