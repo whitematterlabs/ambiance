@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import select
 import sqlite3
 import threading
@@ -32,6 +31,7 @@ from boot import paths
 from boot import processes as P
 
 from .. import shared
+from . import accounts as A
 from . import emlx as E
 
 ENVELOPE_DIR = Path.home() / "Library" / "Mail" / "V10" / "MailData"
@@ -39,11 +39,23 @@ ENVELOPE_INDEX = ENVELOPE_DIR / "Envelope Index"
 
 CURSOR_DIR = P.HOME_DIR / "tmp" / "drivers" / "macmail"
 CURSOR_PATH = CURSOR_DIR / "cursor.yaml"
-ACCOUNTS_PATH = CURSOR_DIR / "accounts.yaml"
 
-# Inbox + Sent. Mail localizes "Sent" but server-side IMAP almost always
-# uses one of these names.
-DELTA_SQL = """
+
+def _build_delta_sql(cfg: A.AccountsConfig) -> tuple[str, list[str]]:
+    """Build the cursor-bounded delta query for the current account list.
+
+    Each known (account, role) pair contributes one `mb.url LIKE ?`
+    clause. Roles are derived from Mail.app's own `inbox` / `sent mailbox`
+    references — locale-independent.
+    """
+    patterns = [pat for pat, _role in cfg.url_like_patterns()]
+    if not patterns:
+        # No accounts known yet (Mail.app not enumerated). Match nothing —
+        # `1=0` keeps the query well-formed but returns zero rows.
+        clause = "1 = 0"
+    else:
+        clause = "(" + " OR ".join(["mb.url LIKE ?"] * len(patterns)) + ")"
+    sql = f"""
 SELECT
     m.ROWID AS rowid,
     m.date_received AS date_received,
@@ -52,14 +64,10 @@ SELECT
 FROM messages m
 JOIN mailboxes mb ON mb.ROWID = m.mailbox
 WHERE m.ROWID > ?
-  AND (
-    mb.url LIKE '%/INBOX'
-    OR mb.url LIKE '%/Sent'
-    OR mb.url LIKE '%/Sent%20Messages'
-    OR mb.url LIKE '%/Sent%20Items'
-  )
+  AND {clause}
 ORDER BY m.ROWID ASC
 """
+    return sql, patterns
 
 
 def _connect() -> sqlite3.Connection:
@@ -106,74 +114,22 @@ def _mac_date_to_dt(secs: int) -> datetime:
     return datetime.fromtimestamp(int(secs), tz=timezone.utc).astimezone()
 
 
-# ---------- account UUID → email-address resolution ------------------------
+# ---------- mailbox URL → (account_uuid, direction) -----------------------
 
-def _load_accounts() -> dict[str, str]:
-    if not ACCOUNTS_PATH.exists():
-        return {}
-    with ACCOUNTS_PATH.open() as f:
-        return dict(yaml.safe_load(f) or {})
+def _parse_url(url: str, cfg: A.AccountsConfig) -> tuple[str, Optional[str]]:
+    """Return (account_uuid, direction) for a `mailboxes.url` value.
 
-
-def _save_accounts(mapping: dict[str, str]) -> None:
-    CURSOR_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = ACCOUNTS_PATH.with_suffix(".yaml.tmp")
-    with tmp.open("w") as f:
-        yaml.safe_dump(mapping, f, sort_keys=True)
-    os.replace(tmp, ACCOUNTS_PATH)
-
-
-_HEADER_PRIORITY = (
-    "X-Apple-Account",
-    "Delivered-To",
-    "X-Original-To",
-    "To",
-    "Envelope-To",
-)
-
-
-def _learn_account_address(uuid: str, msg) -> Optional[str]:
-    """Sniff the email address that owns this account from message headers.
-
-    Inbound message: any of the above headers will list the recipient
-    that received the mail — that's the account.
-    Outbound message (Sent): use the From header.
+    Account UUID is the netloc (minus any user@ prefix). Direction is
+    derived from `accounts.role_for_url`, which checks the URL against
+    Mail.app's own concept of inbox/sent — works regardless of locale.
+    Returns (uuid, None) if the URL doesn't match any known role
+    (caller skips the row).
     """
-    for h in _HEADER_PRIORITY:
-        v = msg.get(h)
-        if v:
-            addrs = E.extract_addresses(v)
-            if addrs:
-                return addrs[0]["address"]
-    # Outbound: try From.
-    v = msg.get("From")
-    if v:
-        addrs = E.extract_addresses(v)
-        if addrs:
-            return addrs[0]["address"]
-    return None
-
-
-_INBOX_RE = re.compile(r"/INBOX$", re.IGNORECASE)
-_SENT_RE = re.compile(r"/(Sent|Sent%20Messages|Sent%20Items)$", re.IGNORECASE)
-
-
-def _parse_url(url: str) -> tuple[str, str, str]:
-    """Parse a mailbox url like `imap://0A8366...@host/INBOX` into
-    (account_uuid, mailbox_name, direction).
-
-    Mail's url scheme: imap://{account-uuid}/{mailbox-path}. The mailbox
-    name is whatever follows the last slash."""
     parsed = urlparse(url)
-    # netloc may include user@host on remote accounts; account_uuid is the
-    # full netloc minus any "@host" suffix.
     netloc = parsed.netloc
     if "@" in netloc:
         netloc = netloc.split("@", 1)[0]
-    account_uuid = netloc
-    mailbox_name = unquote(parsed.path.lstrip("/"))
-    direction = "outbound" if _SENT_RE.search(parsed.path) else "inbound"
-    return account_uuid, mailbox_name, direction
+    return netloc, cfg.role_for_url(url)
 
 
 # ---------- per-message build + write --------------------------------------
@@ -230,12 +186,24 @@ def _build_msg_dict(msg, direction: str, ts: datetime, conversation_id: int) -> 
     return out
 
 
-def _ingest_row(row, accounts: dict[str, str]) -> Optional[dict]:
+def ingest_row(row, cfg: A.AccountsConfig) -> Optional[dict]:
     """Process one delta row. Returns an event-payload dict on success or
-    None if we should leave the cursor parked (e.g. partial emlx)."""
+    None if we should leave the cursor parked (e.g. partial emlx).
+
+    Public so the `mailsearch` tool can reuse the row-to-yaml pipeline.
+    """
     rowid = int(row["rowid"])
     url = row["url"] or ""
-    account_uuid, mailbox_name, direction = _parse_url(url)
+    account_uuid, direction = _parse_url(url, cfg)
+    if direction is None:
+        # URL didn't match any known inbox/sent role — shouldn't happen
+        # for rows the SQL filter accepts, but skip defensively.
+        print(f"[macmail-in] no role for url={url!r}; skipping rowid={rowid}", flush=True)
+        return {"_skip": True}
+
+    # Mailbox-name path component, used by emlx layout. Mail.app stores
+    # `.mbox` directories on disk by the same name shown in the URL.
+    mailbox_name = unquote(urlparse(url).path.lstrip("/"))
 
     path = E.emlx_path(account_uuid, mailbox_name, rowid)
     if path is None:
@@ -255,15 +223,13 @@ def _ingest_row(row, accounts: dict[str, str]) -> Optional[dict]:
         # Bad framing — advance past it; we won't recover by retrying.
         return {"_skip": True}
 
-    address = accounts.get(account_uuid)
+    address = cfg.address_for_uuid(account_uuid)
     if address is None:
-        address = _learn_account_address(account_uuid, msg)
-        if address:
-            accounts[account_uuid] = address
-            _save_accounts(accounts)
-        else:
-            print(f"[macmail-in] could not derive address for uuid={account_uuid}; skipping rowid={rowid}", flush=True)
-            return {"_skip": True}
+        # AppleScript discovery hasn't enumerated this account yet (rare;
+        # account added since last refresh). Skip; the next refresh will
+        # pick it up and a future kqueue tick will retry via boot scan.
+        print(f"[macmail-in] no canonical address for uuid={account_uuid}; skipping rowid={rowid}", flush=True)
+        return {"_skip": True}
 
     ts = _mac_date_to_dt(int(row["date_received"] or 0))
     msg_dict = _build_msg_dict(msg, direction, ts, int(row["conversation_id"] or 0))
@@ -271,7 +237,7 @@ def _ingest_row(row, accounts: dict[str, str]) -> Optional[dict]:
     account_dir = paths.var_spool_email() / address
     _ensure_account_meta(account_dir, address, account_uuid)
 
-    msg_path = shared.write_message_yaml(account_dir, msg_dict)
+    msg_path, created = shared.write_message_yaml(account_dir, msg_dict)
     shared.link_thread(account_dir, msg_path, msg_dict["thread_slug"], ts)
 
     parent_path: Optional[Path] = None
@@ -287,20 +253,22 @@ def _ingest_row(row, accounts: dict[str, str]) -> Optional[dict]:
         "subject": msg_dict["subject"],
         "from": msg_dict["from"],
         "direction": direction,
-        "path": str(msg_path.relative_to(paths.var_spool_email().parent.parent.parent)),
+        "path": str(msg_path.relative_to(paths.PAI_ROOT)),
+        "_created": created,
     }
 
 
 # ---------- live + catchup drains ------------------------------------------
 
-def _query_rows(last_rowid: int) -> Optional[list]:
+def _query_rows(last_rowid: int, cfg: A.AccountsConfig) -> Optional[list]:
     try:
         conn = _connect()
     except sqlite3.OperationalError as e:
         print(f"[macmail-in] cannot open Envelope Index: {e}", flush=True)
         return None
+    sql, patterns = _build_delta_sql(cfg)
     try:
-        return conn.execute(DELTA_SQL, (last_rowid,)).fetchall()
+        return conn.execute(sql, (last_rowid, *patterns)).fetchall()
     except sqlite3.OperationalError as e:
         print(f"[macmail-in] query failed: {e}", flush=True)
         return None
@@ -311,9 +279,9 @@ def _query_rows(last_rowid: int) -> Optional[list]:
 _last_live_log: tuple[int, int] | None = None
 
 
-def _drain_live(last_rowid: int) -> int:
+def _drain_live(last_rowid: int, cfg: A.AccountsConfig) -> int:
     global _last_live_log
-    rows = _query_rows(last_rowid)
+    rows = _query_rows(last_rowid, cfg)
     if rows is None:
         return last_rowid
     if rows:
@@ -322,50 +290,62 @@ def _drain_live(last_rowid: int) -> int:
             print(f"[macmail-in] live drain: {len(rows)} rows since rowid={last_rowid}", flush=True)
             _last_live_log = sig
 
-    accounts = _load_accounts()
-    new_last = last_rowid
+    lowest_parked: Optional[int] = None
+    max_processed = last_rowid
     for row in rows:
         rowid = int(row["rowid"])
-        result = _ingest_row(row, accounts)
+        result = ingest_row(row, cfg)
         if result is None:
-            # Park the cursor. We'll retry on the next WAL kick.
-            break
-        # _skip means we couldn't ingest but want to advance past it.
-        if not result.get("_skip"):
-            payload = {"source": "macmail", "kind": "new_email", **result}
-            P.emit_event(payload)
-            print(f"[macmail-in] emitted rowid={rowid} → {result['account']} ({result['direction']})", flush=True)
-        new_last = max(new_last, rowid)
+            # Body not on disk yet (.partial.emlx). Don't advance cursor past
+            # this rowid — but keep scanning later rows; subsequent emlx
+            # files may already be ready and writes are idempotent.
+            if lowest_parked is None or rowid < lowest_parked:
+                lowest_parked = rowid
+            continue
+        max_processed = max(max_processed, rowid)
+        if result.get("_skip"):
+            continue
+        if not result.get("_created", True):
+            # Already on disk from a prior pass — don't re-emit.
+            continue
+        payload = {k: v for k, v in result.items() if not k.startswith("_")}
+        payload = {"source": "macmail", "kind": "new_email", **payload}
+        P.emit_event(payload)
+        print(f"[macmail-in] emitted rowid={rowid} → {result['account']} ({result['direction']})", flush=True)
 
+    new_last = min(lowest_parked - 1, max_processed) if lowest_parked is not None else max_processed
+    new_last = max(new_last, last_rowid)
     if new_last != last_rowid:
         _save_cursor(new_last)
     return new_last
 
 
-def _drain_catchup(last_rowid: int) -> int:
+def _drain_catchup(last_rowid: int, cfg: A.AccountsConfig) -> int:
     """Boot-time pass — coalesce all missed mail into ONE backlog event so
     PAI gets a single nudge instead of N."""
-    rows = _query_rows(last_rowid)
+    rows = _query_rows(last_rowid, cfg)
     if rows is None:
         return last_rowid
     if not rows:
         return last_rowid
 
     print(f"[macmail-in] catchup: {len(rows)} rows since rowid={last_rowid}", flush=True)
-    accounts = _load_accounts()
-    new_last = last_rowid
     summaries: dict[str, dict] = {}
     earliest: Optional[datetime] = None
-    parked = False
+    lowest_parked: Optional[int] = None
+    max_processed = last_rowid
     for row in rows:
         rowid = int(row["rowid"])
-        result = _ingest_row(row, accounts)
+        result = ingest_row(row, cfg)
         if result is None:
-            # Park: stop the catchup at this row; live drain will retry it.
-            parked = True
-            break
-        new_last = max(new_last, rowid)
+            if lowest_parked is None or rowid < lowest_parked:
+                lowest_parked = rowid
+            continue
+        max_processed = max(max_processed, rowid)
         if result.get("_skip"):
+            continue
+        if not result.get("_created", True):
+            # Already ingested in a prior boot — don't double-count in backlog.
             continue
         acc = result["account"]
         bucket = summaries.setdefault(acc, {"account": acc, "count": 0, "last_subject": ""})
@@ -386,10 +366,12 @@ def _drain_catchup(last_rowid: int) -> int:
         })
         print(f"[macmail-in] emitted backlog (total={total}, accounts={len(summaries)})", flush=True)
 
+    new_last = min(lowest_parked - 1, max_processed) if lowest_parked is not None else max_processed
+    new_last = max(new_last, last_rowid)
     if new_last != last_rowid:
         _save_cursor(new_last)
-    if parked:
-        print("[macmail-in] catchup parked on partial emlx; live drain will retry", flush=True)
+    if lowest_parked is not None:
+        print(f"[macmail-in] catchup parked at rowid={lowest_parked} (partial emlx); will retry", flush=True)
     return new_last
 
 
@@ -520,6 +502,9 @@ async def run() -> None:
         print(f"[macmail-in] Envelope Index not found at {ENVELOPE_INDEX}; driver idle", flush=True)
         return
 
+    cfg = await A.refresh()
+    print(f"[macmail-in] discovered accounts: {A.summarize(cfg)}", flush=True)
+
     last_rowid = _load_cursor()
     if last_rowid is None:
         try:
@@ -535,7 +520,24 @@ async def run() -> None:
     watcher.start()
     print(f"[macmail-in] started, last_rowid={last_rowid}", flush=True)
 
-    last_rowid = await asyncio.to_thread(_drain_catchup, last_rowid)
+    last_rowid = await asyncio.to_thread(_drain_catchup, last_rowid, cfg)
+
+    # Periodic safety-net poll: kqueue catches WAL writes, but a row stuck on
+    # `.partial.emlx` only unparks when Mail finishes the download — which may
+    # or may not touch the WAL again before some unrelated activity does. A
+    # cheap 60s tick guarantees we retry parked rows in bounded time.
+    # The same tick refreshes the AppleScript-derived accounts config so
+    # newly-added Mail.app accounts are picked up without a kernel restart.
+    POLL_INTERVAL = 60.0
+    ACCOUNTS_REFRESH_EVERY = 60  # ticks → 1h
+
+    async def _ticker() -> None:
+        while True:
+            await asyncio.sleep(POLL_INTERVAL)
+            queue.put_nowait(None)
+
+    ticker_task = asyncio.create_task(_ticker())
+    ticks = 0
 
     try:
         while True:
@@ -545,9 +547,16 @@ async def run() -> None:
                     queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-            last_rowid = await asyncio.to_thread(_drain_live, last_rowid)
+            ticks += 1
+            if ticks % ACCOUNTS_REFRESH_EVERY == 0:
+                fresh = await A.refresh()
+                if fresh.accounts and fresh.accounts != cfg.accounts:
+                    print(f"[macmail-in] accounts refreshed: {A.summarize(fresh)}", flush=True)
+                    cfg = fresh
+            last_rowid = await asyncio.to_thread(_drain_live, last_rowid, cfg)
     except asyncio.CancelledError:
         raise
     finally:
+        ticker_task.cancel()
         watcher.stop()
         print("[macmail-in] stopped", flush=True)

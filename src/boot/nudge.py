@@ -38,17 +38,21 @@ def _load_history(path: Path) -> list[dict]:
 
 
 def _append_to_me_thread(pai_pid: int, text: str) -> None:
-    """Post PAI's reply to today's me/<pid>/<date>.md as `[HH:MM] pai: ...`."""
+    """Post PAI's reply to today's me/<pid>/<date>.md.
+
+    Format: `[HH:MM] pai: <body>\\n` where body may span multiple lines
+    (markdown survives intact). Readers anchor message boundaries on the
+    `[HH:MM] sender:` line prefix, not on blank lines, so paragraph
+    separators inside the body don't fragment the message."""
     day = date.today().isoformat()
     path = HOME_DIR / "communication" / "messages" / "me" / str(pai_pid) / f"{day}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     hm = datetime.now().strftime("%H:%M")
-    # Collapse internal newlines — one message = one line.
-    flat = " ".join(text.splitlines()).strip()
-    if not flat:
+    body = text.strip()
+    if not body:
         return
     with path.open("a", encoding="utf-8") as f:
-        f.write(f"[{hm}] pai: {flat}\n")
+        f.write(f"[{hm}] pai: {body}\n")
 
 
 def _save_history(path: Path, messages: list[dict]) -> None:

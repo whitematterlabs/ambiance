@@ -1,33 +1,53 @@
 #!/usr/bin/env python
 """paiman — PAI Package Manager.
 
-Bundles are git-repo-shaped templates. Two types today:
+Mutable installs into `/opt/paiman/<name>/` with FHS activation symlinks.
+Five bundle kinds:
 
-    pai       — fleet-member bundles at /usr/lib/pais/<name>/
-    subagent  — persub specialist bundles at /usr/lib/subagents/<name>/
+    bin     -> /usr/bin/<name>            (file symlink to entrypoint)
+    driver  -> /usr/lib/drivers/<name>/   (dir symlink)
+    skill   -> /usr/lib/skills/<name>/    (dir symlink, contains SKILL.md)
+    prompt  -> /usr/share/prompts/<name>.md (file symlink)
+    pai     -> /usr/lib/pais/<name>/      (dir symlink)
 
-A bundle declares deps and ships a role prompt; pai instances are built
-from pai bundles by `paiadd`. Subagent bundles are referenced from a
-parent's `dependencies:` entry via `package: <name>`.
+Sources:
 
-Usage:
+    paiman install <name>                  resolve from the registry (default)
+    paiman install <local/path>            install from a local directory
+    paiman install <git-url>[@ref]         clone and install
 
-    paiman init <name> [--type pai|subagent]   scaffold a new bundle
-    paiman list                                 list installed bundles
-    paiman show <name>                          print resolved package.yaml
-    paiman install <url>                        (deferred) clone a remote bundle
+The registry is `$PAIMAN_REGISTRY` (default
+`https://github.com/whitematterlabs/pairegistry`) — either a git URL of a
+flat-layout repo (`<name>/package.yaml`) or a local directory of the same
+shape. Pai bundles list their deps in `deps:` as bare names; missing deps
+are fetched from the registry recursively.
+
+Other commands:
+
+    paiman remove <name>                  uninstall (refuses if a pai bundle depends on it)
+    paiman list                           list installed bundles
+    paiman show <name>                    print package.yaml
+    paiman init <name> [--type pai|subagent]   scaffold a new bundle template (legacy)
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import os
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
 
 from boot import paths
 
+
+# ---------- legacy scaffold (init / list / show for pai/subagent) ----------
 
 PAI_PACKAGE_YAML_TEMPLATE = """\
 kind: pai
@@ -46,11 +66,9 @@ provider: anthropic
 # Omit or leave empty if this PAI is only a `fallback` (catches unrouted).
 # wake_on: []
 #
-# requires: deps that must exist in /usr/lib/drivers/ and /usr/lib/skills/
-# before this bundle can be instantiated. paiman resolves these (deferred).
-# requires:
-#   drivers: []
-#   skills: []
+# deps: paiman-installed primitives this PAI bundle pulls in. Resolved
+# from the registry on `paiman install`.
+# deps: []
 """
 
 SUBAGENT_PACKAGE_YAML_TEMPLATE = """\
@@ -63,10 +81,6 @@ provider: anthropic
 # Subagent bundles are referenced from a parent's dependencies: entry
 # via `package: {name}`. They have no wake_on/fallback — the parent
 # addresses them directly via bin/ipc, not the kernel router.
-#
-# requires:
-#   drivers: []
-#   skills: []
 """
 
 PAI_PROMPT_MD_TEMPLATE = """\
@@ -84,7 +98,7 @@ the parent should expect from you here.
 """
 
 
-BUNDLE_TYPES = {
+SCAFFOLD_TYPES = {
     "pai": (paths.usr_lib_pais, PAI_PACKAGE_YAML_TEMPLATE, PAI_PROMPT_MD_TEMPLATE),
     "subagent": (
         paths.usr_lib_subagents,
@@ -94,42 +108,290 @@ BUNDLE_TYPES = {
 }
 
 
+# ---------- install / remove ----------
+
+INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai")
+PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
+DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
+
+
 def _validate_name(name: str) -> None:
-    # Mirrors src/boot/config.py:_validate_pai_entry name rules so a
-    # scaffolded bundle is loadable by the config resolver.
     if not name:
         raise SystemExit("paiman: name must be non-empty")
-    if "/" in name or name.startswith("."):
+    if not NAME_RE.match(name) or name.startswith("."):
         raise SystemExit(f"paiman: invalid name {name!r}")
 
 
-def cmd_init(args: argparse.Namespace) -> int:
-    name: str = args.name
-    bundle_type: str = args.type
+def _activation_slot(kind: str, name: str, entrypoint: str | None) -> tuple[Path, Path]:
+    """Return (slot_path, symlink_target) for the activation symlink."""
+    bundle_dir = paths.opt_paiman() / name
+    if kind == "bin":
+        if not entrypoint:
+            raise SystemExit("paiman: bin bundle requires entrypoint")
+        return paths.usr_bin() / name, bundle_dir / entrypoint
+    if kind == "driver":
+        return paths.usr_lib_drivers() / name, bundle_dir
+    if kind == "skill":
+        return paths.usr_lib_skills() / name, bundle_dir
+    if kind == "prompt":
+        if not entrypoint:
+            raise SystemExit("paiman: prompt bundle requires entrypoint")
+        return paths.usr_share_prompts() / f"{name}.md", bundle_dir / entrypoint
+    if kind == "pai":
+        return paths.usr_lib_pais() / name, bundle_dir
+    raise SystemExit(f"paiman: unsupported kind {kind!r}")
+
+
+def _atomic_symlink(target: Path, slot: Path) -> None:
+    slot.parent.mkdir(parents=True, exist_ok=True)
+    tmp = slot.with_name(slot.name + ".paiman-tmp")
+    if tmp.is_symlink() or tmp.exists():
+        tmp.unlink()
+    os.symlink(target, tmp)
+    os.replace(tmp, slot)
+
+
+def _is_url(s: str) -> bool:
+    return (
+        s.startswith(("http://", "https://", "git+", "git@"))
+        or s.startswith("github.com/")
+        or s.startswith("gitlab.com/")
+    )
+
+
+def _clone(url: str, into: Path) -> Path:
+    """Shallow-clone `url` (with optional @ref) into `into`."""
+    if "@" in url and not url.startswith("git@"):
+        url, ref = url.rsplit("@", 1)
+    else:
+        ref = None
+    if url.startswith(("github.com/", "gitlab.com/")):
+        url = "https://" + url
+    cmd = ["git", "clone", "--depth", "1"]
+    if ref:
+        cmd += ["--branch", ref]
+    cmd += [url, str(into)]
+    subprocess.run(cmd, check=True)
+    return into
+
+
+class _Registry:
+    """Lazy handle to the registry. Caches the cloned/local path for the
+    lifetime of one install invocation so deps can be resolved without
+    re-cloning."""
+
+    def __init__(self, work: Path) -> None:
+        self._work = work
+        self._path: Path | None = None
+
+    def root(self) -> Path:
+        if self._path is not None:
+            return self._path
+        loc = os.environ.get("PAIMAN_REGISTRY", DEFAULT_REGISTRY)
+        if _is_url(loc):
+            dest = self._work / "registry"
+            self._path = _clone(loc, dest)
+        else:
+            p = Path(loc).expanduser()
+            if not p.is_dir():
+                raise SystemExit(f"paiman: registry {loc!r} is not a directory or URL")
+            self._path = p.resolve()
+        return self._path
+
+    def lookup(self, name: str) -> Path:
+        pkg_dir = self.root() / name
+        if not (pkg_dir / "package.yaml").is_file():
+            raise SystemExit(
+                f"paiman: {name!r} not found in registry {self.root()}"
+            )
+        return pkg_dir
+
+
+def _resolve_source(arg: str, registry: _Registry, work: Path) -> Path:
+    """Map a CLI source argument to an on-disk source tree with package.yaml."""
+    if _is_url(arg):
+        return _clone(arg, work / "url-src")
+    p = Path(arg).expanduser()
+    if p.is_dir():
+        return p.resolve()
+    # Bare name → registry lookup.
+    return registry.lookup(arg)
+
+
+def _load_manifest(src: Path) -> dict:
+    pkg = src / "package.yaml"
+    if not pkg.is_file():
+        raise SystemExit(f"paiman: {pkg} not found")
+    try:
+        with pkg.open() as f:
+            data = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        raise SystemExit(f"paiman: invalid package.yaml: {e}") from e
+    if not isinstance(data, dict):
+        raise SystemExit("paiman: package.yaml must be a mapping")
+    return data
+
+
+def _audit_log(line: str) -> None:
+    log_dir = paths.var_lib_paiman()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    with (log_dir / "log.md").open("a") as f:
+        f.write(f"- {ts}  {line}\n")
+
+
+def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
+                         seen: set[str]) -> str:
+    """Install one bundle from a resolved source tree. Returns the bundle name.
+    Recursive for pai bundles via their `deps:` list."""
+    manifest = _load_manifest(src)
+    name = manifest.get("name")
+    kind = manifest.get("kind")
+    entrypoint = manifest.get("entrypoint")
+    if not name or not isinstance(name, str):
+        raise SystemExit(f"paiman: package.yaml at {src} missing 'name'")
     _validate_name(name)
-    if bundle_type not in BUNDLE_TYPES:
+    if kind not in INSTALLABLE_KINDS:
         raise SystemExit(
-            f"paiman: unknown --type {bundle_type!r} "
-            f"(known: {', '.join(sorted(BUNDLE_TYPES))})"
+            f"paiman: kind {kind!r} not installable "
+            f"(known: {', '.join(INSTALLABLE_KINDS)})"
         )
-    root_fn, pkg_tmpl, prompt_tmpl = BUNDLE_TYPES[bundle_type]
-    bundle_dir: Path = root_fn() / name
-    if bundle_dir.exists():
-        raise SystemExit(f"paiman: bundle already exists at {bundle_dir}")
-    bundle_dir.mkdir(parents=True)
-    (bundle_dir / "package.yaml").write_text(pkg_tmpl.format(name=name))
-    (bundle_dir / "prompt.md").write_text(prompt_tmpl.format(name=name))
-    print(f"scaffolded {bundle_type} bundle at {bundle_dir}")
+    if name in seen:
+        raise SystemExit(f"paiman: dependency cycle detected at {name!r}")
+    seen.add(name)
+
+    if kind in ("bin", "prompt"):
+        if not entrypoint:
+            raise SystemExit(f"paiman: {kind} bundle requires 'entrypoint'")
+        if not (src / entrypoint).is_file():
+            raise SystemExit(f"paiman: entrypoint {entrypoint!r} not found in source")
+
+    # For pai bundles, resolve deps first so we fail fast before touching disk.
+    if kind == "pai":
+        deps = manifest.get("deps") or []
+        if not isinstance(deps, list):
+            raise SystemExit("paiman: pai bundle 'deps' must be a list of names")
+        for dep in deps:
+            if not isinstance(dep, str):
+                raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
+            if (paths.opt_paiman() / dep).is_dir():
+                continue  # already installed; mutable, leave it alone
+            dep_src = registry.lookup(dep)
+            _install_from_source(dep_src, dep, registry, work, seen)
+
+    # Copy to /opt/paiman/<name>/ (overwrite).
+    dest = paths.opt_paiman() / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() or dest.is_symlink():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest, ignore=COPY_IGNORE, symlinks=False)
+
+    # Activate.
+    slot, target = _activation_slot(kind, name, entrypoint)
+    _atomic_symlink(target, slot)
+    if kind == "bin":
+        try:
+            target.chmod(target.stat().st_mode | 0o111)
+        except OSError:
+            pass
+
+    _audit_log(f"install {kind} {name} from {src_arg}")
+    print(f"installed {kind} {name} -> {slot}")
+    return name
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    src_arg: str = args.source
+    with tempfile.TemporaryDirectory(prefix="paiman-") as tmp:
+        work = Path(tmp)
+        registry = _Registry(work)
+        src = _resolve_source(src_arg, registry, work)
+        _install_from_source(src, src_arg, registry, work, seen=set())
     return 0
 
 
-def _iter_bundles(bundle_type: str) -> list[tuple[str, dict]]:
-    root_fn, _, _ = BUNDLE_TYPES[bundle_type]
+def _bundles_depending_on(name: str) -> list[str]:
+    """Return the names of installed pai bundles that list `name` in their deps."""
+    out: list[str] = []
+    root = paths.opt_paiman()
+    if not root.exists():
+        return out
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir() or entry.name == name:
+            continue
+        pkg = entry / "package.yaml"
+        if not pkg.is_file():
+            continue
+        try:
+            with pkg.open() as f:
+                data = yaml.safe_load(f) or {}
+        except yaml.YAMLError:
+            continue
+        if data.get("kind") != "pai":
+            continue
+        if name in (data.get("deps") or []):
+            out.append(entry.name)
+    return out
+
+
+def cmd_remove(args: argparse.Namespace) -> int:
+    name: str = args.name
+    _validate_name(name)
+    bundle_dir = paths.opt_paiman() / name
+    if not bundle_dir.is_dir():
+        raise SystemExit(f"paiman: {name!r} is not installed")
+    dependents = _bundles_depending_on(name)
+    if dependents and not args.force:
+        raise SystemExit(
+            f"paiman: cannot remove {name!r}; required by pai bundle(s): "
+            f"{', '.join(dependents)} (use --force to override)"
+        )
+    manifest = _load_manifest(bundle_dir)
+    kind = manifest.get("kind")
+    entrypoint = manifest.get("entrypoint")
+    if kind in INSTALLABLE_KINDS:
+        slot, _ = _activation_slot(kind, name, entrypoint)
+        if slot.is_symlink() or slot.exists():
+            slot.unlink()
+    shutil.rmtree(bundle_dir)
+    _audit_log(f"remove {kind} {name}")
+    print(f"removed {kind} {name}")
+    return 0
+
+
+# ---------- list / show ----------
+
+def _iter_legacy_bundles(bundle_type: str) -> list[tuple[str, dict]]:
+    root_fn, _, _ = SCAFFOLD_TYPES[bundle_type]
     root = root_fn()
     if not root.exists():
         return []
     out: list[tuple[str, dict]] = []
     for entry in sorted(root.iterdir()):
+        if entry.is_symlink():
+            continue
+        pkg = entry / "package.yaml"
+        if not pkg.exists():
+            continue
+        try:
+            with pkg.open() as f:
+                data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as e:
+            data = {"_error": str(e)}
+        out.append((entry.name, data))
+    return out
+
+
+def _iter_installed() -> list[tuple[str, dict]]:
+    root = paths.opt_paiman()
+    if not root.exists():
+        return []
+    out: list[tuple[str, dict]] = []
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir():
+            continue
         pkg = entry / "package.yaml"
         if not pkg.exists():
             continue
@@ -143,12 +405,24 @@ def _iter_bundles(bundle_type: str) -> list[tuple[str, dict]]:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
+    installed = _iter_installed()
+    print("installed (paiman):")
+    if not installed:
+        print("  (none)")
+    else:
+        for name, data in installed:
+            if "_error" in data:
+                print(f"  {name}  [parse error: {data['_error']}]")
+                continue
+            kind = data.get("kind", "?")
+            version = data.get("version", "?")
+            print(f"  {name}  [{kind} {version}]")
+
     for bundle_type in ("pai", "subagent"):
-        bundles = _iter_bundles(bundle_type)
-        print(f"{bundle_type}s:")
+        bundles = _iter_legacy_bundles(bundle_type)
         if not bundles:
-            print("  (none)")
             continue
+        print(f"{bundle_type}s (scaffolded):")
         for name, data in bundles:
             if "_error" in data:
                 print(f"  {name}  [parse error: {data['_error']}]")
@@ -163,9 +437,11 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_show(args: argparse.Namespace) -> int:
     name: str = args.name
+    candidates = [paths.opt_paiman() / name / "package.yaml"]
     for bundle_type in ("pai", "subagent"):
-        root_fn, _, _ = BUNDLE_TYPES[bundle_type]
-        pkg = root_fn() / name / "package.yaml"
+        root_fn, _, _ = SCAFFOLD_TYPES[bundle_type]
+        candidates.append(root_fn() / name / "package.yaml")
+    for pkg in candidates:
         if pkg.exists():
             print(f"# {pkg}")
             print(pkg.read_text(), end="")
@@ -173,26 +449,55 @@ def cmd_show(args: argparse.Namespace) -> int:
     raise SystemExit(f"paiman: bundle {name!r} not found")
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    name: str = args.name
+    bundle_type: str = args.type
+    _validate_name(name)
+    if bundle_type not in SCAFFOLD_TYPES:
+        raise SystemExit(
+            f"paiman: unknown --type {bundle_type!r} "
+            f"(known: {', '.join(sorted(SCAFFOLD_TYPES))})"
+        )
+    root_fn, pkg_tmpl, prompt_tmpl = SCAFFOLD_TYPES[bundle_type]
+    bundle_dir: Path = root_fn() / name
+    if bundle_dir.exists():
+        raise SystemExit(f"paiman: bundle already exists at {bundle_dir}")
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "package.yaml").write_text(pkg_tmpl.format(name=name))
+    (bundle_dir / "prompt.md").write_text(prompt_tmpl.format(name=name))
+    print(f"scaffolded {bundle_type} bundle at {bundle_dir}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="paiman", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p_init = sub.add_parser("init", help="scaffold a new bundle template")
-    p_init.add_argument("name", help="bundle name (e.g., email-pai)")
-    p_init.add_argument(
-        "--type",
-        default="pai",
-        choices=sorted(BUNDLE_TYPES),
-        help="bundle type (default: pai)",
-    )
-    p_init.set_defaults(func=cmd_init)
+    p_install = sub.add_parser("install", help="install a bundle (registry name, local path, or git URL)")
+    p_install.add_argument("source", help="bundle name in the registry, local directory path, or git URL (optionally @ref)")
+    p_install.set_defaults(func=cmd_install)
+
+    p_remove = sub.add_parser("remove", help="remove an installed bundle")
+    p_remove.add_argument("name", help="bundle name")
+    p_remove.add_argument("--force", action="store_true", help="remove even if a pai bundle depends on it")
+    p_remove.set_defaults(func=cmd_remove)
 
     p_list = sub.add_parser("list", help="list installed bundles")
     p_list.set_defaults(func=cmd_list)
 
-    p_show = sub.add_parser("show", help="print resolved package.yaml")
+    p_show = sub.add_parser("show", help="print package.yaml")
     p_show.add_argument("name", help="bundle name")
     p_show.set_defaults(func=cmd_show)
+
+    p_init = sub.add_parser("init", help="scaffold a new bundle template (legacy pai/subagent)")
+    p_init.add_argument("name", help="bundle name (e.g., email-pai)")
+    p_init.add_argument(
+        "--type",
+        default="pai",
+        choices=sorted(SCAFFOLD_TYPES),
+        help="bundle type (default: pai)",
+    )
+    p_init.set_defaults(func=cmd_init)
 
     args = ap.parse_args(argv)
     return args.func(args)

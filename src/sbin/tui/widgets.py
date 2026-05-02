@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from rich.markdown import Markdown
 from rich.text import Text
 from textual.widgets import DataTable, RichLog
 
@@ -31,20 +32,27 @@ class ChatPane(RichLog):
 
     def render_snapshot(self, snap: MeSnapshot) -> None:
         self.clear()
-        for line in snap.lines:
-            self.write(self._style_line(line))
+        for i, msg in enumerate(snap.messages):
+            header, body = self._style_message(msg)
+            self.write(header)
+            if body is not None:
+                self.write(body)
+            if i < len(snap.messages) - 1:
+                self.write(Text(""))
 
     @staticmethod
-    def _style_line(line: str) -> Text:
-        # Expected format: "[HH:MM] sender: body"
-        t = Text(line)
+    def _style_message(msg: str) -> tuple[Text, Markdown | None]:
+        # Split "[HH:MM] sender: <body>" into a styled header and a
+        # Markdown body. Body may span multiple lines; markdown rendering
+        # turns headings/lists/fences into proper Rich renderables.
+        first_line_end = msg.find("\n")
+        head = msg if first_line_end < 0 else msg[:first_line_end]
         try:
-            # find the " sender: " segment
-            rb = line.index("] ")
-            colon = line.index(":", rb)
-            sender = line[rb + 2 : colon].strip().lower()
+            rb = head.index("] ")
+            colon = head.index(":", rb)
+            sender = head[rb + 2 : colon].strip().lower()
         except ValueError:
-            return t
+            return Text(msg), None
         style = "bold cyan"
         if sender == "me":
             style = "bold green"
@@ -52,9 +60,21 @@ class ChatPane(RichLog):
             style = "bold magenta"
         elif sender.startswith("[kernel"):
             style = "dim"
-        t.stylize(style, rb + 2, colon + 1)
-        t.stylize("dim", 0, rb + 1)  # the [HH:MM]
-        return t
+        header_str = head[: colon + 1]
+        header = Text(header_str)
+        header.stylize(style, rb + 2, colon + 1)
+        header.stylize("dim", 0, rb + 1)  # the [HH:MM]
+
+        # Body = everything after "sender: " on the first line, plus all
+        # subsequent lines. The space after the colon (if present) is the
+        # author's separator, not body content.
+        after_colon = head[colon + 1 :]
+        first_body = after_colon[1:] if after_colon.startswith(" ") else after_colon
+        rest = "" if first_line_end < 0 else msg[first_line_end:]
+        body_str = first_body + rest
+        if body_str.strip() == "":
+            return header, None
+        return header, Markdown(body_str)
 
 
 class ProcList(DataTable):

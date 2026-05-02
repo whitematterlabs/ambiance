@@ -72,6 +72,10 @@ def var_spool_email() -> Path:
     return PAI_ROOT / "var" / "spool" / "communication" / "email"
 
 
+def var_spool_email_drafts() -> Path:
+    return var_spool_email() / "drafts"
+
+
 def var_log() -> Path:
     return PAI_ROOT / "var" / "log"
 
@@ -82,6 +86,10 @@ def proc(name: str) -> Path:
 
 def run_pais(name: str) -> Path:
     return PAI_ROOT / "run" / "pais" / name
+
+
+def usr_bin() -> Path:
+    return PAI_ROOT / "usr" / "bin"
 
 
 def usr_lib_drivers() -> Path:
@@ -114,3 +122,11 @@ def usr_src() -> Path:
 
 def opt(pkg: str, version: str) -> Path:
     return PAI_ROOT / "opt" / pkg / version
+
+
+def opt_paiman() -> Path:
+    return PAI_ROOT / "opt" / "paiman"
+
+
+def var_lib_paiman() -> Path:
+    return PAI_ROOT / "var" / "lib" / "paiman"

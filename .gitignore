@@ -25,3 +25,6 @@ wheels/
 /tmp/
 /usr/
 /var/
+
+# Abandoned IMAP/maildir driver work — kept locally for reference, not shipped.
+/deprecated/

@@ -9,10 +9,17 @@ to receive the next snapshot.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
+
+# Each message in a me-thread day-file starts with this prefix on its own
+# line: `[HH:MM] sender: ...`. Subsequent lines (until the next match or
+# EOF) belong to the same message — that's how multi-line markdown bodies
+# survive without their internal `\n\n` paragraph breaks fragmenting them.
+_MSG_HEADER = re.compile(r"^\[\d{2}:\d{2}\] \S+:")
 
 import yaml
 from watchdog.events import FileSystemEventHandler
@@ -65,7 +72,7 @@ class _Poker(FileSystemEventHandler):
 @dataclass
 class MeSnapshot:
     day_file: Path
-    lines: list[str]  # raw lines, no trailing newlines
+    messages: list[str] = field(default_factory=list)  # raw multi-line message bodies
 
 
 class MeThreadWatcher:
@@ -105,12 +112,24 @@ class MeThreadWatcher:
     async def next(self) -> MeSnapshot:
         await self.queue.get()
         path = today_file(self.pid)
-        if path.exists():
-            text = path.read_text(encoding="utf-8", errors="replace")
-            lines = [ln for ln in text.splitlines() if ln.strip()]
-        else:
-            lines = []
-        return MeSnapshot(day_file=path, lines=lines)
+        if not path.exists():
+            return MeSnapshot(day_file=path)
+        text = path.read_text(encoding="utf-8", errors="replace")
+        messages: list[str] = []
+        current: list[str] = []
+        for ln in text.splitlines():
+            if _MSG_HEADER.match(ln):
+                if current:
+                    messages.append("\n".join(current).rstrip())
+                current = [ln]
+            elif current:
+                current.append(ln)
+            # Lines before any header (e.g. accidental leading content)
+            # are dropped — there's no message to attach them to.
+        if current:
+            messages.append("\n".join(current).rstrip())
+        messages = [m for m in messages if m]
+        return MeSnapshot(day_file=path, messages=messages)
 
 
 # --- proc/ -----------------------------------------------------------------

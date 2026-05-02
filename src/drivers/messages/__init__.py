@@ -206,7 +206,12 @@ def _sender_name(slug: str, display_name: Optional[str]) -> str:
 def _append_day_file(slug: str, sender: str, text: str, at: datetime) -> Path:
     thread_dir = MESSAGES_DIR / slug
     day_file = thread_dir / f"{at.date().isoformat()}.md"
-    line = f"[{at.strftime('%H:%M')}] {sender}: {text.rstrip()}\n"
+    # Collapse embedded newlines to a single visible marker. The imessage
+    # outbound tailer treats any bare (non-bracket-prefixed) line as a send
+    # draft, so a multi-line inbound body would otherwise get parroted back
+    # to the sender line-by-line.
+    flat = text.replace("\r\n", "\n").replace("\n", " ↵ ").rstrip()
+    line = f"[{at.strftime('%H:%M')}] {sender}: {flat}\n"
     with day_file.open("a") as f:
         f.write(line)
     return day_file

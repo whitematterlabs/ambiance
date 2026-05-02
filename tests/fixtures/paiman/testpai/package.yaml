@@ -1,0 +1,10 @@
+name: testpai
+kind: pai
+version: 0.1.0
+description: "Test pai bundle"
+provider: anthropic
+prompt: prompt.md
+deps:
+  - testskill1
+  - testbin1
+  - testprompt1

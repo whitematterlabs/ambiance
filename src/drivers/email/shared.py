@@ -70,8 +70,13 @@ def _atomic_write(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def write_message_yaml(account_dir: Path, msg: dict) -> Path:
+def write_message_yaml(account_dir: Path, msg: dict) -> tuple[Path, bool]:
     """Write per-message yaml under {account_dir}/{date}/{subject-slug}.yaml.
+
+    Returns (path, created). `created=False` when an existing yaml with the
+    same Message-ID was found — caller can use that to skip duplicate event
+    emission when the cursor is parked behind a `.partial.emlx` row and a
+    later, already-ingested row is being re-scanned.
 
     Uses `received_at` for inbound, falls back to `sent_at` for outbound.
     Appends `-{HH-MM}` on same-day slug collision.
@@ -80,19 +85,25 @@ def write_message_yaml(account_dir: Path, msg: dict) -> Path:
     if not ts:
         raise ValueError("message must have received_at or sent_at")
     dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(ts)
+
+    message_id = (msg.get("message_id") or "").strip()
+    if message_id:
+        existing = find_message_by_id(account_dir, message_id)
+        if existing is not None:
+            return existing, False
+
     date_dir = account_dir / dt.date().isoformat()
     slug = subject_slug(msg.get("subject", ""))
 
     path = date_dir / f"{slug}.yaml"
     if path.exists():
         path = date_dir / f"{slug}-{dt.strftime('%H-%M')}.yaml"
-        # Last-resort: append seconds.
         if path.exists():
             path = date_dir / f"{slug}-{dt.strftime('%H-%M-%S')}.yaml"
 
     body = yaml.safe_dump(msg, sort_keys=False, allow_unicode=True)
     _atomic_write(path, body)
-    return path
+    return path, True
 
 
 def link_thread(account_dir: Path, msg_path: Path, t_slug: str, received_at: datetime) -> Path:
