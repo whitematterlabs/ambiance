@@ -79,11 +79,17 @@ class EventWatcher:
         return await self.queue.get()
 
 
-def read_event(path: Path) -> dict:
-    """Parse an event file and consume it (delete from disk)."""
+def read_event(path: Path) -> Optional[dict]:
+    """Parse an event file and consume it (delete from disk).
+
+    Returns None if the file is gone — racy proc-watcher / consumer
+    interleavings can hand us a path that's already been read+unlinked.
+    """
     try:
         with path.open() as f:
             data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return None
     finally:
         try:
             path.unlink()

@@ -34,22 +34,33 @@ def test_boot_runs_and_supervises(tmp_path: Path) -> None:
         text=True,
         start_new_session=True,
     )
-    deadline = time.time() + 10
     saw_supervise = False
     out_buf: list[str] = []
-    while time.time() < deadline:
-        line = proc.stdout.readline()
-        if not line:
-            if proc.poll() is not None:
-                break
-            continue
-        out_buf.append(line)
-        if "supervise: started" in line:
-            saw_supervise = True
-            break
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    proc.wait(timeout=5)
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                if proc.poll() is not None:
+                    break
+                continue
+            out_buf.append(line)
+            if "supervise: started" in line:
+                saw_supervise = True
+                break
+    finally:
+        # Always reap the subprocess group, even if assertions or the
+        # readline loop raised. Escalate SIGTERM → SIGKILL so a hung
+        # kernel never leaks into a real ~/.pai run after the pytest
+        # tempdir gets reaped.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                break
+            try:
+                proc.wait(timeout=5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
     assert saw_supervise, f"never reached supervise loop. output:\n{''.join(out_buf)}"

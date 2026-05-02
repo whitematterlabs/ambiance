@@ -170,6 +170,8 @@ async def _drain_elapsed_timers(heap: list[T.TimerEntry], now: datetime) -> None
 
 async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
     event = read_event(path)
+    if event is None:
+        return
     kind = event.get("kind")
 
     if kind == "interrupt":

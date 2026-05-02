@@ -118,11 +118,20 @@ def _load_cursor() -> Optional[int]:
 
 
 def _save_cursor(last_rowid: int) -> None:
-    CURSOR_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = CURSOR_PATH.with_suffix(".yaml.tmp")
-    with tmp.open("w") as f:
-        yaml.safe_dump({"last_rowid": last_rowid}, f)
-    os.replace(tmp, CURSOR_PATH)
+    # Retry once: on macOS, tmp/ can be reaped (Spotlight, periodic cleanup,
+    # external rm -rf) between mkdir and the rename. If the .tmp file vanishes
+    # before os.replace, recreate the dir and try again.
+    for attempt in range(2):
+        CURSOR_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = CURSOR_PATH.with_suffix(".yaml.tmp")
+        try:
+            with tmp.open("w") as f:
+                yaml.safe_dump({"last_rowid": last_rowid}, f)
+            os.replace(tmp, CURSOR_PATH)
+            return
+        except FileNotFoundError:
+            if attempt == 1:
+                raise
 
 
 def _mac_date_to_iso(mac_date: int) -> str:

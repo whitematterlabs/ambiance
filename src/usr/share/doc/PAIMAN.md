@@ -91,6 +91,13 @@ pairegistry/
 
 Configured via `$PAIMAN_REGISTRY` (default `https://github.com/whitematterlabs/pairegistry`). Either a git URL or a local directory of the same shape — local works for tests and offline dev. paiman shallow-clones the registry once per `install` invocation and reuses it for all dep lookups in that run.
 
+For local registry iteration, clone the registry repo and point paiman at the working copy:
+
+```bash
+git clone git@github.com:whitematterlabs/pairegistry.git ~/Projects/pairegistry
+export PAIMAN_REGISTRY=~/Projects/pairegistry
+```
+
 ## Commands
 
 ```
