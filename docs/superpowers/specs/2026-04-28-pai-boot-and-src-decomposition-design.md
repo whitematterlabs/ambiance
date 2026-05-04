@@ -10,7 +10,7 @@
 Move PAI from a Python-package shape (`src/` is the runtime) to a
 self-contained quasi-Linux filesystem at `~/.pai/`. After install,
 the agent's whole world — code, config, state, runtime — lives
-under `~/.pai/`. The repo at `/Users/arda/Projects/pai/` is build
+under `~/.pai/`. The repo at `~/Projects/pai/` is build
 input; it is not what runs.
 
 This spec covers two coupled changes:

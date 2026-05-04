@@ -11,7 +11,7 @@ PAI's reply flow "just work" on the result.
 Usage:
     mailsearch --from bob@example.com --limit 10
     mailsearch --subject "Q3 budget" --since 2025-01-01
-    mailsearch --to me@example.com --account arda@icloud.com --unread
+    mailsearch --to me@example.com --account me@icloud.com --unread
     mailsearch --flagged --since 2024-06-01
 
 At least one of --from, --to, --subject, --since is required so we

@@ -229,7 +229,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         if from_me:
             # chat.db is reflecting a send back at us. If PAI drafted it,
             # outbound._append_canonical already wrote the line — drop the
-            # echo. Otherwise it's Arda texting from his phone/Mac and
+            # echo. Otherwise it's the owner texting from their phone/Mac and
             # we need to log it as `me:` and nudge.
             existing_slug = M.resolve_slug(handle, event.get("chat_guid"))
             if existing_slug and outbound_echo.consume(existing_slug, text):

@@ -67,7 +67,7 @@ config. To make them durable, declare under `dependencies:`.
 ## Addressing
 
 ```sh
-bin/ipc --to pai.memory --content "remember: arda likes earl grey"
+bin/ipc --to pai.memory --content "remember: the owner likes earl grey"
 ```
 
 The persub replies via `bin/subagent reply`, emitting a

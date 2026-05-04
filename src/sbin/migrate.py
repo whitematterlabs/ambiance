@@ -373,23 +373,20 @@ def write_myself():
     identity = myself_dir / "identity.yaml"
     if not identity.exists():
         identity.write_text(
-            "name: Arda\n"
-            "age: 22\n"
-            "location: San Francisco\n"
-            "hometown: Istanbul\n"
-            "languages:\n"
-            "  - English\n"
-            "  - Turkish\n"
+            "# Owner identity. Fill in what PAI should know about you.\n"
+            "# name: Your Name\n"
+            "# location: City\n"
+            "# languages:\n"
+            "#   - English\n"
         )
 
     directives = myself_dir / "directives.md"
     if not directives.exists():
         directives.write_text(
-            "- Always say yes to playing basketball\n"
-            "- Maintain a chill, casual tone\n"
-            "- Don't over-explain things\n"
-            "- If someone asks to hang out, lean towards yes\n"
-            "- Keep messages short — no walls of text\n"
+            "# Behavioral directives — how PAI should act on your behalf.\n"
+            "# One bullet per rule. Examples:\n"
+            "# - Maintain a casual tone\n"
+            "# - Keep messages short\n"
         )
 
     print("  myself/ written")

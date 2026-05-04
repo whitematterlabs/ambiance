@@ -226,12 +226,12 @@ def test_run_search_emits_yaml_for_hits(monkeypatch, tmp_path, capsys) -> None:
     def fake_ingest(row, cfg):
         ingest_calls.append(int(row["rowid"]))
         return {
-            "account": "arda@example.com",
+            "account": "owner@example.com",
             "thread_slug": "x-abc",
             "subject": f"hit {row['rowid']}",
             "from": "bob@example.com",
             "direction": "inbound",
-            "path": f"var/spool/communication/email/arda@example.com/2025-08-12/hit-{row['rowid']}.yaml",
+            "path": f"var/spool/communication/email/owner@example.com/2025-08-12/hit-{row['rowid']}.yaml",
             "_created": True,
         }
 
@@ -245,7 +245,7 @@ def test_run_search_emits_yaml_for_hits(monkeypatch, tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert "from: bob@example.com" in out
     assert "subject: hit 1" in out
-    assert "var/spool/communication/email/arda@example.com" in out
+    assert "var/spool/communication/email/owner@example.com" in out
 
 
 def test_run_search_skips_partial_emlx(monkeypatch, tmp_path, capsys) -> None:

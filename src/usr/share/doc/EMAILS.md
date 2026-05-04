@@ -6,8 +6,8 @@ No cloud OAuth. No GCP/Azure projects. If Mail.app can talk to it, PAI can.
 
 ## Scope
 
-- **In:** read inbound mail (every account); mirror outbound (sends Arda makes from Mail.app, or drafts PAI wrote that Arda then sent).
-- **In (v1):** PAI writes drafts. Arda reviews + sends in Mail.app manually. PAI does **not** autosend.
+- **In:** read inbound mail (every account); mirror outbound (sends the owner makes from Mail.app, or drafts PAI wrote that the owner then sent).
+- **In (v1):** PAI writes drafts. The owner reviews + sends in Mail.app manually. PAI does **not** autosend.
 - **Out:** calendar, contacts, tasks, attachments-as-first-class blobs, search, labels/categories, autosend. Add later.
 - **No backfill.** Bootstrap captures the current `messages.ROWID` cursor and only ingests mail that arrives after that point.
 
@@ -31,7 +31,7 @@ home/communication/email/
 
 Drafts are forward-looking — the account they belong to is declared by the `from:` field on the yaml itself, not by directory placement. Received and sent mail stay per-account because the account is a fact about the message.
 
-- `{account}` is the full email address, e.g. `arda@icloud.com`. Created automatically on first sight; no `paiadd` step.
+- `{account}` is the full email address, e.g. `me@icloud.com`. Created automatically on first sight; no `paiadd` step.
 - `{YYYY-MM-DD}` is the date the message was received (or sent, for outbound) in local time.
 - `{subject-slug}` is the subject sanitized: `Re:`/`Fwd:` stripped, non-alphanumerics replaced with `-`, capped at ~80 chars. Same-day collisions append `-{HH-MM}`.
 
@@ -77,7 +77,7 @@ Two indexes point at the same canonical files in `{date}/`:
 Auto-created on first inbound mail for an account. No manual config.
 
 ```yaml
-account: arda@icloud.com
+account: me@icloud.com
 provider: macmail
 account_uuid: 0A836680-D0A5-4916-A3D8-24F5FC1C1204
 created: 2026-04-30
@@ -120,7 +120,7 @@ Names containing diacritics are URL-encoded as Apple does — NFD-decomposed UTF
 #### Draft yaml shape
 
 ```yaml
-from: arda@icloud.com                       # required — picks the Mail.app account
+from: me@icloud.com                          # required — picks the Mail.app account
 to:  [bob@example.com]
 cc:  []
 subject: Re: that thing
@@ -129,7 +129,7 @@ content: |
 in_reply_to: <abc@xyz>                      # optional — switches to reply path
 ```
 
-When Arda eventually clicks send in Mail.app, the message hits `Sent Messages.mbox` → inbound's widened SQL filter picks it up → canonical outbound yaml lands under `{from-account}/{date}/`.
+When the owner eventually clicks send in Mail.app, the message hits `Sent Messages.mbox` → inbound's widened SQL filter picks it up → canonical outbound yaml lands under `{from-account}/{date}/`.
 
 ## Events
 

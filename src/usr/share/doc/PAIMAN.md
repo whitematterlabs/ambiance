@@ -69,7 +69,7 @@ Three install vectors, in order of precedence:
 ```bash
 paiman install testskill1                           # bare name → registry lookup (default)
 paiman install ~/dev/email-pai/                     # existing local directory
-paiman install github.com/arda/email-pai@v0.3.1     # git URL @ optional ref
+paiman install github.com/example/email-pai@v0.3.1  # git URL @ optional ref
 ```
 
 paiman resolves the argument by trying URL → existing-dir → registry-name. All three end with the bundle at `/opt/paiman/<name>/`.
@@ -103,10 +103,46 @@ export PAIMAN_REGISTRY=~/Projects/pairegistry
 ```
 paiman install <path-or-url>     # ingest a bundle and activate it (overwrites in place)
 paiman remove <name>              # remove activation symlink and /opt/paiman/<name>/
-paiman list                       # what's installed
+paiman list                       # what's installed locally
+paiman search [pattern] [--kind ..] # what's available in the registry (clones if remote)
 paiman show <name>                # print package.yaml
 paiman init <name> [--type ...]   # scaffold a new bundle template (legacy pai/subagent for now)
 ```
+
+## Standard flow — bringing a new capability online
+
+PAI capabilities are discovered, installed, configured, and run as four
+distinct steps. Skipping any of them leaves the capability unreachable.
+
+```sh
+# 1. Discover. What's available to install?
+paiman search                        # everything in the registry
+paiman search email                  # filter by name
+paiman search --kind pai             # filter by bundle kind
+
+# 2. Install the bundle (resolves and pulls deps — drivers, skills, bins).
+paiman install email-pai
+
+# 3. Configure an instance of it. Wizard prompts for name, model, etc.,
+#    writes /etc/config.yaml + /var/lib/instances/<name>/, emits
+#    kernel:reload_config.
+paiadd email-pai            # → produces e.g. instance "email"
+
+# 4. Mark the instance active. Flips /proc/<name>/spec.yaml `active: true`
+#    and emits kernel:reload_config so the supervisor spawns it.
+paictl start email
+
+# 5. (Often required) Re-exec the kernel so the new driver wake_on globs
+#    are picked up by event routing.
+sbin/reboot
+```
+
+When asked to "set up <surface>" (email, calendar, messages, contacts), the
+correct first move is `paiman search <surface>` — the package manager is
+the discovery surface, not grep across kernel source.
+
+`paiadd` and `paictl` sit *above* paiman; they don't install anything,
+they only configure and run what paiman has already laid down.
 
 ## Install flow
 

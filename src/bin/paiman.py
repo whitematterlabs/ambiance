@@ -465,6 +465,77 @@ def cmd_show(args: argparse.Namespace) -> int:
     raise SystemExit(f"paiman: bundle {name!r} not found")
 
 
+def _iter_registry(root: Path) -> list[tuple[str, dict, Path]]:
+    """Walk the registry root looking for bundles. Handles both layouts:
+    flat (`<root>/<name>/package.yaml`) and kind-foldered
+    (`<root>/<kind>/<name>/package.yaml`). Returns (name, manifest, path)."""
+    out: list[tuple[str, dict, Path]] = []
+    seen: set[str] = set()
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        pkg = entry / "package.yaml"
+        if pkg.is_file():
+            try:
+                with pkg.open() as f:
+                    data = yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                data = {"_error": str(e)}
+            if entry.name not in seen:
+                seen.add(entry.name)
+                out.append((entry.name, data, entry))
+            continue
+        for sub in sorted(entry.iterdir()):
+            if not sub.is_dir():
+                continue
+            spkg = sub / "package.yaml"
+            if not spkg.is_file():
+                continue
+            try:
+                with spkg.open() as f:
+                    data = yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                data = {"_error": str(e)}
+            if sub.name not in seen:
+                seen.add(sub.name)
+                out.append((sub.name, data, sub))
+    return out
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    """List bundles available in the registry. Clones if registry is a URL."""
+    pattern: str | None = (args.pattern or "").lower() or None
+    kind_filter: str | None = args.kind
+    with tempfile.TemporaryDirectory(prefix="paiman-") as tmp:
+        work = Path(tmp)
+        registry = _Registry(work)
+        root = registry.root()
+        bundles = _iter_registry(root)
+        loc = os.environ.get("PAIMAN_REGISTRY", DEFAULT_REGISTRY)
+        print(f"available (registry: {loc}):")
+        printed = 0
+        for name, data, _ in bundles:
+            if "_error" in data:
+                if kind_filter or pattern:
+                    continue
+                print(f"  {name}  [parse error: {data['_error']}]")
+                printed += 1
+                continue
+            kind = data.get("kind", "?")
+            if kind_filter and kind != kind_filter:
+                continue
+            if pattern and pattern not in name.lower():
+                continue
+            version = data.get("version", "?")
+            desc = (data.get("description") or "").strip()
+            tail = f"  — {desc}" if desc else ""
+            print(f"  {name}  [{kind} {version}]{tail}")
+            printed += 1
+        if printed == 0:
+            print("  (none)")
+    return 0
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     name: str = args.name
     bundle_type: str = args.type
@@ -504,6 +575,14 @@ def main(argv: list[str] | None = None) -> int:
     p_show = sub.add_parser("show", help="print package.yaml")
     p_show.add_argument("name", help="bundle name")
     p_show.set_defaults(func=cmd_show)
+
+    p_search = sub.add_parser(
+        "search",
+        help="list bundles available in the registry (clones if registry is a URL)",
+    )
+    p_search.add_argument("pattern", nargs="?", help="optional substring filter on bundle name")
+    p_search.add_argument("--kind", help="filter by kind (driver, skill, pai, bin, prompt)")
+    p_search.set_defaults(func=cmd_search)
 
     p_init = sub.add_parser("init", help="scaffold a new bundle template (legacy pai/subagent)")
     p_init.add_argument("name", help="bundle name (e.g., email-pai)")

@@ -12,7 +12,7 @@ description: Use when an `email:new` event arrives and you've decided this email
 - `email:draft_failed` arrived with a fixable error and you're patching
   the yaml.
 
-Triage criteria (don't-reply / reply / surface-to-Arda) live in the
+Triage criteria (don't-reply / reply / surface-to-owner) live in the
 email-pai prompt — this skill is the *how*, not the *whether*.
 
 ## Where drafts live
@@ -29,7 +29,7 @@ exposed anywhere else. Same name twice = overwrite, so be specific.
 ## Draft yaml format
 
 ```yaml
-from: arda@example.com               # required — must match a Mail.app account
+from: owner@example.com              # required — must match a Mail.app account
 to:  [recipient@example.com]
 cc:  []
 bcc: []
@@ -41,7 +41,7 @@ references:                          # parent's references + parent's message_id
 content: |
   Plain text body. Multi-paragraph is fine.
 
-  Don't add a signature — Mail.app appends Arda's automatically.
+  Don't add a signature — Mail.app appends the owner's automatically.
 ```
 
 For a brand-new outbound (not a reply): omit `in_reply_to` and
@@ -68,14 +68,14 @@ these fields keeps the canonical yaml correct even if Mail's lookup fails.
 ## Pulling in older context with `mailsearch`
 
 The canonical tree only holds mail that arrived after macmail-in started.
-For older threads — anything Arda mentions like "the email Bob sent in
+For older threads — anything the owner mentions like "the email Bob sent in
 August" or "the contract thread from last quarter" — use `mailsearch` to
 query Mail.app's full index and materialize hits into the canonical tree.
 
 ```bash
 mailsearch --from bob@example.com --limit 5
 mailsearch --subject "Q3 budget" --since 2025-01-01
-mailsearch --to arda@icloud.com --account arda@icloud.com --since 2025-08-01
+mailsearch --to me@example.com --account me@example.com --since 2025-08-01
 ```
 
 At least one of `--from`, `--to`, `--subject`, `--since` is required.
@@ -86,7 +86,7 @@ on the same hit is a no-op) and ready to `cat` or `grep`.
 **When to reach for it:**
 - Drafting a reply that references a prior conversation you can't find on
   disk.
-- Answering an Arda nudge that names a sender, subject, or rough date.
+- Answering an owner nudge that names a sender, subject, or rough date.
 - Reconstructing a thread the cursor missed because it predates the
   driver.
 
@@ -153,7 +153,7 @@ After a successful draft:
 1. `cat communication/email/drafts/{name}.yaml` — `draft_state: drafted`.
 2. The draft appears in Mail.app's Drafts folder under the `from:` account.
 
-When Arda clicks Send, the message hits Sent → macmail-in ingests it as
+When the owner clicks Send, the message hits Sent → macmail-in ingests it as
 an outbound canonical yaml under `{from-account}/{date}/`. The draft yaml
 in `drafts/` stays put as the historical record of what you wrote.
 

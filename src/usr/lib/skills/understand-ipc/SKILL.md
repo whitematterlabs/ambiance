@@ -31,7 +31,7 @@ own children.
 bin/ipc --to 2 --content "fyi: gmail driver restarted"
 
 # Address by slug also works for persubs
-bin/ipc --to pai.memory --content "remember: arda likes earl grey"
+bin/ipc --to pai.memory --content "remember: the owner likes earl grey"
 
 # Emit a kernel event (no target_pid; broadcast through wake_on)
 bin/ipc emit kernel:reload_config

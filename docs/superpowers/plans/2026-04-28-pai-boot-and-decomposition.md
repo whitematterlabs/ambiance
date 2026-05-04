@@ -55,7 +55,7 @@
 - [ ] **Step 1: Verify nothing else holds the name**
 
 ```bash
-cd /Users/arda/Projects/pai
+cd ~/Projects/pai
 grep -rln '\bkernel\b' src tests pyproject.toml | sort -u
 ```
 
@@ -186,7 +186,7 @@ uv run python -m bin.paifs_init
 ls -la ~/.pai/boot
 ```
 
-Expected: `~/.pai/boot -> /Users/arda/Projects/pai/src/boot`. If a real dir exists from a prior run, remove it first (`rm -rf ~/.pai/boot/recovery && rmdir ~/.pai/boot`) and re-run.
+Expected: `~/.pai/boot -> ~/Projects/pai/src/boot`. If a real dir exists from a prior run, remove it first (`rm -rf ~/.pai/boot/recovery && rmdir ~/.pai/boot`) and re-run.
 
 - [ ] **Step 6: Commit**
 
@@ -1053,7 +1053,7 @@ uv run python -m bin.paifs_init
 ls -la ~/.pai/usr/share/
 ```
 
-Expected: `doc -> /Users/arda/Projects/pai/src/usr/share/doc`.
+Expected: `doc -> ~/Projects/pai/src/usr/share/doc`.
 
 - [ ] **Step 5: Run tests**
 

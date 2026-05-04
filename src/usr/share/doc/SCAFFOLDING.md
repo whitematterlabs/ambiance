@@ -153,13 +153,12 @@ The agent's self-knowledge at `memory/myself/`.
 ### identity.yaml
 
 ```yaml
-name: Arda
-age: 22
-location: San Francisco
-hometown: Istanbul
+name: Owner Name
+age: 30
+location: City
+hometown: Hometown
 languages:
   - English
-  - Turkish
 ```
 
 Elementary facts about the owner. The agent reads this to know who it is and ground its responses.
