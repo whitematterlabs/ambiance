@@ -85,10 +85,12 @@ def test_reconcile_spawns_and_cancels(
             cancelled.append(slug)
             raise
 
+    # _reconcile_drivers re-discovers from /usr/lib/drivers/ on every call,
+    # so monkeypatch the discovery function rather than the static tuple.
     monkeypatch.setattr(
         M,
-        "DRIVER_SPECS",
-        (("imessage-in", lambda: fake_run("imessage-in")),),
+        "_discover_driver_specs",
+        lambda: (("imessage-in", lambda: fake_run("imessage-in")),),
         raising=True,
     )
     M._driver_tasks.clear()

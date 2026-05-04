@@ -279,10 +279,27 @@ def build_system_prompt(
                 f"<subagent-mode>\n{subagent_tmpl.format(parent=parent)}</subagent-mode>\n\n"
             )
 
+    # Capability-gap escalation: every non-root, non-subagent PAI
+    # gets the "ask root to grow you a tool" fragment. Root handles
+    # the other side via the `grow-capability` skill; subagents
+    # escalate to their parent through `bin/subagent reply`, not
+    # through this channel.
+    escalation_block = ""
+    if pai != 1 and parent is None:
+        escalation_tmpl = _read_or_empty(
+            PAI_ROOT / "usr/share/prompts" / "capability-escalation.md"
+        )
+        if escalation_tmpl:
+            escalation_block = (
+                f"<capability-escalation>\n{escalation_tmpl}"
+                f"</capability-escalation>\n\n"
+            )
+
     return (
         f"<pai-instance>\n{pai_line}</pai-instance>\n\n"
         f"{role_block}"
         f"{subagent_block}"
+        f"{escalation_block}"
         f"<operating-instructions>\n{OPERATING_INSTRUCTIONS}</operating-instructions>\n\n"
         f"<bin>\nBinaries in bin/ (run as `bin/<name>`; use `bin/<name> --help` "
         f"or `head bin/<name>` for usage):\n{bins}\n</bin>\n\n"

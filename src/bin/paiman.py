@@ -2,13 +2,15 @@
 """paiman — PAI Package Manager.
 
 Mutable installs into `/opt/paiman/<name>/` with FHS activation symlinks.
-Five bundle kinds:
+Seven bundle kinds:
 
-    bin     -> /usr/bin/<name>            (file symlink to entrypoint)
-    driver  -> /usr/lib/drivers/<name>/   (dir symlink)
-    skill   -> /usr/lib/skills/<name>/    (dir symlink, contains SKILL.md)
+    bin     -> /usr/bin/<name>             (file symlink to entrypoint)
+    sbin    -> /sbin/<name>                (file symlink to entrypoint)
+    driver  -> /usr/lib/drivers/<name>/    (dir symlink)
+    skill   -> /usr/lib/skills/<name>/     (dir symlink, contains SKILL.md)
     prompt  -> /usr/share/prompts/<name>.md (file symlink)
-    pai     -> /usr/lib/pais/<name>/      (dir symlink)
+    pai     -> /usr/lib/pais/<name>/       (dir symlink)
+    lib     -> /usr/lib/<name>/            (dir symlink)
 
 Sources:
 
@@ -17,10 +19,12 @@ Sources:
     paiman install <git-url>[@ref]         clone and install
 
 The registry is `$PAIMAN_REGISTRY` (default
-`https://github.com/whitematterlabs/pairegistry`) — either a git URL of a
-flat-layout repo (`<name>/package.yaml`) or a local directory of the same
-shape. Pai bundles list their deps in `deps:` as bare names; missing deps
-are fetched from the registry recursively.
+`https://github.com/whitematterlabs/pairegistry`) — either a git URL or a
+local directory in the typed-root layout (`drivers/<name>/`, `bin/<name>/`,
+`sbin/<name>/`, `lib/<name>/`, `skills/<name>/`, `prompts/<name>/`,
+`pais/<name>/`), each with its own `package.yaml`. Pai bundles list their
+deps in `deps:` as bare names; missing deps are fetched from the registry
+recursively.
 
 Other commands:
 
@@ -110,8 +114,9 @@ SCAFFOLD_TYPES = {
 
 # ---------- install / remove ----------
 
-INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai")
-PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt")
+INSTALLABLE_KINDS = ("bin", "sbin", "driver", "skill", "prompt", "pai", "lib", "subagent")
+PRIMITIVE_KINDS = ("bin", "sbin", "driver", "skill", "prompt", "lib")
+TYPED_ROOTS = ("drivers", "bin", "sbin", "lib", "skills", "prompts", "pais", "subagents")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
 DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
@@ -131,6 +136,12 @@ def _activation_slot(kind: str, name: str, entrypoint: str | None) -> tuple[Path
         if not entrypoint:
             raise SystemExit("paiman: bin bundle requires entrypoint")
         return paths.usr_bin() / name, bundle_dir / entrypoint
+    if kind == "sbin":
+        if not entrypoint:
+            raise SystemExit("paiman: sbin bundle requires entrypoint")
+        return paths.sbin() / name, bundle_dir / entrypoint
+    if kind == "lib":
+        return paths.usr_lib() / name, bundle_dir
     if kind == "driver":
         return paths.usr_lib_drivers() / name, bundle_dir
     if kind == "skill":
@@ -141,6 +152,8 @@ def _activation_slot(kind: str, name: str, entrypoint: str | None) -> tuple[Path
         return paths.usr_share_prompts() / f"{name}.md", bundle_dir / entrypoint
     if kind == "pai":
         return paths.usr_lib_pais() / name, bundle_dir
+    if kind == "subagent":
+        return paths.usr_lib_subagents() / name, bundle_dir
     raise SystemExit(f"paiman: unsupported kind {kind!r}")
 
 
@@ -201,12 +214,13 @@ class _Registry:
         return self._path
 
     def lookup(self, name: str) -> Path:
-        pkg_dir = self.root() / name
-        if not (pkg_dir / "package.yaml").is_file():
-            raise SystemExit(
-                f"paiman: {name!r} not found in registry {self.root()}"
-            )
-        return pkg_dir
+        for typed_root in TYPED_ROOTS:
+            candidate = self.root() / typed_root / name
+            if (candidate / "package.yaml").is_file():
+                return candidate
+        raise SystemExit(
+            f"paiman: {name!r} not found in registry {self.root()}"
+        )
 
 
 def _resolve_source(arg: str, registry: _Registry, work: Path) -> Path:
@@ -262,17 +276,19 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         raise SystemExit(f"paiman: dependency cycle detected at {name!r}")
     seen.add(name)
 
-    if kind in ("bin", "prompt"):
+    if kind in ("bin", "sbin", "prompt"):
         if not entrypoint:
             raise SystemExit(f"paiman: {kind} bundle requires 'entrypoint'")
         if not (src / entrypoint).is_file():
             raise SystemExit(f"paiman: entrypoint {entrypoint!r} not found in source")
 
-    # For pai bundles, resolve deps first so we fail fast before touching disk.
-    if kind == "pai":
+    # For pai/subagent/skill bundles, resolve deps first so we fail fast before
+    # touching disk. (Skills can declare deps too — e.g. grow-capability deps:
+    # [coder] pulls the coder subagent.)
+    if kind in ("pai", "subagent", "skill"):
         deps = manifest.get("deps") or []
         if not isinstance(deps, list):
-            raise SystemExit("paiman: pai bundle 'deps' must be a list of names")
+            raise SystemExit(f"paiman: {kind} bundle 'deps' must be a list of names")
         for dep in deps:
             if not isinstance(dep, str):
                 raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
@@ -291,7 +307,7 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
     # Activate.
     slot, target = _activation_slot(kind, name, entrypoint)
     _atomic_symlink(target, slot)
-    if kind == "bin":
+    if kind in ("bin", "sbin"):
         try:
             target.chmod(target.stat().st_mode | 0o111)
         except OSError:
@@ -329,7 +345,7 @@ def _bundles_depending_on(name: str) -> list[str]:
                 data = yaml.safe_load(f) or {}
         except yaml.YAMLError:
             continue
-        if data.get("kind") != "pai":
+        if data.get("kind") not in ("pai", "subagent", "skill"):
             continue
         if name in (data.get("deps") or []):
             out.append(entry.name)

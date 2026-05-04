@@ -27,6 +27,7 @@ from watchdog.observers import Observer
 
 from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, is_busy, list_procs, read_spec, read_status
 from boot.proctree import order_as_tree
+from boot.tokens import read_last_window
 
 ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
 KERNEL_LOG = HOME_DIR / "tmp" / "kernel.log"
@@ -146,6 +147,13 @@ class ProcRow:
     status: str
     tree_prefix: str = ""  # box-drawing indent for nested subagents
     busy: bool = False  # True iff /proc/<slug>/busy exists (nudge in flight)
+    ctx_tokens: int = 0  # last_window_tokens from /proc/<slug>/tokens, 0 if absent
+
+
+def _read_ctx_tokens(slug: str) -> int:
+    """Last call's prompt window size from /proc/<slug>/tokens. 0 if the
+    PAI hasn't made an LLM call yet, or the file is absent/unreadable."""
+    return read_last_window(slug) or 0
 
 
 def _infer_type(spec: dict) -> str:
@@ -217,6 +225,7 @@ class ProcWatcher:
                 slug=slug, pid=pid_str, type=ptype, parent=parent_str,
                 when=when, description=desc, status=spec["_status"],
                 tree_prefix=prefix, busy=is_busy(slug),
+                ctx_tokens=_read_ctx_tokens(slug),
             ))
         return rows
 

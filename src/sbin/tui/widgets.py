@@ -89,7 +89,7 @@ class ProcList(DataTable):
     def on_mount(self) -> None:
         self.cursor_type = "row"
         self.zebra_stripes = True
-        self.add_columns("slug", "pid", "type", "parent", "when")
+        self.add_columns("slug", "pid", "type", "parent", "ctx", "when")
 
     def render_rows(self, rows: list[ProcRow]) -> None:
         self.clear()
@@ -98,7 +98,27 @@ class ProcList(DataTable):
         for r in rows:
             when = _short_when(r.when)
             slug = f"{r.tree_prefix}{r.slug}"
-            self.add_row(slug, r.pid or "-", r.type, r.parent or "-", when)
+            self.add_row(slug, r.pid or "-", r.type, r.parent or "-", _fmt_ctx(r.ctx_tokens), when, key=r.slug)
+
+    def zero_ctx(self, slug: str) -> None:
+        """Immediately blank the ctx cell for `slug` — called after a clear/compact."""
+        try:
+            self.update_cell(slug, "ctx", "-")
+        except Exception:
+            pass
+
+
+def _fmt_ctx(n: int) -> str:
+    """Compact token count: '-' if zero, else '12.3k' / '187k' / '1.2M'."""
+    if not n:
+        return "-"
+    if n < 1000:
+        return str(n)
+    if n < 10_000:
+        return f"{n / 1000:.1f}k"
+    if n < 1_000_000:
+        return f"{n // 1000}k"
+    return f"{n / 1_000_000:.1f}M"
 
 
 class EventStrip(RichLog):

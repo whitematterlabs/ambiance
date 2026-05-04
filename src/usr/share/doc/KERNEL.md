@@ -94,6 +94,15 @@ PAIs talk to each other through the event bus. Two directed event kinds, both ro
 
 A spawned subagent has `persistent: true` in its spec, so it stays alive across turns and only resolves when the parent calls `bin/subagent done --slug <name>`. Until then, parent and child can exchange any number of messages. This is why a parent can drive N concurrent subagents without blocking — every turn is mediated by the bus, not by a synchronous call.
 
+### PAI turn events (`pai:<slug>:input`, `pai:<slug>:output`)
+
+The kernel emits two events around every nudge so other PAIs can react to a peer's turns declaratively, without tail/peek primitives:
+
+- **`pai:<slug>:input`** — fires before the LLM runs, after the target slug/pid is resolved. Payload includes `reason` and (when present) the originating event/context as `trigger`.
+- **`pai:<slug>:output`** — fires after the assistant reply is committed to `proc/<slug>/messages.jsonl`. Pointer-style payload (`turn_index`, `messages_path`); subscribers re-read the file to get the actual content.
+
+Listeners subscribe in `/etc/config.yaml` via `wake_on: [pai:main:output]` (target a specific slug — the wildcard form `pai:*:output` would self-trigger the listener on its own turns). The full kind list lives in `KERNEL_EVENTS.md`.
+
 ## Process Directory (`proc/`)
 
 ```

@@ -42,12 +42,13 @@ RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 CONFIG_MANAGED_FIELDS = (
     "description", "prompt", "provider", "model", "wake_on",
     "fallback", "parent", "persistent", "active", "dependencies",
+    "compact_threshold",
 )
 
 # Fields a `dependencies:` entry can carry (each entry materializes a persub
 # child of the declaring PAI). `name` is required; everything else inherits
 # from the parent or has a sensible default.
-DEP_FIELDS = ("name", "description", "prompt", "provider", "model", "package")
+DEP_FIELDS = ("name", "description", "prompt", "provider", "model", "package", "wake_on")
 
 
 class ConfigError(Exception):
@@ -132,6 +133,12 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
         raise ConfigError(f"{source}: entry {name!r} active must be bool")
     if "parent" in entry and not isinstance(entry["parent"], int):
         raise ConfigError(f"{source}: entry {name!r} parent must be int")
+    if "compact_threshold" in entry:
+        ct = entry["compact_threshold"]
+        if not isinstance(ct, int) or isinstance(ct, bool) or ct <= 0:
+            raise ConfigError(
+                f"{source}: entry {name!r} compact_threshold must be a positive int"
+            )
     if "dependencies" in entry:
         deps = entry["dependencies"]
         if not isinstance(deps, list):
@@ -165,6 +172,12 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
                 if k in dep and not isinstance(dep[k], str):
                     raise ConfigError(
                         f"{source}: entry {name!r} dependency {dep_name!r} field {k!r} must be a string"
+                    )
+            if "wake_on" in dep:
+                wo = dep["wake_on"]
+                if not isinstance(wo, list) or not all(isinstance(p, str) for p in wo):
+                    raise ConfigError(
+                        f"{source}: entry {name!r} dependency {dep_name!r} wake_on must be list[str]"
                     )
             if "provider" in dep and dep["provider"] not in L.PROVIDERS:
                 known = ", ".join(sorted(L.PROVIDERS))
@@ -456,6 +469,17 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
                 or bundle.get("model")
                 or parent_spec.get("model")
             )
+            # `wake_on` is opt-in per dep (or bundle). `${parent}` expands
+            # to the declaring PAI's slug so a bundle can ship a generic
+            # `pai:${parent}:output` subscription.
+            wake_on_raw = dep.get("wake_on")
+            if wake_on_raw is None:
+                wake_on_raw = bundle.get("wake_on")
+            wake_on = (
+                [p.replace("${parent}", parent_name) for p in wake_on_raw]
+                if wake_on_raw is not None
+                else None
+            )
             child_pid = P.alloc_pai_pid()
             P.spawn_pai(
                 pid=child_pid,
@@ -464,6 +488,7 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
                 prompt=prompt,
                 provider=provider,
                 model=model,
+                wake_on=wake_on,
                 parent=parent_pid,
                 extra={"persistent": True, "persub": True},
             )

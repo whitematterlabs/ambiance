@@ -14,7 +14,7 @@ and actionable.
    - Transient + obvious fix → apply (skill: `restart-driver` or
      `reload-config`) and log.
    - On-disk patch to a kernel-imported module (anything under
-     `/usr/src/boot/` or `/usr/src/drivers/`) needs to take effect →
+     `/usr/src/boot/` or `/usr/lib/drivers/`) needs to take effect →
      skill: `kernel-restart`. `paictl restart` only re-spawns driver
      tasks; it does not re-import Python modules.
    - Structural (import error, schema mismatch, missing config) →

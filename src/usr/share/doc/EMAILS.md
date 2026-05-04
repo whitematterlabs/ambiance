@@ -85,7 +85,7 @@ created: 2026-04-30
 
 ## How it works
 
-### Account discovery — `src/drivers/email/macmail/accounts.py`
+### Account discovery — `~/Projects/pairegistry/drivers/email/macmail/accounts.py`
 
 Shared source of truth for inbound, outbound, and `mailsearch`. Asks Mail.app via AppleScript (`osascript`) at boot and hourly:
 
@@ -97,7 +97,7 @@ Persisted to `home/tmp/drivers/macmail/accounts.yaml`. If AppleScript fails (Mai
 
 Names containing diacritics are URL-encoded as Apple does — NFD-decomposed UTF-8 bytes, then `quote(safe="")` — so the patterns match the URLs Mail.app actually writes into `mailboxes.url`.
 
-### Inbound — `src/drivers/email/macmail/inbound.py`
+### Inbound — `~/Projects/pairegistry/drivers/email/macmail/inbound.py`
 
 - **Index**: Mail.app maintains a SQLite index at `~/Library/Mail/V10/MailData/Envelope Index` covering all configured accounts.
 - **Watcher**: kqueue VNODE on `Envelope Index-wal`. Same trick as `imessage/inbound.py` — FSEvents coalesces SQLite WAL writes, kqueue does not. A 60s ticker sits alongside as a safety net so parked rows always get retried in bounded time.
@@ -108,7 +108,7 @@ Names containing diacritics are URL-encoded as Apple does — NFD-decomposed UTF
 - **Account address resolution**: UUID → canonical address via `accounts.address_for_uuid(cfg, uuid)`. We never sniff `To:`/`Delivered-To:` anymore — the first inbound message often arrives addressed to a forwarder or relay alias, which would lock in the wrong identity.
 - **Backlog**: catch-up at boot coalesced into a single `email:backlog` event, not N events.
 
-### Outbound — `src/drivers/email/macmail/outbound.py`
+### Outbound — `~/Projects/pairegistry/drivers/email/macmail/outbound.py`
 
 - Watches `home/communication/email/drafts/*.yaml` via watchdog (single shared dir).
 - Each draft yaml carries a required `from: <email>` field naming the Mail.app account that owns the draft. Validated via `accounts.accepts_from(cfg, addr)` — accepts every address Mail.app reports for any account, **including aliases** (e.g. iCloud Hide-My-Email relay addresses). Unknown `from:` values fail fast with `draft_state: failed`.
@@ -139,7 +139,7 @@ email:backlog       — boot-time coalesced summary
 email:draft_failed  — AppleScript couldn't materialize a draft
 ```
 
-Spec lives in `src/drivers/email/macmail/events.yaml`.
+Spec lives in `~/Projects/pairegistry/drivers/email/macmail/events.yaml`.
 
 ## Requirements
 

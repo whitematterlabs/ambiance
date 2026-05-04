@@ -79,12 +79,17 @@ def test_clean_removes_symlink_not_target(laid_out_root: Path, tmp_path_factory:
 
 def test_probe_logs_each_driver(laid_out_root: Path, capsys) -> None:
     from boot.phases import probe
-    # Drivers shipped: imessage, email. probe reads events.yaml from
-    # /usr/lib/drivers/<name>/events.yaml.
+    # paifs-init seeds kernel-essential drivers (contacts, messages) via
+    # paiman. Runnable drivers (imessage, email) are installed explicitly
+    # by the root user. probe reads events.yaml at /usr/lib/drivers/<name>/.
+    # contacts/messages don't ship events.yaml, so probe skips them
+    # silently — assertion is "doesn't crash and skips skip-list dirs".
     probe.run()
     out = capsys.readouterr().out
-    assert "imessage" in out
-    assert "ok" in out.lower() or "missing" in out.lower()
+    # No drivers with events.yaml in this seeded layout; probe should
+    # complete without printing per-driver lines or raising.
+    for unexpected in ("ERR", "Traceback"):
+        assert unexpected not in out
 
 
 def test_reconcile_phase_calls_config_reconcile(laid_out_root: Path) -> None:

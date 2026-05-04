@@ -17,6 +17,8 @@ from typing import Optional
 
 from anthropic import AsyncAnthropic
 
+from . import tokens
+
 from . import shell_tool
 
 MAX_TOKENS = 4096
@@ -184,6 +186,7 @@ async def _loop(
             messages=_with_cache_control(messages),
             extra_body=extra_body,
         )
+        tokens.record((env or {}).get("PAI_SLUG"), model, response.usage)
 
         # Anthropic SDK returns content blocks as objects; serialize for
         # on-disk history so we can round-trip via JSON.

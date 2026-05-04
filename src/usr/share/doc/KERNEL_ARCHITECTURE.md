@@ -25,9 +25,7 @@ Every driver fans across two FHS slots, plus its `/proc/` entry:
 | `/sys/drivers/<name>/` | Live runtime state — cursors, last event |
 | `/proc/<slug>/` | Kernel-managed lifecycle (status, log, `active:` flag) |
 
-Repo source lives at `<repo>/src/drivers/<name>/` and is symlinked
-into `/usr/lib/drivers/`. There is no `/etc/drivers/`: drivers are a
-code-time registry in the kernel, not user-editable config.
+Source lives in **`~/Projects/pairegistry/drivers/<name>/`** (NOT in this pyproject repo) and is installed into `/usr/lib/drivers/` by `paiman install <name>`. There is no `/etc/drivers/`: drivers are a code-time registry in the kernel, not user-editable config.
 
 ## Bundle / instance / process
 

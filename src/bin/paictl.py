@@ -248,6 +248,14 @@ def cmd_logs(args: argparse.Namespace) -> int:
         return 0
 
 
+def cmd_tokens(args: argparse.Namespace) -> int:
+    rollup_path = paths.proc(args.name) / "tokens"
+    if not rollup_path.exists():
+        raise SystemExit(f"paictl: no token rollup at {rollup_path}")
+    print(rollup_path.read_text(), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="paictl", description="Control PAI instances.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -271,6 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("name")
     p.add_argument("-f", "--follow", action="store_true")
     p.set_defaults(func=cmd_logs)
+
+    p = sub.add_parser("tokens", help="show /proc/<name>/tokens rollup")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_tokens)
 
     p = sub.add_parser("reload", help="emit kernel:reload_config")
     p.set_defaults(func=cmd_reload)

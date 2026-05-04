@@ -4,21 +4,70 @@ Assembles the bootstrap (system prompt + user turn) and runs one LLM
 turn against the filesystem. Loads the target PAI's prior conversation
 history from proc/<pai>/messages.jsonl, threads it through the turn,
 and persists the updated history back on completion.
+
+Emits two pointer-style events per turn:
+  * ``pai:<slug>:input``  — before the LLM runs, with reason/trigger.
+  * ``pai:<slug>:output`` — after history is committed, pointing at
+    the last line of messages.jsonl (turn_index, messages_path).
+
+Listeners subscribe via ``wake_on:`` in /etc/config.yaml. Avoid
+wildcard subscriptions like ``pai:*:output`` — the listener's own
+output would re-wake it. Target specific slugs.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
 import tempfile
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from . import bootstrap, llm, stitch
+from . import bootstrap, llm, stitch, tokens
 from . import processes as P
 from .processes import HOME_DIR, ProcessNotFound, append_log
+
+
+# Default per-PAI prompt-window threshold (tokens). Once
+# `last_window_tokens` for a PAI crosses this, the next nudge to it is
+# preceded by a kernel-issued compact nudge. Override per-PAI with
+# `compact_threshold:` in /etc/config.yaml.
+DEFAULT_COMPACT_THRESHOLD = 150_000
+
+# Cooldown after a compaction attempt: don't re-trigger compaction for
+# the same PAI again within this window even if tokens still exceed the
+# threshold. Insurance against an infinite compact loop if the PAI
+# fails to actually call bin/compact during the compact turn.
+_COMPACT_COOLDOWN_SECS = 30.0
+
+# Per-slug FIFO serialization. Other concurrent nudges to the same PAI
+# block on this lock — which IS the queue. asyncio.Lock guarantees fair
+# wake order, giving us drain-in-order for free.
+_pai_locks: dict[str, asyncio.Lock] = {}
+_recently_compacted: dict[str, float] = {}
+
+
+def _slug_lock(slug: str) -> asyncio.Lock:
+    lock = _pai_locks.get(slug)
+    if lock is None:
+        lock = asyncio.Lock()
+        _pai_locks[slug] = lock
+    return lock
+
+
+_COMPACT_INSTRUCTION = (
+    "Your conversation history has grown past its compaction threshold. "
+    "Summarize the conversation so far for context compaction and call "
+    "`bin/compact \"<your summary>\"` to apply it. Keep the summary "
+    "focused on what matters for the next nudge: open loops, recent "
+    "decisions, who said what — not verbatim transcripts. After this "
+    "turn the kernel will archive the full history and replace the live "
+    "conversation with your summary."
+)
 
 
 def _history_path(pai_slug: str) -> Path:
@@ -70,6 +119,15 @@ def _save_history(path: Path, messages: list[dict]) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def apply_pending_history_action(pai_slug: str) -> bool:
+    """Public wrapper — apply any queued clear/compact for `pai_slug` immediately.
+
+    Intended for callers (e.g. the TUI) that run bin/clear or bin/compact
+    outside a PAI turn and need the action applied synchronously.
+    """
+    return _apply_history_action(pai_slug, _history_path(pai_slug))
 
 
 def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
@@ -131,6 +189,7 @@ async def nudge(
     to: int = 1,
     from_: Optional[int] = None,
     from_kind: str = "pai",
+    _exempt: bool = False,
 ) -> None:
     header = f"[kernel] nudge: {reason}"
     if slug:
@@ -144,6 +203,57 @@ async def nudge(
         print(f"[kernel] nudge: no PAI with pid={pai_pid}", flush=True)
         return
 
+    if _exempt:
+        await _nudge_locked(reason, slug, context, pai_pid, pai_slug, from_, from_kind)
+        return
+
+    async with _slug_lock(pai_slug):
+        # Threshold check runs inside the lock so concurrent nudges queue
+        # behind a compact-in-progress and re-evaluate after it finishes.
+        last_window = tokens.read_last_window(pai_slug)
+        if last_window is not None:
+            try:
+                pai_spec = P.read_spec(pai_slug)
+            except ProcessNotFound:
+                pai_spec = {}
+            threshold = pai_spec.get("compact_threshold") or DEFAULT_COMPACT_THRESHOLD
+            cooled = (time.monotonic() - _recently_compacted.get(pai_slug, 0.0)
+                      < _COMPACT_COOLDOWN_SECS)
+            if last_window >= threshold and not cooled:
+                _recently_compacted[pai_slug] = time.monotonic()
+                try:
+                    append_log(
+                        pai_slug,
+                        f"kernel: compacting (last_window={last_window} >= {threshold})",
+                    )
+                except ProcessNotFound:
+                    pass
+                print(
+                    f"[kernel] compaction: pai={pai_slug} "
+                    f"last_window={last_window} threshold={threshold}",
+                    flush=True,
+                )
+                await _nudge_locked(
+                    "kernel:compact",
+                    None,
+                    {"instruction": _COMPACT_INSTRUCTION,
+                     "last_window_tokens": last_window,
+                     "threshold": threshold},
+                    pai_pid, pai_slug, None, "kernel",
+                )
+
+        await _nudge_locked(reason, slug, context, pai_pid, pai_slug, from_, from_kind)
+
+
+async def _nudge_locked(
+    reason: str,
+    slug: Optional[str],
+    context: Optional[dict],
+    pai_pid: int,
+    pai_slug: str,
+    from_: Optional[int],
+    from_kind: str,
+) -> None:
     log_line = f"nudge: {reason}" + (f" ({slug})" if slug else "")
     try:
         append_log(pai_slug, log_line)
@@ -175,6 +285,19 @@ async def _nudge_body(
             append_log(slug, f"kernel: nudge — {reason}")
         except ProcessNotFound:
             pass
+
+    # Announce turn start. Listeners with wake_on: [pai:<slug>:input]
+    # can react before the LLM runs (rare, but symmetric with :output).
+    input_payload = {
+        "source": "pai",
+        "kind": f"pai:{pai_slug}:input",
+        "slug": pai_slug,
+        "pid": pai_pid,
+        "reason": reason,
+    }
+    if context is not None:
+        input_payload["trigger"] = context
+    P.emit_event(input_payload)
 
     try:
         pai_spec = P.read_spec(pai_slug)
@@ -269,6 +392,21 @@ async def _nudge_body(
         return
 
     _save_history(history_path, new_history)
+
+    # Announce turn end. Subscribers (e.g. memory PAI) re-read the
+    # last line of messages_path themselves — payload is a pointer,
+    # not the content. Loop hazard: a listener subscribed via
+    # `pai:*:output` will self-trigger on its own turns; target
+    # specific slugs (e.g. `pai:main:output`) instead.
+    P.emit_event({
+        "source": "pai",
+        "kind": f"pai:{pai_slug}:output",
+        "slug": pai_slug,
+        "pid": pai_pid,
+        "turn_index": len(new_history),
+        "messages_path": f"proc/{pai_slug}/messages.jsonl",
+    })
+
     _apply_history_action(pai_slug, history_path)
 
     if reply:

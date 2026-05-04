@@ -72,10 +72,6 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     if not args.persistent and not args.prompt:
         print("error: --prompt is required (omit only with --persistent)", file=sys.stderr)
         return 1
-    if args.package and not args.persistent:
-        print("error: --package only applies with --persistent", file=sys.stderr)
-        return 1
-
     bundle: dict = {}
     if args.package:
         try:

@@ -1,0 +1,1 @@
+/Users/arda/.pai/opt/paiman/capability-escalation/prompt.md

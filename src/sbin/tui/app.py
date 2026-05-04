@@ -20,6 +20,7 @@ from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Input, Static, TabbedContent, TabPane
 
+from boot.nudge import apply_pending_history_action
 from boot.processes import HOME_DIR, emit_event, _iter_pai_specs, read_status
 
 PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
@@ -408,7 +409,7 @@ class TuiApp(App):
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd=str(PAI_ROOT),
+                cwd=str(HOME_DIR),
                 env=env,
             )
             out, _ = await proc.communicate()
@@ -423,6 +424,11 @@ class TuiApp(App):
             for line in text.splitlines():
                 chat.write(Text(line, style="dim" if rc == 0 else "red"))
         status.update(f"shell: exit {rc}")
+
+        # Apply any queued clear/compact action written by bin/clear or bin/compact.
+        if rc == 0 and apply_pending_history_action(slug):
+            chat.write(Text("context action applied.", style="dim green"))
+            self.query_one("#procs", ProcList).zero_ctx(slug)
 
     def set_provider(self, key: str) -> None:
         _write_provider(key)

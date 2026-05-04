@@ -75,8 +75,23 @@ Reload (kernel restart, or `kernel:reload_config`). On reconcile:
 | `prompt` | no | path relative to repo root; overrides `package` |
 | `provider` | no | overrides `package`; falls back to parent |
 | `model` | no | overrides `package`; falls back to parent |
+| `wake_on` | no | list of event-kind globs; `${parent}` expands to the declaring PAI's slug. Overrides `package`; no parent inheritance. |
 
 Bare-name shorthand (`dependencies: [memory]`) is rejected in v1; bundle resolution comes later.
+
+## Subscribing to the parent's events
+
+A persub can `wake_on:` arbitrary event kinds, just like a top-level PAI. Bundles use `${parent}` so the same bundle works for any declaring PAI — at reconcile, `${parent}` is replaced with the parent's slug. The shipped `memory` bundle subscribes to its parent's outbound chat events:
+
+```yaml
+# /usr/lib/subagents/memory/package.yaml
+wake_on:
+  - pai:${parent}:output     # fires after parent commits a reply
+```
+
+For `pai` declaring `memory`, this materializes as `wake_on: [pai:pai:output]` on `/proc/pai.memory/spec.yaml`. Memory then wakes on every parent turn and curates asynchronously without the parent having to address it.
+
+Resolution: dep override → bundle. There is no parent inheritance for `wake_on` — children don't share routing with their parent. To opt out of a bundle's default, set `wake_on: []` in the dep entry.
 
 ## Ad-hoc creation (from a parent's turn)
 

@@ -32,6 +32,7 @@ from pathlib import Path
 import yaml
 
 from boot import processes as P
+from boot import timers as T
 
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")
@@ -105,6 +106,16 @@ def cmd_start(args: argparse.Namespace) -> int:
         return 1
     # Stdout is the full slug, nothing else — pipeable.
     print(slug)
+    # For one-shot reminders (schedule:, no run:), echo the resolved local
+    # fire time so the caller can confirm the parser took the input as
+    # intended without re-reading the spec.
+    if "schedule" in spec and "run" not in spec:
+        try:
+            next_fire, recurring = T.parse_schedule(spec["schedule"], dt.datetime.now())
+        except Exception:
+            next_fire, recurring = None, True
+        if not recurring and next_fire is not None:
+            print(f"fires at {next_fire.isoformat(timespec='seconds')}")
     return 0
 
 

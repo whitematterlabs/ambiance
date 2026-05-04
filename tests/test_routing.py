@@ -94,6 +94,33 @@ def test_build_user_turn_renders_sender_verbatim() -> None:
     assert "from: pai:42" in out
 
 
+def test_capability_escalation_injected_for_non_root_top_level(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Stage a fragment under PAI_ROOT/usr/share/prompts/ and verify
+    # build_system_prompt injects it for pai_default (pid 2, no parent)
+    # but NOT for root (pid 1) and NOT for subagents (parent is set).
+    prompts = tmp_path / "usr" / "share" / "prompts"
+    prompts.mkdir(parents=True)
+    (prompts / "capability-escalation.md").write_text(
+        "ESCALATION FRAGMENT BODY\n"
+    )
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+
+    bootstrap.build_system_prompt.cache_clear()
+    out_default = bootstrap.build_system_prompt(pai=2, prompt_path=None)
+    assert "<capability-escalation>" in out_default
+    assert "ESCALATION FRAGMENT BODY" in out_default
+
+    bootstrap.build_system_prompt.cache_clear()
+    out_root = bootstrap.build_system_prompt(pai=1, prompt_path=None)
+    assert "<capability-escalation>" not in out_root
+
+    bootstrap.build_system_prompt.cache_clear()
+    out_subagent = bootstrap.build_system_prompt(pai=7, parent=2, prompt_path=None)
+    assert "<capability-escalation>" not in out_subagent
+
+
 def test_build_system_prompt_no_role_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
     bootstrap.build_system_prompt.cache_clear()

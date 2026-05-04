@@ -39,6 +39,7 @@ SKELETON: tuple[str, ...] = (
     "usr/lib/drivers",
     "usr/lib/skills",
     "usr/lib/pais",
+    "usr/lib/subagents",
     "usr/share/prompts",
     "usr/src",
     "var/lib/memory/people",
@@ -60,9 +61,32 @@ SKELETON: tuple[str, ...] = (
 SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("boot", REPO_ROOT / "src" / "boot"),
     ("usr/src", REPO_ROOT / "src"),
-    ("usr/lib/drivers", REPO_ROOT / "src" / "drivers"),
-    ("usr/share/prompts", REPO_ROOT / "src" / "prompts"),
     ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
+)
+
+# Prompts paifs-init seeds via paiman so the kernel boots on first run.
+# Scope: only what the seed config.yaml references. App PAIs/drivers/skills
+# get installed later by the root user via `paiman install <name>`.
+ROOT_SEED_PROMPTS: tuple[str, ...] = (
+    "root",
+    "pai_default",
+    # Sysprompt fragment stitched in by build_system_prompt for every
+    # non-root, non-subagent PAI. Not a role itself — shared across roles.
+    "capability-escalation",
+)
+
+# Drivers the kernel imports as libraries at module-load time. A fresh
+# $PAI_ROOT must have these or `import drivers.contacts` / `drivers.messages`
+# raises during boot. Drivers with runnable processes (imessage, macmail)
+# are NOT seeded — the root user installs them explicitly.
+KERNEL_SEED_DRIVERS: tuple[str, ...] = ("contacts", "messages")
+
+# Skills every PAI needs at first boot. Kept tight: only skills that
+# teach the use of a kernel-provided tool the PAI cannot reasonably
+# invent on its own.
+KERNEL_SEED_SKILLS: tuple[str, ...] = (
+    "schedule-reminder",
+    "grow-capability",
 )
 
 # Default etc/config.yaml written on first install. Never overwritten —
@@ -204,7 +228,10 @@ def install_pth(venv_dir: Path, root: Path) -> None:
     )
     site = Path(out.stdout.strip())
     pth = site / "_pai_src.pth"
-    pth.write_text(f"{root / 'usr' / 'src'}\n")
+    pth.write_text(
+        f"{root / 'usr' / 'lib'}\n"
+        f"{root / 'usr' / 'src'}\n"
+    )
 
 
 def install_bin_shims(venv_dir: Path, root: Path) -> None:
@@ -262,7 +289,40 @@ def lay_out(root: Path) -> None:
     venv_dir = ensure_venv(root)
     install_pth(venv_dir, root)
     install_bin_shims(venv_dir, root)
-    expose_pai_command(root)
+    seed_kernel_essentials(root)
+
+
+def seed_kernel_essentials(root: Path) -> None:
+    """Install the prompts and drivers the kernel needs to boot.
+
+    Prompts: whatever the seed config.yaml references (root, pai_default).
+    Drivers: contacts + messages, imported at module-load by the kernel.
+
+    Idempotent: skips items already installed. Uses paiman's default registry."""
+    paiman = root / "sbin" / "paiman"
+    if not paiman.exists():
+        print(f"warning: {paiman} not found; skipping kernel essentials seed")
+        return
+    env = {**os.environ, "PAI_ROOT": str(root)}
+
+    prompts_dir = root / "usr" / "share" / "prompts"
+    needed_prompts = [
+        name for name in ROOT_SEED_PROMPTS
+        if not (prompts_dir / f"{name}.md").is_symlink()
+    ]
+    drivers_dir = root / "usr" / "lib" / "drivers"
+    needed_drivers = [
+        name for name in KERNEL_SEED_DRIVERS
+        if not (drivers_dir / name / "events.yaml").exists()
+        and not (drivers_dir / name / "package.yaml").exists()
+    ]
+    skills_dir = root / "usr" / "lib" / "skills"
+    needed_skills = [
+        name for name in KERNEL_SEED_SKILLS
+        if not (skills_dir / name / "SKILL.md").exists()
+    ]
+    for name in needed_prompts + needed_drivers + needed_skills:
+        subprocess.run([str(paiman), "install", name], check=True, env=env)
 
 
 def expose_pai_command(root: Path) -> None:
@@ -304,6 +364,7 @@ def main() -> int:
     )
     args = ap.parse_args()
     lay_out(args.root)
+    expose_pai_command(args.root)
     print(f"FHS skeleton ready at {args.root}")
     return 0
 

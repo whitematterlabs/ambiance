@@ -18,7 +18,7 @@ from pathlib import Path
 from . import paths
 
 
-def _stitch_links(home: Path, instance: Path) -> None:
+def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
     # Symlink targets are relative so the home tree is portable if PAI_ROOT moves.
     # Each link's `..`-prefix is computed from the link's *own* depth under
     # PAI_ROOT (not the home's), so a link nested under `memory/` adds one
@@ -30,6 +30,8 @@ def _stitch_links(home: Path, instance: Path) -> None:
     doc_under_root = paths.usr_share_doc().relative_to(paths.PAI_ROOT)
 
     links: tuple[tuple[str, Path], ...] = (
+        ("bin", Path("usr") / "bin"),
+        *extra_links,
         ("inbox", inst_under_root / "inbox"),
         ("workspace", inst_under_root / "workspace"),
         ("memory/private", inst_under_root / "memory" / "private"),
@@ -75,5 +77,8 @@ def stitch_home(slug: str) -> Path:
     home = home_for(slug)
     _seed_instance(instance)
     home.mkdir(parents=True, exist_ok=True)
-    _stitch_links(home, instance)
+    extra: tuple = ()
+    if slug == "root":
+        extra = (("sbin", Path("sbin")),)
+    _stitch_links(home, instance, extra)
     return home

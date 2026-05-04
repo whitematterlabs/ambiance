@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## STOP — packages do not live in this repo
+
+This pyproject repo holds **only the kernel and the privileged tools that wrap it**: `src/boot/` (kernel), `src/sbin/` (root-only tools), `src/bin/` (PAI-callable tools), `src/usr/share/doc/` (kernel docs), `src/prompts/` (the two seed prompts the kernel needs to boot — `root.md`, `pai_default.md`, `capability-escalation.md`; these are symlinks into the installed registry copies).
+
+**Everything else — drivers, skills, libs, PAI bundles, additional bins/sbins, additional prompts — lives in `~/Projects/pairegistry/`, NOT in this repo.** That is the canonical source. `paiman install <name>` copies/symlinks it into `~/.pai/usr/lib/<kind>/<name>/`.
+
+If you are about to create or edit `src/drivers/`, `src/skills/`, `src/lib/`, `src/pais/`, or anything that looks like a userspace package: STOP. Go to `~/Projects/pairegistry/<kind>/<name>/` and edit it there. There is no `src/drivers/` in this repo and there will not be one.
+
+Quick sanity check before editing anything under `src/`:
+- Is it kernel code or a privileged wrapper of the kernel? → edit here.
+- Is it a driver, skill, lib, prompt (beyond the three seeds), or PAI bundle? → edit `~/Projects/pairegistry/`.
+
 ## Project
 
 PAI (Personal AI) — an always-on AI agent that uses the filesystem as its primary data structure.
@@ -19,11 +31,11 @@ These are not interchangeable. Do not put kernel code under `/usr/`, and do not 
 
 ## Driver layout
 
-Drivers ship as code-owned bundles, not user-editable config. There is no `/etc/drivers/`.
+Drivers ship as code-owned bundles, not user-editable config. There is no `/etc/drivers/`. **Driver source lives in `~/Projects/pairegistry/drivers/<name>/`, not in this repo.**
 
-| Slot | Holds | Repo source |
+| Slot | Holds | Source of truth |
 |---|---|---|
-| `/usr/lib/drivers/<name>/` | Source code + shipped `events.yaml` manifest | `src/drivers/<name>/` |
+| `/usr/lib/drivers/<name>/` | Source code + shipped `events.yaml` manifest | `~/Projects/pairegistry/drivers/<name>/` (installed via `paiman install <name>`) |
 | `/sys/drivers/<name>/` | Driver-internal runtime state (cursors, last event) | written at runtime |
 | `/proc/<slug>/` | Kernel-managed lifecycle (status, log, `active:` flag for paictl) | written at runtime |
 

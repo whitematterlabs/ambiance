@@ -83,9 +83,11 @@ clear which is which:
 Everything in this document describes the **installed system**, not the
 repo. The repo is the build input; `/` is the runtime.
 
-How install actually works (symlink the repo's `src/boot/` into `/boot/`
-and `src/drivers/` into `/usr/lib/drivers/`? copy at install time?
-bind-mount?) is an implementation detail tracked in Open Questions.
+How install actually works (symlink the repo's `src/boot/` into `/boot/`,
+copy from `~/Projects/pairegistry/drivers/<name>/` into `/usr/lib/drivers/<name>/`
+via `paiman install`, etc.) is an implementation detail tracked in Open Questions.
+
+**Userspace packages (drivers, skills, libs, pais, prompts beyond the seed three) do NOT live in this pyproject repo.** They live in `~/Projects/pairegistry/` and are installed via `paiman install <name>`.
 
 ### Today's `src/` → FHS slots
 
@@ -93,7 +95,7 @@ bind-mount?) is an implementation detail tracked in Open Questions.
 |---|---|---|
 | `src/pai.py` | `~/.pai/sbin/init` | Refactored into the kernel entrypoint |
 | `src/boot/` | `~/.pai/boot/` | Kernel source — the supervisor and its helper libraries (PID 1's image). Not userspace; never under `/usr/`. |
-| `src/drivers/<name>/` | split two ways | Code + shipped manifest → `/usr/lib/drivers/<name>/` (events.yaml ships here, not in /etc/). Live runtime state → `/sys/drivers/<name>/`. Driver enable/disable rides on `/proc/<slug>/spec.yaml` `active:` like any other process. |
+| `~/Projects/pairegistry/drivers/<name>/` | split two ways | Code + shipped manifest → `/usr/lib/drivers/<name>/` (events.yaml ships here, not in /etc/). Live runtime state → `/sys/drivers/<name>/`. Driver enable/disable rides on `/proc/<slug>/spec.yaml` `active:` like any other process. *Source lives in pairegistry, not this pyproject repo.* |
 | `src/bin/` | split by privilege | PAI-callable shims (`paictl`, `paicron`, `ipc`, `subagent`, …) → `~/.pai/usr/bin/` (`/bin/` is a symlink to `usr/bin/`). Fleet-mutation / kernel ops (`paiman`, `paiadd`, `paidel`, `paifs-init`) → `~/.pai/sbin/`. Split lives in `SBIN_SCRIPTS` in `bin/paifs_init.py`. |
 | `src/sbin/tui/` | `~/.pai/sbin/tui` | Owner's terminal client (privileged ops) |
 | `src/sbin/migrate.py` | `~/.pai/sbin/migrate` | One-shot kernelPAI op |
@@ -653,8 +655,7 @@ paictl stop weather-pai && paictl start weather-pai   # relaunches against the n
 - **Install mechanism: repo → `/`.** The repo is a Python package + git
   repo with conventional Python layout; the installed system is FHS at
   `/`. How install gets from one to the other — symlink `src/boot/`
-  into `/boot/` and `src/drivers/` into `/usr/lib/drivers/`? copy at
-  install time? a bootstrap script that lays out `/` from the package?
+  into `/boot/` and copy `~/Projects/pairegistry/drivers/<name>/` into `/usr/lib/drivers/<name>/` via `paiman install`? a bootstrap script that lays out `/` from the package?
   — is undecided. Symlink keeps "what humans edit"
   and "what PAI sees" in sync; copy gives reproducible installs.
 - **Multiple instances of the same bundle.** Can `weather-pai` be added

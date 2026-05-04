@@ -15,12 +15,10 @@ import traceback
 from collections import defaultdict
 from datetime import date, datetime
 
-from drivers.email.macmail import inbound as macmail_in
-from drivers.email.macmail import outbound as macmail_out
-from drivers.imessage import inbound as imessage_in
-from drivers.imessage import outbound as imessage_out
-
 from contextlib import AsyncExitStack
+from pathlib import Path
+
+import yaml
 
 from drivers import contacts
 from drivers import messages as M
@@ -424,6 +422,31 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         _dispatch_nudge(pai, f"cron fired (rc={rc})", slug=slug, context={"rc": rc})
 
     else:
+        # `pai:<slug>:input` / `pai:<slug>:output` are announcement events
+        # emitted by every PAI turn (see nudge.py). They are meant for
+        # listeners with an explicit `wake_on` match and must NOT fall
+        # back to root — otherwise root self-nudges on its own turn and
+        # the trigger payload (which can contain the originating message
+        # text in full) snowballs into an infinite loop.
+        if isinstance(kind, str) and kind.startswith("pai:"):
+            matched: list[int] = []
+            for slug, spec in P._iter_pai_specs():
+                try:
+                    if P.read_status(slug) != "running":
+                        continue
+                except P.ProcessNotFound:
+                    continue
+                pid = spec.get("pid")
+                if not isinstance(pid, int):
+                    continue
+                wake_on = spec.get("wake_on") or []
+                if isinstance(wake_on, list) and any(
+                    fnmatch.fnmatchcase(kind, pat) for pat in wake_on
+                ):
+                    matched.append(pid)
+            for pid in sorted(matched):
+                _dispatch_nudge(pid, f"event: {kind}", context=event)
+            return
         pai = int(event.get("parent", 1))
         _dispatch_nudge(pai, f"event: {kind or 'unknown'}", context=event)
 
@@ -517,12 +540,52 @@ async def _handle_reload_config() -> None:
 # `active:` in /proc/<slug>/spec.yaml (default true) decides whether the
 # coroutine is currently running; paictl flips it and emits
 # kernel:reload_config to trigger _reconcile_drivers.
-DRIVER_SPECS: tuple[tuple[str, object], ...] = (
-    ("imessage-out", lambda: imessage_out.run()),
-    ("imessage-in",  lambda: imessage_in.run()),
-    ("macmail-in",   lambda: macmail_in.run()),
-    ("macmail-out",  lambda: macmail_out.run()),
-)
+#
+# Built dynamically by walking /usr/lib/drivers/<name>/events.yaml for a
+# `processes:` section. Drivers without runnable processes (libraries
+# like contacts/messages) are skipped.
+def _make_factory(module_path: str, attr: str):
+    def factory():
+        import importlib
+        mod = importlib.import_module(module_path)
+        return getattr(mod, attr)()
+    return factory
+
+
+def _discover_driver_specs() -> tuple[tuple[str, object], ...]:
+    """Walk every events.yaml under /usr/lib/drivers/ (any depth) and
+    collect processes:. Sub-driver namespaces like email/macmail/ are
+    supported by recursing through symlinks (paiman installs each
+    driver as a symlink to /opt/paiman/<name>/)."""
+    import os
+    specs: list[tuple[str, object]] = []
+    drivers_dir = paths.usr_lib_drivers()
+    if not drivers_dir.is_dir():
+        return ()
+    found: list[Path] = []
+    for root, _dirs, files in os.walk(drivers_dir, followlinks=True):
+        if "events.yaml" in files:
+            found.append(Path(root) / "events.yaml")
+    for events_path in sorted(found):
+        try:
+            with events_path.open() as f:
+                manifest = yaml.safe_load(f) or {}
+        except Exception as e:
+            rel = events_path.relative_to(drivers_dir)
+            print(
+                f"[kernel] driver {rel}: events.yaml unreadable ({e!r})",
+                flush=True,
+            )
+            continue
+        for proc in manifest.get("processes") or []:
+            slug = proc["slug"]
+            module = proc["module"]
+            entrypoint = proc.get("entrypoint", "run")
+            specs.append((slug, _make_factory(module, entrypoint)))
+    return tuple(specs)
+
+
+DRIVER_SPECS: tuple[tuple[str, object], ...] = _discover_driver_specs()
 
 _driver_tasks: dict[str, asyncio.Task] = {}
 
@@ -559,15 +622,33 @@ async def _reconcile_drivers() -> None:
 
     Spawns drivers that should run but aren't, cancels drivers that are
     running but shouldn't. Idempotent. Called once at boot and on every
-    `kernel:reload_config` event — never on a timer."""
-    for slug, factory in DRIVER_SPECS:
+    `kernel:reload_config` event — never on a timer.
+
+    Re-discovers /usr/lib/drivers/ each call so paiman install/remove takes
+    effect on reload without a kernel restart."""
+    specs = _discover_driver_specs()
+    known = {slug for slug, _ in specs}
+    for slug, factory in specs:
         active = _driver_active(slug)
         running = slug in _driver_tasks and not _driver_tasks[slug].done()
         if active and not running:
-            task = asyncio.create_task(
-                _supervise_driver(slug, factory()),
-                name=slug,
-            )
+            try:
+                task = asyncio.create_task(
+                    _supervise_driver(slug, factory()),
+                    name=slug,
+                )
+            except Exception as e:
+                tb = traceback.format_exc()
+                print(f"[kernel] driver {slug}: failed to start — {e!r}\n{tb}", flush=True)
+                _ensure_driver_proc(slug)
+                try:
+                    P.append_log(slug, f"failed to start: {e!r}")
+                    for line in tb.rstrip().splitlines():
+                        P.append_log(slug, f"  {line}")
+                    P.resolve(slug, "failed")
+                except P.ProcessNotFound:
+                    pass
+                continue
             _driver_tasks[slug] = task
             print(f"[kernel] driver started: {slug}", flush=True)
         elif not active and running:
@@ -578,6 +659,16 @@ async def _reconcile_drivers() -> None:
                 pass
             del _driver_tasks[slug]
             print(f"[kernel] driver stopped: {slug}", flush=True)
+    for slug in list(_driver_tasks):
+        if slug in known or slug == "proc-watcher":
+            continue
+        _driver_tasks[slug].cancel()
+        try:
+            await _driver_tasks[slug]
+        except (asyncio.CancelledError, Exception):
+            pass
+        del _driver_tasks[slug]
+        print(f"[kernel] driver removed: {slug}", flush=True)
 
 
 async def _supervise_driver(slug: str, coro) -> None:
