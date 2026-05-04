@@ -266,6 +266,22 @@ def load_config(path: Path | None = None) -> dict[str, dict]:
     return resolved
 
 
+def package_for(slug: str, path: Path | None = None) -> str | None:
+    """Return the bundle name declared for `slug` in /etc/config.yaml, or
+    None if the slug is bundleless (or absent). Read-only — does not
+    validate or resolve the bundle."""
+    if path is None:
+        path = CONFIG_PATH
+    if not path.exists():
+        return None
+    raw = _load_yaml(path)
+    for entry in raw.get("pais") or []:
+        if isinstance(entry, dict) and entry.get("name") == slug:
+            pkg = entry.get("package")
+            return pkg if isinstance(pkg, str) else None
+    return None
+
+
 def _spec_diff(desired: dict, actual: dict) -> list[str]:
     """Return list of CONFIG_MANAGED_FIELDS that differ."""
     changed: list[str] = []

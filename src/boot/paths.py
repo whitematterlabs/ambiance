@@ -64,6 +64,10 @@ def var_lib_packages() -> Path:
     return PAI_ROOT / "var" / "lib" / "packages"
 
 
+def var_spool_communication() -> Path:
+    return PAI_ROOT / "var" / "spool" / "communication"
+
+
 def var_spool_messages() -> Path:
     return PAI_ROOT / "var" / "spool" / "communication" / "messages"
 

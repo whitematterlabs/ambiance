@@ -27,14 +27,15 @@ MAX_ITERATIONS = 100
 # provider key -> (base_url or None, api_key env var, default model, extra_body)
 PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
     "anthropic": (None, "ANTHROPIC_API_KEY", "claude-sonnet-4-6", {}),
-    # Deepseek's Anthropic-compatible endpoint defaults thinking=enabled, which
-    # demands thinking blocks be preserved in tool-call history. Our histories
-    # don't contain them, so disable thinking entirely.
+    # Deepseek's Anthropic-compatible endpoint defaults thinking=enabled.
+    # Thinking blocks are stripped from replies (text-only extraction at line
+    # ~200) and preserved in tool-call history via model_dump(), so no extra
+    # body override is needed.
     "deepseek": (
         "https://api.deepseek.com/anthropic",
         "DEEPSEEK_API_KEY",
         "deepseek-v4-pro",
-        {"thinking": {"type": "disabled"}},
+        {},
     ),
 }
 DEFAULT_PROVIDER = "anthropic"

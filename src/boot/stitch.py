@@ -15,7 +15,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from . import paths
+
+# Top-level home entries the kernel always seeds. A bundle's `home.links`
+# may not collide with any of these.
+RESERVED_HOME_LINKS: frozenset[str] = frozenset(
+    {"bin", "inbox", "workspace", "memory", "tmp"}
+)
+
+# Bundleless PAIs (no `package:` in /etc/config.yaml) get their home extras
+# from this map. root and pid-2 `pai` keep the universal `communication`
+# view that the kernel used to ship for everyone.
+_COMMUNICATION_LINK: tuple[str, Path] = (
+    "communication",
+    Path("var") / "spool" / "communication",
+)
+_BUNDLELESS_SEEDS: dict[str, tuple[tuple[str, Path], ...]] = {
+    "root": (("sbin", Path("sbin")), _COMMUNICATION_LINK),
+    "pai": (_COMMUNICATION_LINK,),
+}
 
 
 def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
@@ -39,6 +59,14 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
         ("memory/skills", skills_under_root),
         ("memory/doc", doc_under_root),
     )
+    # Prune stale top-level symlinks the kernel no longer manages (e.g. the
+    # universal `communication` link that bundle-aware homes drop). We only
+    # touch symlinks, never real dirs or files.
+    expected_top: set[str] = {rel.split("/", 1)[0] for rel, _ in links} | {"tmp"}
+    for child in home.iterdir():
+        if child.name not in expected_top and child.is_symlink():
+            child.unlink()
+
     for rel, target_under_root in links:
         link = home / rel
         link.parent.mkdir(parents=True, exist_ok=True)
@@ -71,14 +99,81 @@ def home_for(slug: str) -> Path:
     return paths.root_home() if slug == "root" else paths.home_pai(slug)
 
 
+def _load_bundle_layout(package: str) -> tuple[tuple[str, Path], ...]:
+    """Read `home.links` from a PAI bundle's `package.yaml`.
+
+    Each entry becomes a `(link, target)` tuple suitable for `extra_links`.
+    Targets are relative to PAI_ROOT and must stay within it; links may not
+    collide with the kernel-seeded universals.
+    """
+    pkg_path = paths.usr_lib_pais() / package / "package.yaml"
+    if not pkg_path.exists():
+        return ()
+    with pkg_path.open() as f:
+        data = yaml.safe_load(f) or {}
+    home_block = data.get("home") or {}
+    raw_links = home_block.get("links") or []
+    if not isinstance(raw_links, list):
+        raise ValueError(f"{pkg_path}: home.links must be a list")
+    root_resolved = paths.PAI_ROOT.resolve()
+    out: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for entry in raw_links:
+        if not isinstance(entry, dict):
+            raise ValueError(f"{pkg_path}: home.links items must be mappings")
+        link = entry.get("link")
+        target = entry.get("target")
+        if not isinstance(link, str) or not link:
+            raise ValueError(f"{pkg_path}: home.links entry missing string `link`")
+        if not isinstance(target, str) or not target:
+            raise ValueError(f"{pkg_path}: home.links entry missing string `target`")
+        if link.startswith("/") or link.startswith(".."):
+            raise ValueError(f"{pkg_path}: invalid link {link!r}")
+        top = link.split("/", 1)[0]
+        if top in RESERVED_HOME_LINKS:
+            raise ValueError(
+                f"{pkg_path}: home.link {link!r} collides with reserved home entry {top!r}"
+            )
+        if link in seen:
+            raise ValueError(f"{pkg_path}: duplicate home.link {link!r}")
+        seen.add(link)
+        target_path = Path(target)
+        if target_path.is_absolute():
+            raise ValueError(
+                f"{pkg_path}: target {target!r} must be relative to PAI_ROOT"
+            )
+        resolved = (paths.PAI_ROOT / target_path).resolve()
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError as e:
+            raise ValueError(
+                f"{pkg_path}: target {target!r} escapes PAI_ROOT"
+            ) from e
+        out.append((link, target_path))
+    return tuple(out)
+
+
+def _resolve_extras(slug: str) -> tuple[tuple[str, Path], ...]:
+    """Find the slug's home extras. Bundle-declared `home.links` win; fall
+    back to the per-slug bundleless seed map for PAIs without a bundle."""
+    from . import config  # local import: stitch is imported during boot init
+
+    package: str | None = None
+    try:
+        package = config.package_for(slug)
+    except Exception:
+        package = None
+    if package:
+        return _load_bundle_layout(package)
+    return _BUNDLELESS_SEEDS.get(slug, ())
+
+
 def stitch_home(slug: str) -> Path:
     """Build (or heal) the home tree for `slug`. Returns the home path."""
     instance = paths.var_lib_instance(slug)
     home = home_for(slug)
     _seed_instance(instance)
     home.mkdir(parents=True, exist_ok=True)
-    extra: tuple = ()
-    if slug == "root":
-        extra = (("sbin", Path("sbin")),)
+    extra = _resolve_extras(slug)
     _stitch_links(home, instance, extra)
     return home

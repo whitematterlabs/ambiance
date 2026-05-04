@@ -171,10 +171,13 @@ driver. Internal supervision is the PAI's job, not kernelPAI's.
 │   ├── memory/
 │   │   ├── shared         → /var/lib/memory/
 │   │   ├── private        → /var/lib/instances/<pai>/memory/private/
-│   │   └── skills         → /usr/lib/skills/
+│   │   ├── skills         → /usr/lib/skills/
+│   │   └── doc            → /usr/share/doc/
+│   ├── bin                → /usr/bin/
 │   ├── inbox              → /var/lib/instances/<pai>/inbox/
 │   ├── workspace          → /var/lib/instances/<pai>/workspace/
-│   └── tmp/               real dir, ephemeral
+│   ├── tmp/               real dir, ephemeral
+│   └── <bundle-links>     bundle-declared channel views (e.g. mail/, drafts/)
 ├── root/                  kernelPAI's home (same shape as /home/<pai>/)
 ├── mnt/                   guest/trial PAIs (deferred — pairs with jailing)
 ├── opt/<pkg>/<ver>/       installed bundles (immutable, paiman target)
@@ -388,6 +391,11 @@ The `package.yaml` manifest declares:
 - requested capabilities (which paths it needs read/write — informational
   until a capability system enforces them)
 - default instance name (overridable at `paiadd` time)
+- `home.links` — symlinks the kernel stitches into the instance's home
+  (channel views like `mail/`, `drafts/`, `messages/`). The kernel only
+  seeds universals (`bin`, `inbox`, `workspace`, `memory/*`, `tmp`); the
+  bundle owns everything else. Targets are relative to `PAI_ROOT` and
+  cannot escape it; link names cannot collide with the universals.
 
 **Drivers and skills are system-shared dependencies, not bundle-vendored.**
 A bundle declares what it needs; `paiman` resolves and installs the

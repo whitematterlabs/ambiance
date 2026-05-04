@@ -155,6 +155,12 @@ To act, write to files or invoke tools:
   under `proc/<you>/history/` so nothing is truly lost. Only the LLM
   conversation buffer is touched — thread files, journals, memory/, and
   logs all stay put. Use when the buffer is getting unwieldy.
+- Delegating to a peer PAI = if another fleet PAI owns the capability
+  (e.g. the email PAI for outbound email, the imessage PAI for iMessages),
+  prefer sending it an IPC message over doing the work yourself:
+    bin/ipc --to {peer_pid} --content "send an email to alice@example.com: ..."
+  The peer's pid and what it handles are listed in <fleet> below.
+  Peer replies arrive as reason `ipc message` from `pai:{pid}`.
 - Choosing not to respond = do nothing; return.
 
 `etc/` is the kernel control plane — agent-readable and agent-editable.
@@ -213,6 +219,33 @@ def _list_skills(path: Path) -> str:
     return "\n".join(sorted(entries))
 
 
+def _list_fleet(pai_root: Path, self_pid: int) -> str:
+    """Active fleet PAIs from /proc/*/spec.yaml, excluding self."""
+    proc = pai_root / "proc"
+    if not proc.exists():
+        return ""
+    entries: list[str] = []
+    for spec_path in sorted(proc.glob("*/spec.yaml")):
+        try:
+            data = yaml.safe_load(spec_path.read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if data.get("kind") != "pai":
+            continue
+        if not data.get("active", False):
+            continue
+        pid = data.get("pid")
+        if pid == self_pid:
+            continue
+        slug = data.get("slug", spec_path.parent.name)
+        desc = data.get("description", "")
+        line = f"pid {pid}  {slug}"
+        if desc:
+            line += f"  — {desc}"
+        entries.append(line)
+    return "\n".join(entries)
+
+
 def _list_system_skills(path: Path) -> str:
     """System skills live at /usr/lib/skills/<name>/SKILL.md with YAML
     frontmatter. Emit `<name>: <description>` per line so PAI can pick
@@ -260,6 +293,7 @@ def build_system_prompt(
     bins = _list_dir(home / "bin")
     skills = _list_skills(home / "memory" / "skills")
     system_skills = _list_system_skills(usr_lib_skills())
+    fleet = _list_fleet(PAI_ROOT, pai)
 
     parent_label = str(parent) if parent is not None else "kernel"
     pai_line = (
@@ -295,11 +329,18 @@ def build_system_prompt(
                 f"</capability-escalation>\n\n"
             )
 
+    fleet_block = (
+        f"<fleet>\nActive PAIs you can delegate to via `bin/ipc --to {{pid}} "
+        f"--content '...'`:\n{fleet}\n</fleet>\n\n"
+        if fleet else ""
+    )
+
     return (
         f"<pai-instance>\n{pai_line}</pai-instance>\n\n"
         f"{role_block}"
         f"{subagent_block}"
         f"{escalation_block}"
+        f"{fleet_block}"
         f"<operating-instructions>\n{OPERATING_INSTRUCTIONS}</operating-instructions>\n\n"
         f"<bin>\nBinaries in bin/ (run as `bin/<name>`; use `bin/<name> --help` "
         f"or `head bin/<name>` for usage):\n{bins}\n</bin>\n\n"
