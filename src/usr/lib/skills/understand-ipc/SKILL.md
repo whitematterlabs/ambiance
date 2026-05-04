@@ -48,10 +48,10 @@ bin/subagent spawn --persistent --slug memory \
 bin/subagent reply --content "found: THY 1234 at $452"
 
 # End an ephemeral subagent
-bin/subagent done --slug research-flights
+bin/subagent kill --slug research-flights
 ```
 
-`bin/subagent done` is **rejected** for persubs — they live until
+`bin/subagent kill` is **rejected** for persubs — they live until
 the parent shuts down. See skill `understand-persubs`.
 
 ## Subagent flavors
@@ -61,7 +61,7 @@ the parent shuts down. See skill `understand-persubs`.
 | Lifetime | one task | parent's lifetime |
 | Slug | `<name>-YYYY-MM-DD` | `<parent>.<name>` |
 | Kickoff | `--prompt` becomes `pai_message` | none — boots idle |
-| Self-terminate | `bin/subagent done` works | rejected |
+| Self-terminate | `bin/subagent kill` works | rejected |
 | System prompt | `usr/share/prompts/subagent.md` | `subagent-persistent.md` |
 | Spec marker | `persistent: true` only | `persistent: true` + `persub: true` |
 

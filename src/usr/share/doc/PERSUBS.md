@@ -15,7 +15,7 @@ Use an **ephemeral** subagent (no `--persistent` flag) for one-shot delegation: 
 | Lifetime | one task | parent's lifetime |
 | Slug | `<name>-YYYY-MM-DD` (date-suffixed) | `<parent>.<name>` (deterministic) |
 | Kickoff | `--prompt` becomes a `pai_message` | none — boots idle |
-| Self-terminate | `bin/subagent done` (either side) | rejected — only parent shutdown removes it |
+| Self-terminate | `bin/subagent kill` (either side) | rejected — only parent shutdown removes it |
 | System prompt | `usr/share/prompts/subagent.md` | `usr/share/prompts/subagent-persistent.md` |
 | Spec marker | `persistent: true` only | `persistent: true` **and** `persub: true` |
 
@@ -123,7 +123,7 @@ The persub replies via `bin/subagent reply`, which emits a `subagent:response` e
 - **Run**: idle between messages; replies via `bin/subagent reply`. Cannot self-terminate.
 - **Teardown**: only when the parent stops.
 
-`bin/subagent done` — whether called by the parent or the persub itself — is rejected with:
+`bin/subagent kill` — whether called by the parent or the persub itself — is rejected with:
 
 ```
 error: 'pai.memory' is a persistent subagent and cannot be resolved;
@@ -145,7 +145,7 @@ provider: deepseek
 model: deepseek-v4-pro
 parent: 2
 persistent: true   # blocks nudge auto-resolve
-persub: true       # blocks `subagent done`; selects persistent prompt
+persub: true       # blocks `subagent kill`; selects persistent prompt
 spawned: '2026-04-30T14:18:39'
 ```
 

@@ -49,7 +49,7 @@ see `memory/doc/KERNEL.md` §TODO.)
 
 A spawned subagent has `persistent: true` in its spec. The kernel
 supervises it the same way — except:
-- It only resolves on `bin/subagent done` (ephemeral) or parent
+- It only resolves on `bin/subagent kill` (ephemeral) or parent
   shutdown (persub).
 - Its events route point-to-point: parent IPC arrives as
   `pai_message`; child replies arrive at the parent as

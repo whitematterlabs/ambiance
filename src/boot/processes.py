@@ -4,6 +4,7 @@ Every process is a directory in home/proc/{slug}/ containing spec.yaml,
 status, and log.md. See src/usr/share/doc/KERNEL.md for the full spec.
 """
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import yaml
 from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR
 
 VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed", "stopped"}
+TERMINAL_STATUSES = {"completed", "expired", "cancelled", "failed", "stopped"}
 
 # Resolutions that wake PAI after the fact. "cancelled" is excluded because
 # cancellation is typically initiated by PAI or the owner — the initiating
@@ -93,6 +95,17 @@ def resolve(slug: str, new_status: str) -> None:
         if "parent" in spec:
             payload["parent"] = spec["parent"]
         emit_event(payload)
+    else:
+        try:
+            spec = read_spec(slug)
+        except ProcessNotFound:
+            spec = {}
+
+    # Ephemeral subagents (have a parent, not persub) are self-contained — once
+    # resolved there's nothing to keep. Delete the proc dir so they don't
+    # accumulate as zombies.
+    if "parent" in spec and not spec.get("persub") and new_status in TERMINAL_STATUSES:
+        shutil.rmtree(proc, ignore_errors=True)
 
 
 def _iter_pai_specs():

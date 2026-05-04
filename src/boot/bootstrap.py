@@ -144,7 +144,7 @@ To act, write to files or invoke tools:
     `bin/subagent reply --content "..."` (it knows your parent from
     `$PAI_PARENT`).
   Terminate the subagent when its work is done with
-  `bin/subagent done --slug NAME` — that resolves the child and you'll
+  `bin/subagent kill --slug NAME` — that resolves the child and you'll
   be nudged once more with `proc completed`. Read
   `proc/<slug>/messages.jsonl` for the full transcript and
   `proc/<slug>/log.md` for the shell commands it ran. You can run

@@ -29,7 +29,7 @@ from typing import Optional
 
 from . import bootstrap, llm, stitch, tokens
 from . import processes as P
-from .processes import HOME_DIR, ProcessNotFound, append_log
+from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
 
 
 # Default per-PAI prompt-window threshold (tokens). Once
@@ -134,7 +134,7 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     """If PAI queued a clear/compact via `bin/clear` or `bin/compact` during
     the turn, apply it now: archive the just-saved history and rewrite the
     live jsonl. Returns True if an action was applied."""
-    proc_dir = HOME_DIR / "proc" / pai_slug
+    proc_dir = PROC_DIR / pai_slug
     action_path = proc_dir / ".history-action"
     if not action_path.exists():
         return False
@@ -151,10 +151,18 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     if history_path.exists():
         shutil.copy(history_path, archive_path)
 
-    rel_archive = archive_path.relative_to(HOME_DIR)
+    rel_archive = archive_path.relative_to(PROC_DIR.parent)
 
     if action == "clear":
         _save_history(history_path, [])
+        tokens_path = proc_dir / "tokens"
+        if tokens_path.exists():
+            try:
+                data = json.loads(tokens_path.read_text())
+                data["last_window_tokens"] = 0
+                tokens_path.write_text(json.dumps(data))
+            except Exception:
+                pass
         try:
             append_log(pai_slug, f"context cleared — archived to {rel_archive}")
         except ProcessNotFound:

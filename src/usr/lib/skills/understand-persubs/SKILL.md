@@ -80,7 +80,7 @@ The persub replies via `bin/subagent reply`, emitting a
   Cannot self-terminate.
 - **Teardown**: only when the parent stops.
 
-`bin/subagent done` on a persub is rejected:
+`bin/subagent kill` on a persub is rejected:
 
 ```
 error: 'pai.memory' is a persistent subagent and cannot be resolved;
@@ -100,7 +100,7 @@ pid: 6
 slug: pai.memory
 parent: 2
 persistent: true   # blocks nudge auto-resolve
-persub: true       # blocks `subagent done`; selects persistent prompt
+persub: true       # blocks `subagent kill`; selects persistent prompt
 ```
 
 Both flags matter. `persistent` is shared with ephemeral subagents

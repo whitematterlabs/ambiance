@@ -13,7 +13,7 @@ boot and lives for the parent's whole lifetime. Slug shape:
 `<parent>.<dep-name>` (e.g. `pai.memory`).
 
 Persubs are **not** ephemeral subagents. They cannot be resolved with
-`bin/subagent done` — only the parent's shutdown removes them. If you
+`bin/subagent kill` — only the parent's shutdown removes them. If you
 want a one-shot worker, use plain `bin/subagent spawn` (no
 `--persistent`) instead.
 
@@ -84,7 +84,7 @@ parent shuts down. To remove:
    `/var/lib/instances/<parent>.<dep>/`, and
    `/home/<parent>.<dep>/`.
 
-`bin/subagent done` against a persub is **rejected** by design. Don't
+`bin/subagent kill` against a persub is **rejected** by design. Don't
 try to use it as a teardown tool.
 
 ## When NOT to add a persub

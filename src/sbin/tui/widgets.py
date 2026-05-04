@@ -147,9 +147,10 @@ class EventStrip(RichLog):
             source = str(payload.get("source", "?"))
             kind = str(payload.get("kind", "?"))
         target = payload.get("thread") or payload.get("handle") or payload.get("slug") or ""
+        label = kind if kind.startswith(f"{source}:") else f"{source}:{kind}"
         line = Text()
         line.append(stamp + " ", style="dim")
-        line.append(f"{source}:{kind}", style="yellow")
+        line.append(label, style="yellow")
         if target:
             line.append(f" → {target}", style="white")
         self.write(line)

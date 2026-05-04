@@ -4,7 +4,7 @@
 Usage:
     subagent spawn --slug NAME --prompt "..."   # fork a subagent, return its pid
     subagent reply --content "..."              # (child only) reply to your parent
-    subagent done --slug NAME                   # resolve a subagent (parent or child)
+    subagent kill --slug NAME                   # resolve a subagent (parent or child)
 
 Subagents are persistent: they stay alive across turns and do not
 auto-resolve after answering the initial prompt. The kickoff prompt is
@@ -18,7 +18,7 @@ finish — every spawned subagent automatically gets a subagent-mode block
 in its system prompt that explains the lifecycle. So `--prompt` should
 just describe the task.
 
-Either side can call `subagent done` to end the relationship: the parent
+Either side can call `subagent kill` to end the relationship: the parent
 to dismiss the child, or the child to self-resolve once its task is
 complete. Either path resolves the child and nudges the parent with the
 final transcript pointer.
@@ -173,7 +173,7 @@ def cmd_reply(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_done(args: argparse.Namespace) -> int:
+def cmd_kill(args: argparse.Namespace) -> int:
     parent_pid_raw = os.environ.get("PAI_PID")
     if not parent_pid_raw:
         print("error: $PAI_PID not set — subagent must be invoked from a PAI turn", file=sys.stderr)
@@ -194,7 +194,7 @@ def cmd_done(args: argparse.Namespace) -> int:
         return 1
     if spec.get("persub"):
         print(
-            f"error: {args.slug!r} is a persistent subagent and cannot be resolved; "
+            f"error: {args.slug!r} is a persistent subagent and cannot be killed; "
             f"remove it from /etc/config.yaml `dependencies:` and reload",
             file=sys.stderr,
         )
@@ -235,8 +235,8 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Spawn a subagent. --prompt should describe the task only — the "
             "subagent already knows to reply via `bin/subagent reply` and to "
-            "self-resolve via `bin/subagent done` when finished, so you don't "
-            "need to spell that out. Either side can call `done` to end the "
+            "self-resolve via `bin/subagent kill` when finished, so you don't "
+            "need to spell that out. Either side can call `kill` to end the "
             "relationship."
         ),
     )
@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "spawn as a persub (persistent subagent): deterministic slug "
-            "<parent>.<name>, no kickoff prompt, cannot be resolved by `done`"
+            "<parent>.<name>, no kickoff prompt, cannot be resolved by `kill`"
         ),
     )
     sp.add_argument(
@@ -273,11 +273,11 @@ def main(argv: list[str] | None = None) -> int:
     rp.set_defaults(func=cmd_reply)
 
     dn = sub.add_parser(
-        "done",
+        "kill",
         help="resolve a subagent (callable by the parent OR the subagent itself)",
     )
     dn.add_argument("--slug", required=True, help="full slug as printed by spawn (or $PAI_SLUG if self-resolving)")
-    dn.set_defaults(func=cmd_done)
+    dn.set_defaults(func=cmd_kill)
 
     args = parser.parse_args(argv)
     return args.func(args) or 0

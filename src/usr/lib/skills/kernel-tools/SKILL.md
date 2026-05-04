@@ -91,13 +91,13 @@ ipc emit imessage:new --field thread=kaia --field text="..."
 # Ephemeral (one-task)
 subagent spawn --slug <name> --prompt "..."
 subagent reply --content "..."        # from inside the child
-subagent done --slug <name>           # end an ephemeral child
+subagent kill --slug <name>           # end an ephemeral child
 
 # Persistent (persub) — see skill understand-persubs
 subagent spawn --persistent --slug <name> [--prompt "..."]
 ```
 
-`subagent done` is **rejected** for persubs.
+`subagent kill` is **rejected** for persubs.
 
 ## When to use which
 
