@@ -22,9 +22,11 @@ The registry is `$PAIMAN_REGISTRY` (default
 `https://github.com/whitematterlabs/pairegistry`) — either a git URL or a
 local directory in the typed-root layout (`drivers/<name>/`, `bin/<name>/`,
 `sbin/<name>/`, `lib/<name>/`, `skills/<name>/`, `prompts/<name>/`,
-`pais/<name>/`), each with its own `package.yaml`. Pai bundles list their
-deps in `deps:` as bare names; missing deps are fetched from the registry
-recursively.
+`pais/<name>/`), each with its own `package.yaml`. Bundles list their
+deps in `deps:` as bare names. Each entry is resolved registry-first
+(installed recursively); names not found in the registry are treated
+as PyPI packages and pip-installed into the kernel venv at
+`/usr/lib/venv/` once the bundle install completes.
 
 Other commands:
 
@@ -213,14 +215,16 @@ class _Registry:
             self._path = p.resolve()
         return self._path
 
-    def lookup(self, name: str) -> Path:
+    def lookup(self, name: str, *, required: bool = True) -> Path | None:
         for typed_root in TYPED_ROOTS:
             candidate = self.root() / typed_root / name
             if (candidate / "package.yaml").is_file():
                 return candidate
-        raise SystemExit(
-            f"paiman: {name!r} not found in registry {self.root()}"
-        )
+        if required:
+            raise SystemExit(
+                f"paiman: {name!r} not found in registry {self.root()}"
+            )
+        return None
 
 
 def _resolve_source(arg: str, registry: _Registry, work: Path) -> Path:
@@ -257,9 +261,12 @@ def _audit_log(line: str) -> None:
 
 
 def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
-                         seen: set[str]) -> str:
+                         seen: set[str], pip_deps: set[str]) -> str:
     """Install one bundle from a resolved source tree. Returns the bundle name.
-    Recursive for pai bundles via their `deps:` list."""
+
+    `deps:` entries are resolved registry-first; misses are accumulated into
+    `pip_deps` for a single batch pip-install at the end of the top-level
+    install."""
     manifest = _load_manifest(src)
     name = manifest.get("name")
     kind = manifest.get("kind")
@@ -282,20 +289,22 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         if not (src / entrypoint).is_file():
             raise SystemExit(f"paiman: entrypoint {entrypoint!r} not found in source")
 
-    # For pai/subagent/skill bundles, resolve deps first so we fail fast before
-    # touching disk. (Skills can declare deps too — e.g. grow-capability deps:
-    # [coder] pulls the coder subagent.)
-    if kind in ("pai", "subagent", "skill"):
-        deps = manifest.get("deps") or []
-        if not isinstance(deps, list):
-            raise SystemExit(f"paiman: {kind} bundle 'deps' must be a list of names")
-        for dep in deps:
-            if not isinstance(dep, str):
-                raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
-            if (paths.opt_paiman() / dep).is_dir():
-                continue  # already installed; mutable, leave it alone
-            dep_src = registry.lookup(dep)
-            _install_from_source(dep_src, dep, registry, work, seen)
+    # Resolve deps before touching disk so we fail fast. Each entry is tried
+    # against the registry first; misses are queued as pip packages and
+    # batch-installed into /usr/lib/venv/ at the end.
+    deps = manifest.get("deps") or []
+    if not isinstance(deps, list):
+        raise SystemExit(f"paiman: {kind} bundle 'deps' must be a list of names")
+    for dep in deps:
+        if not isinstance(dep, str):
+            raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
+        if (paths.opt_paiman() / dep).is_dir():
+            continue  # already installed as a bundle; leave it alone
+        dep_src = registry.lookup(dep, required=False)
+        if dep_src is not None:
+            _install_from_source(dep_src, dep, registry, work, seen, pip_deps)
+        else:
+            pip_deps.add(dep)
 
     # Copy to /opt/paiman/<name>/ (overwrite).
     dest = paths.opt_paiman() / name
@@ -318,13 +327,38 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
     return name
 
 
+def _venv_python() -> Path:
+    return paths.usr_lib() / "venv" / "bin" / "python"
+
+
+def _pip_install(packages: set[str]) -> None:
+    """Install PyPI packages into the kernel venv."""
+    if not packages:
+        return
+    py = _venv_python()
+    if not py.exists():
+        raise SystemExit(
+            f"paiman: kernel venv python not found at {py} — "
+            "run paifs-init to provision the venv before installing pip deps"
+        )
+    pkgs = sorted(packages)
+    print(f"pip install (kernel venv): {', '.join(pkgs)}")
+    subprocess.run(
+        [str(py), "-m", "pip", "install", "--disable-pip-version-check", *pkgs],
+        check=True,
+    )
+    _audit_log(f"pip install {' '.join(pkgs)}")
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     src_arg: str = args.source
+    pip_deps: set[str] = set()
     with tempfile.TemporaryDirectory(prefix="paiman-") as tmp:
         work = Path(tmp)
         registry = _Registry(work)
         src = _resolve_source(src_arg, registry, work)
-        _install_from_source(src, src_arg, registry, work, seen=set())
+        _install_from_source(src, src_arg, registry, work, seen=set(), pip_deps=pip_deps)
+    _pip_install(pip_deps)
     return 0
 
 

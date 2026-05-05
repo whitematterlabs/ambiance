@@ -15,5 +15,8 @@ uv sync
 echo "==> paifs-init"
 uv run paifs-init "$@"
 
+echo "==> paisetup"
+uv run paisetup || true
+
 echo
 echo "PAI installed. Runtime root: ${PAI_ROOT:-$HOME/.pai}"

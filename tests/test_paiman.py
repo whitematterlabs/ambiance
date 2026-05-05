@@ -181,16 +181,37 @@ def test_install_pai_skips_existing_deps(fhs_root: Path) -> None:
     assert (skill_dir / "user-edit.md").is_file()
 
 
-def test_install_pai_missing_dep_fails_clearly(
-    fhs_root: Path, tmp_path: Path
+def test_install_pai_dep_missing_from_registry_falls_through_to_pip(
+    fhs_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    bad = tmp_path / "bad-pai"
-    bad.mkdir()
-    (bad / "package.yaml").write_text(
-        "name: badpai\nkind: pai\ndeps: [does-not-exist]\n"
+    """Names not found in the registry are treated as PyPI packages and
+    handed to the kernel venv's pip. The bundle install itself still
+    completes; pip is invoked once at the end with the accumulated set."""
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, check):  # type: ignore[no-untyped-def]
+        calls.append(cmd)
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(paiman.subprocess, "run", fake_run)
+    # Provision the kernel venv python so _pip_install doesn't bail.
+    venv_bin = fhs_root / "usr" / "lib" / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").write_text("#!/bin/sh\n")
+
+    pkg = tmp_path / "needs-pip"
+    pkg.mkdir()
+    (pkg / "package.yaml").write_text(
+        "name: needspip\nkind: pai\ndeps: [some-pypi-pkg]\n"
     )
-    with pytest.raises(SystemExit, match="not found in registry"):
-        paiman.main(["install", str(bad)])
+    assert paiman.main(["install", str(pkg)]) == 0
+    assert (fhs_root / "opt" / "paiman" / "needspip").is_dir()
+    # pip was invoked exactly once with the unresolved dep.
+    assert len(calls) == 1
+    assert "some-pypi-pkg" in calls[0]
+    assert "install" in calls[0]
 
 
 def test_install_pai_rejects_non_string_dep(

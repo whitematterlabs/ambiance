@@ -10,7 +10,12 @@ from pathlib import Path
 
 import yaml
 
+from . import paths
 from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR
+
+# Pids reserved for kernel-seeded PAIs. Mirrors RESERVED_PIDS in config.py;
+# duplicated here to avoid a circular import (config.py imports processes).
+_RESERVED_PIDS = (1, 2)
 
 VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed", "stopped"}
 TERMINAL_STATUSES = {"completed", "expired", "cancelled", "failed", "stopped"}
@@ -127,18 +132,46 @@ def _iter_pai_specs():
             yield child.name, spec
 
 
+def _config_declared_pids() -> list[int]:
+    """Pids declared in /etc/config.yaml. The reconcile may not have written
+    /proc/<slug>/spec.yaml yet (first boot, or new entry not yet spawned),
+    so config is the authoritative source for already-claimed pids."""
+    cfg = paths.etc() / "config.yaml"
+    try:
+        with cfg.open() as f:
+            data = yaml.safe_load(f) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        return []
+    out: list[int] = []
+    for entry in data.get("pais") or []:
+        if not isinstance(entry, dict):
+            continue
+        pid = entry.get("pid")
+        if isinstance(pid, int):
+            out.append(pid)
+    return out
+
+
 def alloc_pai_pid() -> int:
-    """Next free PID across kind:pai procs. Reads `pid` from each spec; for
-    legacy specs lacking the field, falls back to int(slug) when the slug is
-    all digits. Default 1 if no PAIs exist."""
-    pids: list[int] = []
+    """Next free PID for a non-reserved kind:pai proc.
+
+    Considers pids declared in /etc/config.yaml, pids recorded in
+    /proc/*/spec.yaml, the reserved-pid set, and (for legacy specs lacking
+    the field) the slug when it is all digits. Skips reserved pids — those
+    belong to kernel-seeded PAIs (root=1, pai=2) and may not yet be on
+    disk on first boot."""
+    used: set[int] = set(_RESERVED_PIDS)
     for slug, spec in _iter_pai_specs():
         pid = spec.get("pid")
         if isinstance(pid, int):
-            pids.append(pid)
+            used.add(pid)
         elif slug.isdigit():
-            pids.append(int(slug))
-    return max(pids) + 1 if pids else 1
+            used.add(int(slug))
+    used.update(_config_declared_pids())
+    candidate = 1
+    while candidate in used:
+        candidate += 1
+    return candidate
 
 
 def find_pai_slug(pid: int) -> str:

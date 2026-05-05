@@ -20,6 +20,7 @@ from anthropic import AsyncAnthropic
 from . import tokens
 
 from . import shell_tool
+from .processes import ProcessNotFound, append_log
 
 MAX_TOKENS = 4096
 MAX_ITERATIONS = 100
@@ -200,6 +201,27 @@ async def _loop(
         if not tool_uses:
             text_parts = [b.text for b in response.content if b.type == "text"]
             return "\n".join(text_parts).strip(), messages
+
+        # Surface interim narration: text blocks emitted alongside tool_uses
+        # are the model "thinking out loud" between actions. They'd otherwise
+        # vanish into history. Append to the PAI's log so the TUI / tail can
+        # pick them up live. One-shot per block, prefixed for legibility.
+        pai_slug = (env or {}).get("PAI_SLUG")
+        if pai_slug:
+            for block in response.content:
+                if block.type != "text":
+                    continue
+                text = (block.text or "").strip()
+                if not text:
+                    continue
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        append_log(pai_slug, f"» {line}")
+                    except ProcessNotFound:
+                        pass
 
         tool_results = []
         for use in tool_uses:
