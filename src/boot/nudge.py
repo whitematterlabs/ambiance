@@ -27,7 +27,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from . import bootstrap, llm, stitch, tokens
+from . import bootstrap, debugger, llm, stitch, tokens
+from . import paths as paths_mod
 from . import processes as P
 from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
 
@@ -332,6 +333,26 @@ async def _nudge_body(
     history_path = _history_path(pai_slug)
     history = _load_history(history_path)
 
+    debugger_cfg = pai_spec.get("debugger") or None
+    pre_snapshot: dict[str, float] = {}
+    if debugger_cfg:
+        try:
+            watch_paths = [
+                paths_mod.PAI_ROOT / p
+                for p in (debugger_cfg.get("watch_paths") or [])
+            ]
+            excludes = [
+                paths_mod.PAI_ROOT / p
+                for p in (debugger_cfg.get("exclude") or [])
+            ]
+            pre_snapshot = debugger.snapshot(watch_paths, excludes)
+        except Exception as e:
+            try:
+                append_log(pai_slug, f"[debugger] pre-snapshot failed — {e!r}")
+            except ProcessNotFound:
+                pass
+            debugger_cfg = None
+
     env = {
         "PAI_SLUG": pai_slug,
         "PAI_PID": str(pai_pid),
@@ -398,6 +419,21 @@ async def _nudge_body(
                 from_kind="pai",
             )
         return
+
+    if debugger_cfg:
+        try:
+            await debugger.review(
+                pai_slug=pai_slug,
+                pai_root=paths_mod.PAI_ROOT,
+                config=debugger_cfg,
+                history=new_history,
+                pre_snapshot=pre_snapshot,
+            )
+        except Exception as e:
+            try:
+                append_log(pai_slug, f"[debugger] failed — {e!r}")
+            except ProcessNotFound:
+                pass
 
     _save_history(history_path, new_history)
 

@@ -124,6 +124,8 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         spec["persub"] = True
     if bundle.get("prompt"):
         spec["prompt"] = bundle["prompt"]
+    if bundle.get("debugger"):
+        spec["debugger"] = bundle["debugger"]
     try:
         P.spawn(final_slug, spec)
     except P.ProcessExists as e:
