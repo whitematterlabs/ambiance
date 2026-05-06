@@ -112,7 +112,7 @@ Ad-hoc persubs do **not** auto-respawn at next boot — they're not in any confi
 From the parent's turn, the persub is reachable like any other process:
 
 ```sh
-bin/ipc --to pai.memory --content "remember: the owner likes earl grey"
+bin/nudge --to pai.memory --content "remember: the owner likes earl grey"
 ```
 
 The persub replies via `bin/subagent reply`, which emits a `subagent:response` event the parent recognizes.

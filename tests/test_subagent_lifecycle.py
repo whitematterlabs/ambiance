@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from bin import ipc as ipc_bin
+from bin import nudge as nudge_bin
 from bin import subagent as sub_bin
 from boot import processes as P
 
@@ -71,9 +71,9 @@ def test_two_channel_round_trip(live_dir: Path, monkeypatch: pytest.MonkeyPatch)
     for e in P.EVENTS_DIR.iterdir():
         e.unlink()
 
-    # Parent → child via generic ipc.
+    # Parent → child via generic nudge.
     monkeypatch.setenv("PAI_PID", "1")
-    assert ipc_bin.main(["--to", str(child_pid), "--content", "follow-up question"]) == 0
+    assert nudge_bin.main(["--to", str(child_pid), "--content", "follow-up question"]) == 0
 
     # Child → parent via subagent reply (reads $PAI_PARENT).
     monkeypatch.setenv("PAI_PID", str(child_pid))

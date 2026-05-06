@@ -141,7 +141,7 @@ To act, write to files or invoke tools:
   The call returns immediately with `{slug} (pid {N})`. The subagent
   runs in the background; it is *persistent* — it stays alive across
   turns and does not resolve on its own. Conversation is non-blocking:
-  - To talk to your subagent: `bin/ipc --to {child pid} --content "..."`
+  - To talk to your subagent: `bin/nudge --to {child pid} --content "..."`
     (this is the same generic peer-IPC channel you'd use for any PAI).
   - When the subagent has something for you, you'll be nudged with
     `reason: subagent response` and `from: subagent:{child pid}` —
@@ -165,7 +165,7 @@ To act, write to files or invoke tools:
 - Delegating to a peer PAI = if another fleet PAI owns the capability
   (e.g. the email PAI for outbound email, the imessage PAI for iMessages),
   prefer sending it an IPC message over doing the work yourself:
-    bin/ipc --to {peer_pid} --content "send an email to alice@example.com: ..."
+    bin/nudge --to {peer_pid} --content "send an email to alice@example.com: ..."
   The peer's pid and what it handles are listed in <fleet> below.
   Peer replies arrive as reason `ipc message` from `pai:{pid}`.
 - Choosing not to respond = do nothing; return.
@@ -253,34 +253,47 @@ def _list_fleet(pai_root: Path, self_pid: int) -> str:
     return "\n".join(entries)
 
 
+def _append_skill_entry(entries: list[str], label: str, skill_dir: Path) -> None:
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return
+    desc = ""
+    try:
+        text = skill_md.read_text()
+    except OSError:
+        return
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            try:
+                meta = yaml.safe_load(text[3:end]) or {}
+                desc = str(meta.get("description", "")).strip()
+            except yaml.YAMLError:
+                desc = ""
+    entries.append(f"{label}: {desc}" if desc else label)
+
+
 def _list_system_skills(path: Path) -> str:
-    """System skills live at /usr/lib/skills/<name>/SKILL.md with YAML
-    frontmatter. Emit `<name>: <description>` per line so PAI can pick
-    which to read without opening every file."""
+    """System skills live at /usr/lib/skills/<topic>/<name>/SKILL.md, organized
+    by topic subdirectory. Emit `<topic>/<name>: <description>` per line so
+    PAI can pick which to read without opening every file. Flat (no-topic)
+    skills are still supported for backward compatibility."""
     if not path.exists():
         return ""
     entries: list[str] = []
-    for skill_dir in sorted(path.iterdir()):
-        if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+    for topic_dir in sorted(path.iterdir()):
+        if not topic_dir.is_dir() or topic_dir.name.startswith("."):
             continue
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.exists():
+        if (topic_dir / "SKILL.md").exists():
+            # Flat skill (no topic subdir).
+            _append_skill_entry(entries, topic_dir.name, topic_dir)
             continue
-        desc = ""
-        try:
-            text = skill_md.read_text()
-        except OSError:
-            continue
-        if text.startswith("---"):
-            end = text.find("\n---", 3)
-            if end != -1:
-                front = text[3:end]
-                try:
-                    meta = yaml.safe_load(front) or {}
-                    desc = str(meta.get("description", "")).strip()
-                except yaml.YAMLError:
-                    desc = ""
-        entries.append(f"{skill_dir.name}: {desc}" if desc else skill_dir.name)
+        for skill_dir in sorted(topic_dir.iterdir()):
+            if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+                continue
+            _append_skill_entry(
+                entries, f"{topic_dir.name}/{skill_dir.name}", skill_dir
+            )
     return "\n".join(entries)
 
 
@@ -337,7 +350,7 @@ def build_system_prompt(
             )
 
     fleet_block = (
-        f"<fleet>\nActive PAIs you can delegate to via `bin/ipc --to {{pid}} "
+        f"<fleet>\nActive PAIs you can delegate to via `bin/nudge --to {{pid}} "
         f"--content '...'`:\n{fleet}\n</fleet>\n\n"
         if fleet else ""
     )
@@ -356,8 +369,9 @@ def build_system_prompt(
         f"`cat memory/skills/<topic>/<name>`):\n{skills}\n</skills>\n\n"
         f"<system-skills>\nSystem skills — shared infra docs and procedures "
         f"(kernel internals, driver/skill authoring, fleet tooling, "
-        f"self-healing). Listed below as `<name>: <description>`. Read on "
-        f"demand with `cat /usr/lib/skills/<name>/SKILL.md`. Shipped "
+        f"self-healing). Listed below as `<topic>/<name>: <description>`. "
+        f"Read on demand with `cat /usr/lib/skills/<topic>/<name>/SKILL.md`. "
+        f"Shipped "
         f"long-form docs live under `/usr/share/doc/` (e.g. "
         f"`cat /usr/share/doc/KERNEL.md`). Pull a skill in whenever its "
         f"description plausibly applies — the cost is one shell command."

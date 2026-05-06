@@ -317,9 +317,21 @@ def seed_kernel_essentials(root: Path) -> None:
         and not (drivers_dir / name / "package.yaml").exists()
     ]
     skills_dir = root / "usr" / "lib" / "skills"
+
+    def _skill_installed(name: str) -> bool:
+        if (skills_dir / name / "SKILL.md").exists():
+            return True
+        if not skills_dir.is_dir():
+            return False
+        for topic_dir in skills_dir.iterdir():
+            if not topic_dir.is_dir():
+                continue
+            if (topic_dir / name / "SKILL.md").exists():
+                return True
+        return False
+
     needed_skills = [
-        name for name in KERNEL_SEED_SKILLS
-        if not (skills_dir / name / "SKILL.md").exists()
+        name for name in KERNEL_SEED_SKILLS if not _skill_installed(name)
     ]
     for name in needed_prompts + needed_drivers + needed_skills:
         subprocess.run([str(paiman), "install", name], check=True, env=env)
