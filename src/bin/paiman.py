@@ -120,7 +120,10 @@ INSTALLABLE_KINDS = ("bin", "sbin", "driver", "skill", "prompt", "pai", "lib", "
 PRIMITIVE_KINDS = ("bin", "sbin", "driver", "skill", "prompt", "lib")
 TYPED_ROOTS = ("drivers", "bin", "sbin", "lib", "skills", "prompts", "pais", "subagents")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
+COPY_IGNORE = shutil.ignore_patterns(
+    ".git", "__pycache__", ".DS_Store", "*.pyc",
+    "node_modules", "target", "vendor", ".venv", "dist", "build",
+)
 DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
 
 
@@ -280,6 +283,28 @@ def _audit_log(line: str) -> None:
         f.write(f"- {ts}  {line}\n")
 
 
+def _install_libexec(bundle_dir: Path, manifest: dict, name: str, kind: str) -> None:
+    """For driver bundles with a `libexec/` subdir, expose it at
+    `/usr/libexec/<name>/` and run the optional `libexec.install` argv."""
+    if kind != "driver":
+        return
+    libexec_dest = bundle_dir / "libexec"
+    if not libexec_dest.is_dir():
+        return
+    libexec_slot = paths.usr_libexec() / name
+    _atomic_symlink(libexec_dest, libexec_slot)
+    install = (manifest.get("libexec") or {}).get("install")
+    if install is None:
+        return
+    if not isinstance(install, list) or not all(isinstance(x, str) for x in install):
+        raise SystemExit(
+            f"paiman: {name!r} libexec.install must be a list of strings (argv tokens)"
+        )
+    print(f"libexec install ({name}): {' '.join(install)}")
+    subprocess.run(install, cwd=libexec_dest, check=True)
+    _audit_log(f"libexec install {name}: {' '.join(install)}")
+
+
 def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
                          seen: set[str], pip_deps: set[str]) -> str:
     """Install one bundle from a resolved source tree. Returns the bundle name.
@@ -355,6 +380,8 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
             target.chmod(target.stat().st_mode | 0o111)
         except OSError:
             pass
+
+    _install_libexec(dest, manifest, name, kind)
 
     _audit_log(f"install {kind} {name} from {src_arg}")
     print(f"installed {kind} {name} -> {slot}")
@@ -464,6 +491,10 @@ def cmd_remove(args: argparse.Namespace) -> int:
         slot, _ = _activation_slot(kind, name, entrypoint, topic=topic)
         if slot.is_symlink() or slot.exists():
             slot.unlink()
+    if kind == "driver":
+        libexec_slot = paths.usr_libexec() / name
+        if libexec_slot.is_symlink() or libexec_slot.exists():
+            libexec_slot.unlink()
     shutil.rmtree(bundle_dir)
     _audit_log(f"remove {kind} {name}")
     print(f"removed {kind} {name}")

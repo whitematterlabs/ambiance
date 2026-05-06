@@ -348,12 +348,21 @@ System-wide ephemeral, cleared on boot. Per-PAI ephemerals belong in
 ### `/usr/`
 Code, libraries, shipped data.
 
-- `usr/lib/drivers/<name>/` — driver source code.
+- `usr/lib/drivers/<name>/` — driver source code (Python).
 - `usr/lib/skills/<name>/` — skill source code.
 - `usr/lib/pais/<name>/` — **in-development PAI bundle source.**
   `paiadd` stitches directly from here for the dev path. `/opt/` is
   bypassed entirely; the source tree IS the bundle, edited in place.
 - `usr/lib/venv/` — Python virtualenv.
+- `usr/libexec/<driver>/` — **non-Python sidecar helpers** owned by
+  a driver: Node bridges, Rust binaries, Go agents, anything `exec`'d
+  by the driver and never invoked by the user. FHS-faithful split:
+  `usr/lib/drivers/<driver>/` stays Python-only; the bridge sources
+  + manifest (e.g. `package.json`, `Cargo.toml`) live at
+  `usr/libexec/<driver>/`. Installed dependency trees (`node_modules/`,
+  `target/`, `vendor/`) live here too — generated at install time,
+  never committed in pairegistry. The driver's `package.yaml` declares
+  the install step paiman runs to populate this dir.
 - `usr/share/prompts/` — shipped baseline prompts.
 - `usr/share/doc/` — shipped documentation (architecture guides,
   filesystem spec, etc.). Where `src/usr/share/doc/` lands at install time.

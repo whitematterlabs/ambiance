@@ -40,6 +40,7 @@ SKELETON: tuple[str, ...] = (
     "usr/lib/skills",
     "usr/lib/pais",
     "usr/lib/subagents",
+    "usr/libexec",
     "usr/share/prompts",
     "usr/src",
     "var/lib/memory/people",

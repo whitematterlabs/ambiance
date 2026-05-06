@@ -104,6 +104,10 @@ def usr_lib() -> Path:
     return PAI_ROOT / "usr" / "lib"
 
 
+def usr_libexec() -> Path:
+    return PAI_ROOT / "usr" / "libexec"
+
+
 def usr_lib_drivers() -> Path:
     return PAI_ROOT / "usr" / "lib" / "drivers"
 
