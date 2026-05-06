@@ -95,7 +95,17 @@ async def run(
     cwd = stitch.home_for(slug) if slug else HOME_DIR
     cwd.mkdir(parents=True, exist_ok=True)
     command = rewrite_fhs_paths(command, str(PAI_ROOT))
-    proc_env = {**os.environ, **env} if env else None
+    # Prepend the kernel venv + PAI bin slots so tool shebangs like
+    # `#!/usr/bin/env python` resolve to the venv interpreter (which has
+    # the deps the bins import) and bare bin names work without paths.
+    pai_path_prefix = os.pathsep.join([
+        str(PAI_ROOT / "usr" / "lib" / "venv" / "bin"),
+        str(PAI_ROOT / "usr" / "bin"),
+        str(PAI_ROOT / "sbin"),
+    ])
+    base_env = {**os.environ}
+    base_env["PATH"] = pai_path_prefix + os.pathsep + base_env.get("PATH", "")
+    proc_env = {**base_env, **env} if env else base_env
     proc = await asyncio.create_subprocess_shell(
         command,
         cwd=str(cwd),
