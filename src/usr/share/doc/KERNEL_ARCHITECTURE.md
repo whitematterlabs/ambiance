@@ -27,6 +27,18 @@ Every driver fans across two FHS slots, plus its `/proc/` entry:
 
 Source lives in **`~/Projects/pairegistry/drivers/<name>/`** (NOT in this pyproject repo) and is installed into `/usr/lib/drivers/` by `paiman install <name>`. There is no `/etc/drivers/`: drivers are a code-time registry in the kernel, not user-editable config.
 
+### Driver runtime contract
+
+A driver process is **not** a `/proc/<slug>/spec.yaml`-style fork-and-supervise child. It is an **in-process asyncio task** living inside the kernel itself. Reconcile reads each driver's `events.yaml`, imports the listed module, calls `<module>.<entrypoint>()` to get a coroutine, and schedules it under `_supervise_driver`.
+
+Consequences the author-driver skill expands on:
+
+- The entrypoint **must be `async def`**. A sync `def run()` with `while True: time.sleep(N)` enters its loop on the kernel's main thread when reconcile calls it, never returns, and wedges every other driver and every PAI nudge until the kernel is killed.
+- Blocking I/O inside an async driver (sync `requests`, `subprocess.run`, blocking `sqlite3`) freezes the event loop for the duration of the call. Wrap such calls in `asyncio.to_thread`, or use the asyncio-native equivalents.
+- Driver tasks are cancelled on shutdown and on `paictl stop <slug>`. Honor `asyncio.CancelledError` for cleanup.
+
+See the `author-driver` skill for the full contract and reference skeletons.
+
 ## Bundle / instance / process
 
 - **Bundle** (template): `/opt/<pkg>/<ver>/` (release) or
