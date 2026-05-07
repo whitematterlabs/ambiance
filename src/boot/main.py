@@ -447,6 +447,20 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             for pid in sorted(matched):
                 _dispatch_nudge(pid, f"event: {kind}", context=event)
             return
+
+        # Generic driver event routing: an event with `source: <driver>` and
+        # `kind: <bare>` becomes the public kind `<driver>:<bare>` and is
+        # routed by `_route_to_pids` (wake_on match → fan-out, else fallback).
+        # This is what lets new drivers route their events without a
+        # kernel patch — the kernel doesn't know what `voice:utterance` or
+        # any future driver kind means; it just matches and forwards.
+        source = event.get("source")
+        if isinstance(source, str) and source and source != "kernel" and isinstance(kind, str) and kind:
+            public_kind = f"{source}:{kind}"
+            for pid in _route_to_pids(public_kind):
+                _dispatch_nudge(pid, f"event: {public_kind}", context=event)
+            return
+
         pai = int(event.get("parent", 1))
         _dispatch_nudge(pai, f"event: {kind or 'unknown'}", context=event)
 
