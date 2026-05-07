@@ -297,6 +297,11 @@ def _list_system_skills(path: Path) -> str:
     return "\n".join(entries)
 
 
+def read_self_notes(home: Path) -> str:
+    """Read the PAI's self-notes file. Stripped; empty string if missing."""
+    return _read_or_empty(home / "memory" / "private" / "self.md").strip()
+
+
 @lru_cache(maxsize=32)
 def build_system_prompt(
     pai: int = 1,
@@ -304,12 +309,18 @@ def build_system_prompt(
     prompt_path: Optional[str] = None,
     home_dir: Optional[str] = None,
     persub: bool = False,
+    self_notes: Optional[str] = None,
 ) -> str:
     # home_dir is a string for hashability under @lru_cache; callers
     # (nudge.py) resolve it from the PAI's slug — root → /root/, else
     # /home/<slug>/. Defaults to the legacy global HOME_DIR for
     # subagent code paths that don't carry a slug yet.
+    # self_notes is passed in (rather than read here) so the lru_cache
+    # invalidates when the PAI edits its own self.md — callers read the
+    # file via `read_self_notes(home)` right before calling.
     home = Path(home_dir) if home_dir else HOME_DIR
+    if self_notes is None:
+        self_notes = read_self_notes(home)
     bins = _list_dir(home / "bin")
     skills = _list_skills(home / "memory" / "skills")
     system_skills = _list_system_skills(usr_lib_skills())
@@ -323,6 +334,22 @@ def build_system_prompt(
 
     role = _read_or_empty(REPO_ROOT / prompt_path) if prompt_path else ""
     role_block = f"<role>\n{role}</role>\n\n" if role else ""
+
+    # Self-notes: append-only file the PAI maintains about itself —
+    # preferences, lessons learned, recurring context. Lives in the
+    # instance's private memory so it persists across reboots and is
+    # not visible to other PAIs. Always rendered so the PAI knows the
+    # channel exists; hint shown when empty.
+    if self_notes:
+        self_block = f"<self-notes>\n{self_notes}\n</self-notes>\n\n"
+    else:
+        self_block = (
+            "<self-notes>\n"
+            "(empty) Append durable notes about yourself — preferences, "
+            "lessons, recurring context — to `memory/private/self.md`. "
+            "They will appear here on the next nudge.\n"
+            "</self-notes>\n\n"
+        )
 
     subagent_block = ""
     if parent is not None:
@@ -358,6 +385,7 @@ def build_system_prompt(
     return (
         f"<pai-instance>\n{pai_line}</pai-instance>\n\n"
         f"{role_block}"
+        f"{self_block}"
         f"{subagent_block}"
         f"{escalation_block}"
         f"{fleet_block}"

@@ -23,7 +23,7 @@ from . import shell_tool
 from .processes import ProcessNotFound, append_log
 
 MAX_TOKENS = 4096
-MAX_ITERATIONS = 100
+MAX_ITERATIONS = 200
 
 # provider key -> (base_url or None, api_key env var, default model, extra_body)
 PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
@@ -226,10 +226,13 @@ async def _loop(
         tool_results = []
         for use in tool_uses:
             if use.name == shell_tool.TOOL_NAME:
-                command = use.input.get("command", "")
                 pai_slug = (env or {}).get("PAI_SLUG") or "?"
-                print(f"[pai:{pai_slug}] $ {command}", flush=True)
-                result = await shell_tool.run(command, env=env)
+                if use.input.get("keys"):
+                    print(f"[pai:{pai_slug}] [keys] {use.input['keys']}", flush=True)
+                else:
+                    command = use.input.get("command", "")
+                    print(f"[pai:{pai_slug}] $ {command}", flush=True)
+                result = await shell_tool.run(use.input, env=env)
                 rendered = result.render()
                 print(rendered, flush=True)
                 tool_results.append({

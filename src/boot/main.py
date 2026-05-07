@@ -770,13 +770,27 @@ async def run() -> None:
         watcher.stop()
         try:
             remaining = P.list_procs(status_filter="running")
-            if remaining:
-                print(f"[kernel] shutdown: resolving {len(remaining)} procs", flush=True)
-                for slug in remaining:
+            # Cron services (have schedule:) outlive kernel restarts by
+            # design — leave them running so rebuild_from_proc re-arms
+            # the timer on next boot.
+            survivors = []
+            for slug in remaining:
+                try:
+                    spec = P.read_spec(slug)
+                except P.ProcessNotFound:
+                    spec = {}
+                if "schedule" in spec:
+                    survivors.append(slug)
+            to_resolve = [s for s in remaining if s not in survivors]
+            if to_resolve:
+                print(f"[kernel] shutdown: resolving {len(to_resolve)} procs", flush=True)
+                for slug in to_resolve:
                     try:
                         P.resolve(slug, "stopped")
                     except Exception as e:
                         print(f"[kernel] failed to resolve {slug}: {e!r}", flush=True)
+            if survivors:
+                print(f"[kernel] shutdown: preserving {len(survivors)} cron procs across restart", flush=True)
         except Exception as e:
             print(f"[kernel] shutdown sweep failed: {e!r}", flush=True)
         print("[kernel] stopped", flush=True)

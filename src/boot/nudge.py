@@ -320,12 +320,14 @@ async def _nudge_body(
     # not their full lifetime. Only ephemeral subagents resolve on turn end.
     is_ephemeral = parent_str is not None and not pai_spec.get("persistent")
 
+    home = stitch.home_for(pai_slug)
     system = bootstrap.build_system_prompt(
         pai=pai_pid,
         parent=parent_pid,
         prompt_path=pai_spec.get("prompt"),
-        home_dir=str(stitch.home_for(pai_slug)),
+        home_dir=str(home),
         persub=bool(pai_spec.get("persub")),
+        self_notes=bootstrap.read_self_notes(home),
     )
     sender = f"{from_kind}:{from_}" if from_ is not None else None
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)

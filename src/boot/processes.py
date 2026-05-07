@@ -106,10 +106,17 @@ def resolve(slug: str, new_status: str) -> None:
         except ProcessNotFound:
             spec = {}
 
-    # Ephemeral subagents (have a parent, not persub) are self-contained — once
-    # resolved there's nothing to keep. Delete the proc dir so they don't
-    # accumulate as zombies.
-    if "parent" in spec and not spec.get("persub") and new_status in TERMINAL_STATUSES:
+    # Ephemeral subagents (kind: pai with a parent, not persub) are
+    # self-contained — once resolved there's nothing to keep. Delete the
+    # proc dir so they don't accumulate as zombies. Cron services spawned
+    # with --parent must NOT match here: their proc dir has to survive
+    # shutdown so rebuild_from_proc can re-arm the timer on next boot.
+    if (
+        spec.get("kind") == "pai"
+        and "parent" in spec
+        and not spec.get("persub")
+        and new_status in TERMINAL_STATUSES
+    ):
         shutil.rmtree(proc, ignore_errors=True)
 
 
