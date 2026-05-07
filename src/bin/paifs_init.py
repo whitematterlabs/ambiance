@@ -287,10 +287,38 @@ def lay_out(root: Path) -> None:
     # holds the kernel-only ones.
     ensure_symlink(root / "bin", Path("usr/bin"))
     ensure_default_config(root)
+    ensure_system_deps()
     venv_dir = ensure_venv(root)
     install_pth(venv_dir, root)
     install_bin_shims(venv_dir, root)
     seed_kernel_essentials(root)
+
+
+# System-level binaries the kernel itself shells out to. Drivers may add
+# their own via libexec/install.sh — this is the floor.
+SYSTEM_DEPS: tuple[str, ...] = (
+    "tmux",   # shell_tool drives PAI bash sessions through tmux
+)
+
+
+def ensure_system_deps() -> None:
+    """Install kernel-required system binaries via Homebrew (macOS only).
+
+    Idempotent: brew install no-ops when the package is already present.
+    """
+    import shutil
+    if sys.platform != "darwin":
+        return
+    brew = shutil.which("brew")
+    if not brew:
+        print("warning: brew not found; cannot install system deps "
+              f"({', '.join(SYSTEM_DEPS)}). Install Homebrew or these manually.")
+        return
+    for pkg in SYSTEM_DEPS:
+        if shutil.which(pkg):
+            continue
+        print(f"installing system dep: {pkg}")
+        subprocess.run([brew, "install", pkg], check=True)
 
 
 def seed_kernel_essentials(root: Path) -> None:
