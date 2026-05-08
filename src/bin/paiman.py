@@ -86,7 +86,7 @@ provider: anthropic
 #
 # Subagent bundles are referenced from a parent's dependencies: entry
 # via `package: {name}`. They have no wake_on/fallback — the parent
-# addresses them directly via bin/nudge, not the kernel router.
+# addresses them directly via bin/send-message, not the kernel router.
 """
 
 PAI_PROMPT_MD_TEMPLATE = """\
@@ -321,12 +321,14 @@ def _install_libexec(bundle_dir: Path, manifest: dict, name: str, kind: str) -> 
 
 
 def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
-                         seen: set[str], pip_deps: set[str]) -> str:
+                         seen: set[str], pip_deps: set[str],
+                         post_install: list[tuple[str, list[str]]]) -> str:
     """Install one bundle from a resolved source tree. Returns the bundle name.
 
     `deps:` entries are resolved registry-first; misses are accumulated into
     `pip_deps` for a single batch pip-install at the end of the top-level
-    install."""
+    install. `post_install` accumulates `(name, argv)` hooks declared in
+    each bundle's package.yaml; they run after pip deps are installed."""
     manifest = _load_manifest(src)
     name = manifest.get("name")
     kind = manifest.get("kind")
@@ -363,7 +365,7 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
             continue  # already installed as a bundle; leave it alone
         dep_src = registry.lookup(dep, required=False)
         if dep_src is not None:
-            _install_from_source(dep_src, dep, registry, work, seen, pip_deps)
+            _install_from_source(dep_src, dep, registry, work, seen, pip_deps, post_install)
         else:
             pip_deps.add(dep)
 
@@ -398,6 +400,17 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
 
     _install_libexec(dest, manifest, name, kind)
 
+    raw_hook = manifest.get("post_install")
+    if raw_hook is not None:
+        if not isinstance(raw_hook, list) or not raw_hook or not all(
+            isinstance(x, str) for x in raw_hook
+        ):
+            raise SystemExit(
+                f"paiman: {name!r} post_install must be a non-empty list of "
+                "strings ([bin-name, args...])"
+            )
+        post_install.append((name, list(raw_hook)))
+
     _audit_log(f"install {kind} {name} from {src_arg}")
     print(f"installed {kind} {name} -> {slot}")
     return name
@@ -429,12 +442,39 @@ def _pip_install(packages: set[str]) -> None:
 def cmd_install(args: argparse.Namespace) -> int:
     src_arg: str = args.source
     pip_deps: set[str] = set()
+    post_install: list[tuple[str, list[str]]] = []
     with tempfile.TemporaryDirectory(prefix="paiman-") as tmp:
         work = Path(tmp)
         registry = _Registry(work)
         src = _resolve_source(src_arg, registry, work)
-        _install_from_source(src, src_arg, registry, work, seen=set(), pip_deps=pip_deps)
+        _install_from_source(
+            src, src_arg, registry, work,
+            seen=set(), pip_deps=pip_deps, post_install=post_install,
+        )
     _pip_install(pip_deps)
+    if args.no_post_install:
+        if post_install:
+            print(
+                f"skipping {len(post_install)} post_install hook(s) "
+                f"(--no-post-install): {[n for n, _ in post_install]}"
+            )
+        return 0
+    for owner, argv in post_install:
+        bin_path = paths.usr_bin() / argv[0]
+        if not bin_path.exists():
+            raise SystemExit(
+                f"paiman: post_install for {owner!r} references missing bin "
+                f"{argv[0]!r} at {bin_path}"
+            )
+        print(f"post_install ({owner}): {' '.join(argv)}")
+        rc = subprocess.run([str(bin_path), *argv[1:]]).returncode
+        if rc != 0:
+            print(
+                f"paiman: post_install hook for {owner!r} exited {rc} — "
+                f"install completed but the hook didn't. Re-run `{argv[0]}` "
+                f"manually when ready.",
+                file=sys.stderr,
+            )
     return 0
 
 
@@ -711,6 +751,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_install = sub.add_parser("install", help="install a bundle (registry name, local path, or git URL)")
     p_install.add_argument("source", help="bundle name in the registry, local directory path, or git URL (optionally @ref)")
+    p_install.add_argument(
+        "--no-post-install",
+        action="store_true",
+        help="skip post_install hooks (use for non-interactive / CI installs)",
+    )
     p_install.set_defaults(func=cmd_install)
 
     p_remove = sub.add_parser("remove", help="remove an installed bundle")

@@ -1,6 +1,6 @@
 ---
 name: understand-ipc
-description: How PAIs talk to each other — pai_message and subagent:response, the bin/nudge and bin/subagent CLIs, ephemeral vs persistent subagents.
+description: How PAIs talk to each other — pai_message and subagent:response, the bin/send-message and bin/subagent CLIs, ephemeral vs persistent subagents.
 ---
 
 # Inter-PAI IPC
@@ -13,7 +13,7 @@ goes through the **event bus** as a directed event with a
 
 | Kind | Direction | Emitter | Use |
 |---|---|---|---|
-| `pai_message` | any → any | `bin/nudge --to <pid> --content "..."` | generic peer IPC |
+| `pai_message` | any → any | `bin/send-message --to <pid> --content "..."` | generic peer IPC |
 | `subagent:response` | child → parent | `bin/subagent reply --content "..."` | child reporting back |
 
 Spawn kickoff prompts ride `pai_message` — the parent's first IPC
@@ -28,13 +28,13 @@ own children.
 
 ```sh
 # Send a message to PAI at pid 2
-bin/nudge --to 2 --content "fyi: gmail driver restarted"
+bin/send-message --to 2 --content "fyi: gmail driver restarted"
 
 # Address by slug also works for persubs
-bin/nudge --to pai.memory --content "remember: the owner likes earl grey"
+bin/send-message --to pai.memory --content "remember: the owner likes earl grey"
 
 # Emit a kernel event (no target_pid; broadcast through wake_on)
-bin/nudge emit kernel:reload_config
+bin/paictl reload
 
 # Spawn an ephemeral subagent (one task, then done)
 bin/subagent spawn --slug research-flights \
@@ -66,7 +66,7 @@ the parent shuts down. See skill `understand-persubs`.
 | Spec marker | `persistent: true` only | `persistent: true` + `persub: true` |
 
 A persub is reachable like any other process:
-`bin/nudge --to <parent_slug>.<dep_name> --content "..."`.
+`bin/send-message --to <parent_slug>.<dep_name> --content "..."`.
 
 ## Why this matters
 

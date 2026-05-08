@@ -89,8 +89,8 @@ P.emit_event({
 })
 ```
 
-`bin/nudge` is the *peer-to-peer* CLI for one PAI to message another
-(`bin/nudge --to <pid> --content "..."`). It is not the driver emit
+`bin/send-message` is the *peer-to-peer* CLI for one PAI to message another
+(`bin/send-message --to <pid> --content "..."`). It is not the driver emit
 path — drivers run as kernel-supervised processes and have direct
 access to `P.emit_event`.
 

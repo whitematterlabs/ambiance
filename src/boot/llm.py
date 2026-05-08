@@ -218,6 +218,7 @@ async def _loop(
                     line = line.strip()
                     if not line:
                         continue
+                    print(f"[pai:{pai_slug}] » {line}", flush=True)
                     try:
                         append_log(pai_slug, f"» {line}")
                     except ProcessNotFound:

@@ -58,6 +58,18 @@ def _base_from_slug(slug: str) -> str:
     return DATE_SUFFIX.sub("", slug)
 
 
+def _resolve_parent_slug(slug: str) -> int:
+    """Resolve a PAI slug to its pid by reading `/proc/<slug>/spec.yaml`."""
+    try:
+        spec = P.read_spec(slug)
+    except P.ProcessNotFound as e:
+        raise ValueError(f"--parent-slug {slug!r} not found in /proc/") from e
+    pid = spec.get("pid")
+    if not isinstance(pid, int):
+        raise ValueError(f"--parent-slug {slug!r}: spec has no integer pid")
+    return pid
+
+
 def _build_spec_from_args(args: argparse.Namespace) -> dict:
     if args.spec:
         text = Path(args.spec).read_text()
@@ -79,7 +91,10 @@ def _build_spec_from_args(args: argparse.Namespace) -> dict:
         spec["description"] = args.description
     if args.people:
         spec["people"] = [p.strip() for p in args.people.split(",") if p.strip()]
-    if args.parent is not None:
+    parent_slug = getattr(args, "parent_slug", None)
+    if parent_slug:
+        spec["parent"] = _resolve_parent_slug(parent_slug)
+    elif args.parent is not None:
         spec["parent"] = int(args.parent)
     return spec
 
@@ -262,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--description", help="free-text description")
     sp.add_argument("--people", help="comma-separated list of related people")
     sp.add_argument("--parent", type=int, default=1, help="PID of the owning PAI (default: 1)")
+    sp.add_argument("--parent-slug", help="resolve owning PAI by slug (overrides --parent)")
     sp.add_argument("--spec", help="YAML file with the spec body (mutually exclusive with per-field flags)")
     sp.set_defaults(func=cmd_start)
 
@@ -277,6 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     en.add_argument("--description", help="free-text description")
     en.add_argument("--people", help="comma-separated list of related people")
     en.add_argument("--parent", type=int, default=1, help="PID of the owning PAI (default: 1)")
+    en.add_argument("--parent-slug", help="resolve owning PAI by slug (overrides --parent)")
     en.add_argument("--spec", help="YAML file with the spec body")
     en.set_defaults(func=cmd_ensure)
 

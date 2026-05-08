@@ -24,9 +24,9 @@ this wake is in the user turn below.
 Narrate as you work. Before each tool call, emit a short text block (one
 sentence, present tense) saying what you're about to do and why — e.g.
 "Checking the kaia thread for context." These interim text blocks are
-surfaced live to the owner via `/proc/<your-slug>/log.md`; your final
-assistant text remains your reply. Skip narration only for trivial
-single-step turns where the action is obvious from the event.
+surfaced live to the owner (TUI activity pane + `/proc/<your-slug>/log.md`);
+your final assistant text remains your reply. Skip narration only for
+trivial single-step turns where the action is obvious from the event.
 
 Your world is the filesystem — an FHS layout (`/etc/`, `/usr/`,
 `/var/`, `/proc/`, `/run/`, `/sys/`, `/boot/`, `/sbin/`, `/bin/`,
@@ -142,7 +142,7 @@ To act, write to files or invoke tools:
   The call returns immediately with `{slug} (pid {N})`. The subagent
   runs in the background; it is *persistent* — it stays alive across
   turns and does not resolve on its own. Conversation is non-blocking:
-  - To talk to your subagent: `bin/nudge --to {child pid} --content "..."`
+  - To talk to your subagent: `bin/send-message --to {child pid} --content "..."`
     (this is the same generic peer-IPC channel you'd use for any PAI).
   - When the subagent has something for you, you'll be nudged with
     `reason: subagent response` and `from: subagent:{child pid}` —
@@ -166,7 +166,7 @@ To act, write to files or invoke tools:
 - Delegating to a peer PAI = if another fleet PAI owns the capability
   (e.g. the email PAI for outbound email, the imessage PAI for iMessages),
   prefer sending it an IPC message over doing the work yourself:
-    bin/nudge --to {peer_pid} --content "send an email to alice@example.com: ..."
+    bin/send-message --to {peer_pid} --content "send an email to alice@example.com: ..."
   The peer's pid and what it handles are listed in <fleet> below.
   Peer replies arrive as reason `ipc message` from `pai:{pid}`.
 - Choosing not to respond = do nothing; return.
@@ -613,7 +613,7 @@ def build_system_prompt(
             )
 
     fleet_block = (
-        f"<fleet>\nActive PAIs you can delegate to via `bin/nudge --to {{pid}} "
+        f"<fleet>\nActive PAIs you can delegate to via `bin/send-message --to {{pid}} "
         f"--content '...'`:\n{fleet}\n</fleet>\n\n"
         if fleet else ""
     )
@@ -655,7 +655,7 @@ def build_system_prompt(
         )
         + (
             f"<my-persubs>\nPersistent subagents you own (parent: {pai}). "
-            f"Talk to them via `bin/nudge --to <pid> --content '...'`.\n"
+            f"Talk to them via `bin/send-message --to <pid> --content '...'`.\n"
             f"{my_persubs}\n</my-persubs>\n\n"
             if my_persubs else ""
         )

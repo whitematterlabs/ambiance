@@ -67,7 +67,7 @@ config. To make them durable, declare under `dependencies:`.
 ## Addressing
 
 ```sh
-bin/nudge --to pai.memory --content "remember: the owner likes earl grey"
+bin/send-message --to pai.memory --content "remember: the owner likes earl grey"
 ```
 
 The persub replies via `bin/subagent reply`, emitting a

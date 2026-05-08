@@ -89,7 +89,7 @@ The kernel doesn't know or care how events are produced. It just watches the dir
 
 PAIs talk to each other through the event bus. Two directed event kinds, both routed point-to-point via `target_pid` (no `wake_on` glob fan-out):
 
-- **`pai_message`** — generic peer IPC, used in either direction by any PAI talking to any other PAI. Emitted by `bin/nudge --to <pid> --content "..."`. The spawn kickoff prompt also rides this channel — it's just the parent's first IPC to the newborn child.
+- **`pai_message`** — generic peer IPC, used in either direction by any PAI talking to any other PAI. Emitted by `bin/send-message --to <pid> --content "..."`. The spawn kickoff prompt also rides this channel — it's just the parent's first IPC to the newborn child.
 - **`subagent:response`** — narrower kind for child→parent only. Emitted by `bin/subagent reply --content "..."` (which reads `$PAI_PARENT` to know where to send). The parent receives a nudge with `reason: subagent response` and can tell at a glance "this is from one of my own children" without inspecting the sender's spec.
 
 A spawned subagent has `persistent: true` in its spec, so it stays alive across turns and only resolves when the parent calls `bin/subagent kill --slug <name>`. Until then, parent and child can exchange any number of messages. This is why a parent can drive N concurrent subagents without blocking — every turn is mediated by the bus, not by a synchronous call.

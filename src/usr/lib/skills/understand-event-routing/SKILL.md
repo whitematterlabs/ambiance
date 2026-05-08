@@ -27,7 +27,7 @@ description: How an event becomes a nudge — the kind vocabulary, wake_on globs
 Two kinds bypass the glob system and route point-to-point via a
 `target_pid:` field:
 
-- `pai_message` — generic peer IPC. Sent by `bin/nudge --to <pid>`.
+- `pai_message` — generic peer IPC. Sent by `bin/send-message --to <pid>`.
   Used in either direction by any PAI talking to any other PAI.
 - `subagent:response` — child→parent only. Emitted by
   `bin/subagent reply`; the parent receives a nudge tagged
