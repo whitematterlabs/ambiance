@@ -119,6 +119,53 @@ def cmd_start(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ensure(args: argparse.Namespace) -> int:
+    """Idempotent stable-slug variant of `start`.
+
+    Intended for bundle `hooks.boot:` entries. Uses the slug literally
+    (no date suffix). If a proc with the slug already exists:
+      - same spec, status running/scheduled  -> no-op
+      - different spec, or terminal status   -> resolve cancelled, respawn
+    If it doesn't exist, spawn fresh."""
+    if not args.slug:
+        print("error: --slug is required", file=sys.stderr)
+        return 1
+    try:
+        spec = _build_spec_from_args(args)
+    except (OSError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if "run" not in spec and "schedule" not in spec:
+        print("error: spec must have `run:` or `schedule:`", file=sys.stderr)
+        return 1
+
+    slug = args.slug
+    try:
+        existing = P.read_spec(slug)
+        status = P.read_status(slug)
+    except P.ProcessNotFound:
+        existing, status = None, None
+
+    if existing is not None:
+        # Drop runtime-managed fields before comparing.
+        existing_cmp = {k: v for k, v in existing.items() if k != "spawned"}
+        if existing_cmp == spec and status in ("running", "scheduled"):
+            print(f"{slug} (unchanged)")
+            return 0
+        try:
+            P.resolve(slug, "cancelled")
+        except P.ProcessNotFound:
+            pass
+
+    try:
+        P.spawn(slug, spec)
+    except P.ProcessExists as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(slug)
+    return 0
+
+
 def cmd_stop(args: argparse.Namespace) -> int:
     try:
         P.resolve(args.slug, "cancelled")
@@ -217,6 +264,21 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--parent", type=int, default=1, help="PID of the owning PAI (default: 1)")
     sp.add_argument("--spec", help="YAML file with the spec body (mutually exclusive with per-field flags)")
     sp.set_defaults(func=cmd_start)
+
+    en = sub.add_parser(
+        "ensure",
+        help="idempotently spawn a service with a stable slug (for boot hooks)",
+    )
+    en.add_argument("--slug", help="exact slug (no date suffix)")
+    en.add_argument("--run", help="command to run (background service, or per-fire for cron)")
+    en.add_argument("--schedule", help="cron expression (recurring) or ISO datetime (one-shot)")
+    en.add_argument("--restart", choices=["never", "on-failure", "always"])
+    en.add_argument("--deadline", help="ISO datetime; kernel auto-expires if passed")
+    en.add_argument("--description", help="free-text description")
+    en.add_argument("--people", help="comma-separated list of related people")
+    en.add_argument("--parent", type=int, default=1, help="PID of the owning PAI (default: 1)")
+    en.add_argument("--spec", help="YAML file with the spec body")
+    en.set_defaults(func=cmd_ensure)
 
     st = sub.add_parser("stop", help="cancel a running service")
     st.add_argument("slug")

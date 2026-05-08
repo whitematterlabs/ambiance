@@ -229,6 +229,12 @@ def load_config(path: Path | None = None) -> dict[str, dict]:
             for k in ("description", "prompt", "provider", "model", "wake_on"):
                 if k in pkg:
                     merged[k] = pkg[k]
+            # Bundle prompts are relative to the bundle dir; rewrite to
+            # absolute so bootstrap.build_system_prompt can read them
+            # without knowing about packages. (Inline `prompt:` on the
+            # entry below overrides this and is left as-written.)
+            if "prompt" in merged and not Path(merged["prompt"]).is_absolute():
+                merged["prompt"] = str(PACKAGES_DIR / pkg_name / merged["prompt"])
         for k, v in entry.items():
             if k == "package":
                 continue
@@ -475,6 +481,16 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
             if dep.get("package"):
                 bundle = resolve_subagent_package(dep["package"])
             prompt = dep.get("prompt") or bundle.get("prompt")
+            # If the prompt came from the bundle (not the dep override),
+            # rewrite it absolute against the bundle dir so bootstrap
+            # can read it without knowing about packages.
+            if (
+                prompt
+                and not dep.get("prompt")
+                and bundle.get("prompt")
+                and not Path(prompt).is_absolute()
+            ):
+                prompt = str(SUBAGENTS_DIR / dep["package"] / prompt)
             provider = (
                 dep.get("provider")
                 or bundle.get("provider")

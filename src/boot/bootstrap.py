@@ -6,14 +6,15 @@ lifetime; restart the kernel to pick up edits to the role prompt.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
-from .paths import HOME_DIR, PAI_ROOT, REPO_ROOT, usr_lib_skills
+from . import processes
+from .paths import HOME_DIR, PAI_ROOT, PROC_DIR, REPO_ROOT, usr_lib_skills, usr_lib_subagents
 
 
 OPERATING_INSTRUCTIONS = """\
@@ -297,12 +298,234 @@ def _list_system_skills(path: Path) -> str:
     return "\n".join(entries)
 
 
+def _list_system_subagents(path: Path) -> str:
+    """Installed subagent bundles at /usr/lib/subagents/<name>/package.yaml.
+    Emit `<name>: <description>` per line so root knows what's available
+    to spawn via `bin/subagent spawn --package <name>`."""
+    if not path.exists():
+        return ""
+    entries: list[str] = []
+    for sub_dir in sorted(path.iterdir()):
+        if not sub_dir.is_dir() or sub_dir.name.startswith("."):
+            continue
+        pkg = sub_dir / "package.yaml"
+        if not pkg.exists():
+            continue
+        desc = ""
+        try:
+            data = yaml.safe_load(pkg.read_text()) or {}
+            desc = str(data.get("description", "")).strip()
+        except (OSError, yaml.YAMLError):
+            pass
+        entries.append(f"{sub_dir.name}: {desc}" if desc else sub_dir.name)
+    return "\n".join(entries)
+
+
+# One-line gloss per top-level FHS slot. Anything not listed here is
+# omitted from the rendered tree (keeps it tight; the spec at
+# /usr/share/doc/FILESYSTEM_v3.md is authoritative).
+_FHS_GLOSS: dict[str, str] = {
+    "boot": "kernel image (supervisor + linked libs); avoid editing",
+    "sbin": "owner-only tools that mutate /etc/ or fleet state (init, paiman, paiadd, paictl)",
+    "bin": "PAI-callable tools (paictl, paicron, ipc, subagent, nudge, ...)",
+    "etc": "control plane: config.yaml declares the fleet",
+    "home": "stitched per-PAI home views",
+    "root": "root's stitched home",
+    "proc": "running PAIs/drivers — spec.yaml, log.md, result.md per slug",
+    "run": "transient runtime state (event queue, sockets)",
+    "sys": "driver-internal runtime state (cursors, last events)",
+    "var": "persistent state — var/lib/instances/<pai>/, var/spool/, var/log/",
+    "usr": "userspace: lib/drivers, lib/skills, lib/subagents, lib/pais, share/doc, share/prompts, src",
+    "opt": "released bundle versions (paiman-managed)",
+    "tmp": "scratch",
+    "mnt": "external mounts",
+    "dev": "device-like endpoints",
+}
+
+
+# Subpaths under $PAI_ROOT whose immediate children are listed below the
+# top-level tree. These are the directories with stable, enumerable
+# structure that PAIs routinely need to discover (drivers, installed
+# bundles, fleet instances, spool partitions, log channels, live procs).
+_FHS_EXPAND_DIRS: tuple[str, ...] = (
+    "usr/lib/drivers",
+    "usr/lib/skills",
+    "usr/lib/subagents",
+    "usr/lib/pais",
+    "usr/share/doc",
+    "usr/share/prompts",
+    "var/lib/instances",
+    "var/spool",
+    "var/log",
+    "proc",
+)
+
+
+def _render_system_fhs(pai_root: Path) -> str:
+    """Render the top level of $PAI_ROOT with a one-line gloss per slot,
+    plus a second-level expansion of the dirs in `_FHS_EXPAND_DIRS`."""
+    if not pai_root.exists():
+        return ""
+    lines: list[str] = [f"{pai_root}/"]
+    try:
+        names = sorted(p.name for p in pai_root.iterdir() if p.is_dir())
+    except OSError:
+        return ""
+    for name in names:
+        if name.startswith("."):
+            continue
+        gloss = _FHS_GLOSS.get(name, "")
+        lines.append(f"├── {name}/" + (f"  — {gloss}" if gloss else ""))
+
+    for rel in _FHS_EXPAND_DIRS:
+        d = pai_root / rel
+        if not d.exists() or not d.is_dir():
+            continue
+        try:
+            kids = sorted(p.name for p in d.iterdir() if not p.name.startswith("."))
+        except OSError:
+            continue
+        if not kids:
+            continue
+        lines.append("")
+        lines.append(f"{rel}/")
+        for k in kids:
+            lines.append(f"  {k}")
+
+    lines.append("")
+    lines.append("Spec: /usr/share/doc/FILESYSTEM_v3.md (authoritative).")
+    return "\n".join(lines)
+
+
+def _readlink_display(p: Path) -> str:
+    """For a symlink p, return its target rendered as `/<rel>` against
+    PAI_ROOT when it lands inside the FHS, else the raw target string."""
+    try:
+        raw = os.readlink(p)
+    except OSError:
+        return "?"
+    try:
+        resolved = p.resolve()
+    except OSError:
+        return raw
+    try:
+        rel = resolved.relative_to(PAI_ROOT)
+        return f"/{rel}"
+    except ValueError:
+        return raw
+
+
+def _render_home_fhs(home: Path) -> str:
+    """List the immediate contents of the PAI's home dir. Symlinks are
+    annotated with their target (rendered relative to PAI_ROOT when
+    possible, since most home entries are stitched-in views of /var)."""
+    if not home.exists():
+        return ""
+    try:
+        entries = sorted(home.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return ""
+    lines: list[str] = [f"{home}/"]
+    for p in entries:
+        if p.name.startswith("."):
+            continue
+        if p.is_symlink():
+            lines.append(f"├── {p.name} → {_readlink_display(p)}")
+        elif p.is_dir():
+            lines.append(f"├── {p.name}/")
+        else:
+            lines.append(f"├── {p.name}")
+    return "\n".join(lines)
+
+
+def _runtime_status_safe(slug: str) -> str:
+    try:
+        return processes.read_status(slug)
+    except processes.ProcessNotFound:
+        return "-"
+    except OSError:
+        return "-"
+
+
+def _render_runtime(self_pid: int) -> str:
+    """Walk /proc and emit a three-section listing of running fleet:
+    PAIs, Persubs, Drivers. Each row is `name  active  status  description`.
+    Mirrors paictl ls's shape with simple two-space separators."""
+    if not PROC_DIR.exists():
+        return ""
+
+    pai_rows: list[tuple[str, str, str, str]] = []
+    persub_rows: list[tuple[str, str, str, str]] = []
+    driver_rows: list[tuple[str, str, str, str]] = []
+
+    for child in sorted(PROC_DIR.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        spec_path = child / "spec.yaml"
+        if not spec_path.exists():
+            continue
+        try:
+            with spec_path.open() as f:
+                spec = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        slug = child.name
+        kind = spec.get("kind")
+        active = "yes" if spec.get("active", True) else "no"
+        status = _runtime_status_safe(slug)
+        desc = str(spec.get("description", "") or "")
+        if kind == "driver":
+            driver_rows.append((slug, active, status, desc))
+        elif kind == "pai":
+            if spec.get("persub"):
+                parent = spec.get("parent", "")
+                d = desc or (f"persub of {parent}" if parent else "persub")
+                persub_rows.append((slug, active, status, d))
+            else:
+                pid = spec.get("pid")
+                marker = "  (you)" if pid == self_pid else ""
+                pai_rows.append((slug, active, status, desc + marker))
+
+    if not (pai_rows or persub_rows or driver_rows):
+        return ""
+
+    out: list[str] = []
+
+    def _emit(title: str, rows: list[tuple[str, str, str, str]]) -> None:
+        if not rows:
+            return
+        if out:
+            out.append("")
+        out.append(title)
+        out.append("NAME  ACTIVE  STATUS  DESCRIPTION")
+        for name, active, status, desc in rows:
+            out.append(f"{name}  {active}  {status}  {desc}")
+
+    _emit("PAIs:", pai_rows)
+    _emit("Persubs:", persub_rows)
+    _emit("Drivers:", driver_rows)
+    return "\n".join(out)
+
+
+def _render_my_persubs(self_pid: int) -> str:
+    """List this PAI's own persistent-subagent children, if any. Empty
+    string if it has none."""
+    rows: list[str] = []
+    for slug, spec in processes._iter_pai_specs():
+        if spec.get("parent") != self_pid:
+            continue
+        if not spec.get("persub"):
+            continue
+        desc = str(spec.get("description", "") or "")
+        rows.append(f"{slug}: {desc}" if desc else slug)
+    return "\n".join(sorted(rows))
+
+
 def read_self_notes(home: Path) -> str:
     """Read the PAI's self-notes file. Stripped; empty string if missing."""
     return _read_or_empty(home / "memory" / "private" / "self.md").strip()
 
 
-@lru_cache(maxsize=32)
 def build_system_prompt(
     pai: int = 1,
     parent: Optional[int] = None,
@@ -311,19 +534,23 @@ def build_system_prompt(
     persub: bool = False,
     self_notes: Optional[str] = None,
 ) -> str:
-    # home_dir is a string for hashability under @lru_cache; callers
-    # (nudge.py) resolve it from the PAI's slug — root → /root/, else
-    # /home/<slug>/. Defaults to the legacy global HOME_DIR for
-    # subagent code paths that don't carry a slug yet.
-    # self_notes is passed in (rather than read here) so the lru_cache
-    # invalidates when the PAI edits its own self.md — callers read the
-    # file via `read_self_notes(home)` right before calling.
+    # home_dir is a string; callers (nudge.py) resolve it from the PAI's
+    # slug — root → /root/, else /home/<slug>/. Defaults to the legacy
+    # global HOME_DIR for subagent code paths that don't carry a slug yet.
     home = Path(home_dir) if home_dir else HOME_DIR
     if self_notes is None:
         self_notes = read_self_notes(home)
     bins = _list_dir(home / "bin")
     skills = _list_skills(home / "memory" / "skills")
     system_skills = _list_system_skills(usr_lib_skills())
+    # Subagent and FHS blocks are only useful for non-subagent PAIs —
+    # subagents have a focused brief and don't need the full system map.
+    is_subagent = parent is not None
+    system_subagents = "" if is_subagent else _list_system_subagents(usr_lib_subagents())
+    fhs_tree = "" if is_subagent else _render_system_fhs(PAI_ROOT)
+    runtime = "" if is_subagent else _render_runtime(pai)
+    my_persubs = "" if is_subagent else _render_my_persubs(pai)
+    home_fhs = "" if is_subagent else _render_home_fhs(home)
     fleet = _list_fleet(PAI_ROOT, pai)
 
     parent_label = str(parent) if parent is not None else "kernel"
@@ -366,6 +593,7 @@ def build_system_prompt(
     # escalate to their parent through `bin/subagent reply`, not
     # through this channel.
     escalation_block = ""
+    memory_block = ""
     if pai != 1 and parent is None:
         escalation_tmpl = _read_or_empty(
             PAI_ROOT / "usr/share/prompts" / "capability-escalation.md"
@@ -374,6 +602,14 @@ def build_system_prompt(
             escalation_block = (
                 f"<capability-escalation>\n{escalation_tmpl}"
                 f"</capability-escalation>\n\n"
+            )
+        memory_tmpl = _read_or_empty(
+            PAI_ROOT / "usr/share/prompts" / "memory-usage.md"
+        )
+        if memory_tmpl:
+            memory_block = (
+                f"<memory-usage>\n{memory_tmpl}"
+                f"</memory-usage>\n\n"
             )
 
     fleet_block = (
@@ -388,6 +624,7 @@ def build_system_prompt(
         f"{self_block}"
         f"{subagent_block}"
         f"{escalation_block}"
+        f"{memory_block}"
         f"{fleet_block}"
         f"<operating-instructions>\n{OPERATING_INSTRUCTIONS}</operating-instructions>\n\n"
         f"<bin>\nBinaries in bin/ (run as `bin/<name>`; use `bin/<name> --help` "
@@ -404,6 +641,39 @@ def build_system_prompt(
         f"`cat /usr/share/doc/KERNEL.md`). Pull a skill in whenever its "
         f"description plausibly applies — the cost is one shell command."
         f"\n{system_skills}\n</system-skills>\n\n"
+        + (
+            f"<system-subagents>\nInstalled subagent bundles "
+            f"(spawn with `bin/subagent spawn --slug <slug> --package <name> "
+            f"--prompt '...'`). Each line is `<name>: <description>`:\n"
+            f"{system_subagents}\n</system-subagents>\n\n"
+            if system_subagents else ""
+        )
+        + (
+            f"<runtime>\nRunning fleet right now (live snapshot of /proc):\n"
+            f"{runtime}\n</runtime>\n\n"
+            if runtime else ""
+        )
+        + (
+            f"<my-persubs>\nPersistent subagents you own (parent: {pai}). "
+            f"Talk to them via `bin/nudge --to <pid> --content '...'`.\n"
+            f"{my_persubs}\n</my-persubs>\n\n"
+            if my_persubs else ""
+        )
+        + (
+            f"<home-fhs>\nYour home dir contents (`~/`). Most entries are "
+            f"symlinks into shared state under /var/ — follow the arrows "
+            f"to see where the bytes really live.\n"
+            f"{home_fhs}\n</home-fhs>\n\n"
+            if home_fhs else ""
+        )
+        + (
+            f"<system-fhs>\nLive PAI FHS layout (your world; the shell "
+            f"rewrites these prefixes automatically). Top level first, "
+            f"then immediate children of dirs with stable structure:\n"
+            f"{fhs_tree}\n</system-fhs>\n\n"
+            if fhs_tree else ""
+        )
+        +
         # Anchor the shell's cwd visually, without naming it — naming it
         # encourages the model to prefix commands with that name.
         "~ $ "

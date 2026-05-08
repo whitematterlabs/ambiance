@@ -377,6 +377,14 @@ All persistent mutable state.
 - `var/lib/instances/<pai>/` — **per-PAI mutable instance state.** This
   is what survives uninstall/reinstall. Sacred.
 - `var/lib/packages/` — paiman metadata (deferred).
+- `var/lib/<name>/` — **package-owned state slot.** Any installable
+  package (driver, subagent, lib, …) may claim `/var/lib/<name>/` for
+  its own persistent state, as long as it creates and owns the directory
+  in its `libexec/install.sh` hook. The kernel skeleton stays minimal;
+  packages provision their own dirs at install time. Existing precedent:
+  drivers like `imessage` and `whatsapp` keep cursors and per-domain
+  state under `/var/lib/<driver>/`; the `browse` subagent stores
+  imported Chrome cookies under `/var/lib/browse/cookies/`.
 - `var/log/` — append-only logs.
 - `var/spool/communication/` — message queues (see Communication Layout).
 - `var/cache/` — regenerable derived state (deferred).

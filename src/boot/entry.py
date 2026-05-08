@@ -14,7 +14,7 @@ import sys
 import traceback
 
 from . import paths
-from .phases import clean, probe, reconcile, sanity, start
+from .phases import clean, hooks, probe, reconcile, sanity, start
 from . import main as supervise
 
 _LOCK_FILE = paths.PAI_ROOT / "run" / "kernel.pid"
@@ -76,6 +76,7 @@ def boot() -> int:
         probe.run()
         reconcile.run()
         start.run()
+        hooks.run()
     except sanity.SanityError as e:
         print(f"[boot] sanity failed: {e}", file=sys.stderr, flush=True)
         return 1

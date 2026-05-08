@@ -283,15 +283,30 @@ def _audit_log(line: str) -> None:
         f.write(f"- {ts}  {line}\n")
 
 
+def _libexec_slot(name: str, kind: str) -> Path:
+    """Where `libexec/` from a bundle gets exposed.
+
+    Drivers stay at `/usr/libexec/<name>/` for backcompat. Other kinds
+    that ship a `libexec/` (e.g. subagents) get `/usr/libexec/<kind>s/<name>/`
+    so different kinds with the same name don't collide.
+    """
+    if kind == "driver":
+        return paths.usr_libexec() / name
+    return paths.usr_libexec() / f"{kind}s" / name
+
+
 def _install_libexec(bundle_dir: Path, manifest: dict, name: str, kind: str) -> None:
-    """For driver bundles with a `libexec/` subdir, expose it at
-    `/usr/libexec/<name>/` and run the optional `libexec.install` argv."""
-    if kind != "driver":
-        return
+    """If the bundle ships a `libexec/` subdir, expose it under
+    `/usr/libexec/...` and run the optional `libexec.install` argv.
+
+    Gated on the *presence* of the `libexec/` directory rather than `kind`,
+    so any package can opt in by shipping one.
+    """
     libexec_dest = bundle_dir / "libexec"
     if not libexec_dest.is_dir():
         return
-    libexec_slot = paths.usr_libexec() / name
+    libexec_slot = _libexec_slot(name, kind)
+    libexec_slot.parent.mkdir(parents=True, exist_ok=True)
     _atomic_symlink(libexec_dest, libexec_slot)
     install = (manifest.get("libexec") or {}).get("install")
     if install is None:
@@ -491,10 +506,9 @@ def cmd_remove(args: argparse.Namespace) -> int:
         slot, _ = _activation_slot(kind, name, entrypoint, topic=topic)
         if slot.is_symlink() or slot.exists():
             slot.unlink()
-    if kind == "driver":
-        libexec_slot = paths.usr_libexec() / name
-        if libexec_slot.is_symlink() or libexec_slot.exists():
-            libexec_slot.unlink()
+    libexec_slot = _libexec_slot(name, kind)
+    if libexec_slot.is_symlink() or libexec_slot.exists():
+        libexec_slot.unlink()
     shutil.rmtree(bundle_dir)
     _audit_log(f"remove {kind} {name}")
     print(f"removed {kind} {name}")
