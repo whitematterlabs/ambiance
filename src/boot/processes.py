@@ -4,6 +4,7 @@ Every process is a directory in home/proc/{slug}/ containing spec.yaml,
 status, and log.md. See src/usr/share/doc/KERNEL.md for the full spec.
 """
 
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,8 @@ import yaml
 
 from . import paths
 from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR
+
+_METRICS_DIR = HOME_DIR / "sys" / "subagents"
 
 # Pids reserved for kernel-seeded PAIs. Mirrors RESERVED_PIDS in config.py;
 # duplicated here to avoid a circular import (config.py imports processes).
@@ -117,7 +120,61 @@ def resolve(slug: str, new_status: str) -> None:
         and not spec.get("persub")
         and new_status in TERMINAL_STATUSES
     ):
+        try:
+            _write_subagent_metrics(slug, spec, new_status)
+        except Exception as e:
+            print(f"[kernel] metrics: failed for {slug}: {e!r}", flush=True)
         shutil.rmtree(proc, ignore_errors=True)
+
+
+_SHELL_LINE_RE = re.compile(r"^\[pai:(?P<slug>[^\]]+)\] \$ (?P<cmd>.*)$")
+_CLAUDE_P_RE = re.compile(r"\bclaude\s+-p\b")
+
+
+def _write_subagent_metrics(slug: str, spec: dict, exit_status: str) -> None:
+    """On subagent terminal exit, write /sys/subagents/<slug>/metrics.yaml.
+
+    Pure telemetry — counts `claude -p` invocations in kernel.log lines
+    tagged for this slug, plus duration and final status. No behavior
+    change. The metric of interest is `claude_p_invocations`: a healthy
+    coder run should be >= 1.
+    """
+    spawned = spec.get("spawned")
+    duration_s: int | None = None
+    if isinstance(spawned, str):
+        try:
+            t0 = datetime.fromisoformat(spawned)
+            duration_s = int((datetime.now() - t0).total_seconds())
+        except ValueError:
+            pass
+
+    invocations = 0
+    log_path = HOME_DIR / "tmp" / "kernel.log"
+    if log_path.exists():
+        prefix = f"[pai:{slug}] $ "
+        try:
+            with log_path.open("r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if not line.startswith(prefix):
+                        continue
+                    if _CLAUDE_P_RE.search(line):
+                        invocations += 1
+        except Exception:
+            pass
+
+    metrics = {
+        "slug": slug,
+        "package": spec.get("package"),
+        "duration_s": duration_s,
+        "claude_p_invocations": invocations,
+        "files_written": [],  # reserved; populate when we instrument writes
+        "exit_status": exit_status,
+    }
+
+    target_dir = _METRICS_DIR / slug
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with (target_dir / "metrics.yaml").open("w") as f:
+        yaml.safe_dump(metrics, f, sort_keys=False)
 
 
 def _iter_pai_specs():

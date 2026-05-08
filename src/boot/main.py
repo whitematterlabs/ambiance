@@ -364,6 +364,23 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             context={"text": text},
         )
 
+    elif kind in ("subagent:plan_ready", "subagent:plan_reject"):
+        target_pid = event.get("target_pid")
+        slug = event.get("slug") or ""
+        sender_pid = event.get("sender_pid")
+        if target_pid is None:
+            print(f"[kernel] dropping malformed {kind} event: {event!r}", flush=True)
+            return
+        tag = "subagent plan ready" if kind == "subagent:plan_ready" else "subagent plan reject"
+        _dispatch_nudge(
+            int(target_pid),
+            tag,
+            from_=int(sender_pid) if sender_pid is not None else None,
+            from_kind="subagent",
+            slug=slug,
+            context={"slug": slug, "text": event.get("text") or ""},
+        )
+
     elif kind == "send_failed":
         thread = event.get("thread")
         text = event.get("text") or ""

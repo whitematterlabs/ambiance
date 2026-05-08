@@ -175,6 +175,68 @@ def cmd_reply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_sender_pid() -> int | None:
+    raw = os.environ.get("PAI_PID")
+    if not raw:
+        print("error: $PAI_PID not set — must be invoked from a PAI turn", file=sys.stderr)
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"error: $PAI_PID={raw!r} is not an int", file=sys.stderr)
+        return None
+
+
+def cmd_plan_ready(args: argparse.Namespace) -> int:
+    sender_pid = _read_sender_pid()
+    if sender_pid is None:
+        return 1
+    parent_raw = os.environ.get("PAI_PARENT")
+    if not parent_raw:
+        print("error: $PAI_PARENT not set — only subagents can declare plan-ready", file=sys.stderr)
+        return 1
+    try:
+        parent_pid = int(parent_raw)
+    except ValueError:
+        print(f"error: $PAI_PARENT={parent_raw!r} is not an int", file=sys.stderr)
+        return 1
+    P.emit_event({
+        "source": "subagent",
+        "kind": "subagent:plan_ready",
+        "target_pid": parent_pid,
+        "sender_pid": sender_pid,
+        "slug": os.environ.get("PAI_SLUG", ""),
+        "text": args.content or "",
+    })
+    print(f"emitted subagent:plan_ready → pid={parent_pid}")
+    return 0
+
+
+def cmd_plan_reject(args: argparse.Namespace) -> int:
+    sender_pid = _read_sender_pid()
+    if sender_pid is None:
+        return 1
+    try:
+        spec = P.read_spec(args.slug)
+    except P.ProcessNotFound:
+        print(f"error: no subagent {args.slug!r}", file=sys.stderr)
+        return 1
+    target_pid = spec.get("pid")
+    if target_pid is None:
+        print(f"error: {args.slug!r} has no pid", file=sys.stderr)
+        return 1
+    P.emit_event({
+        "source": "subagent",
+        "kind": "subagent:plan_reject",
+        "target_pid": int(target_pid),
+        "sender_pid": sender_pid,
+        "slug": args.slug,
+        "text": args.content or "",
+    })
+    print(f"emitted subagent:plan_reject → {args.slug} (pid={target_pid})")
+    return 0
+
+
 def cmd_kill(args: argparse.Namespace) -> int:
     parent_pid_raw = os.environ.get("PAI_PID")
     if not parent_pid_raw:
@@ -273,6 +335,21 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("reply", help="(child only) send a subagent:response to your parent")
     rp.add_argument("--content", required=True, help="message text")
     rp.set_defaults(func=cmd_reply)
+
+    pr = sub.add_parser(
+        "plan-ready",
+        help="(child only) declare /proc/$PAI_SLUG/plan.md ready; parent gets a 30s ack window (silence=approval)",
+    )
+    pr.add_argument("--content", default="", help="optional inline plan text")
+    pr.set_defaults(func=cmd_plan_ready)
+
+    pj = sub.add_parser(
+        "plan-reject",
+        help="(parent only) reject a subagent's plan; subagent revises before continuing",
+    )
+    pj.add_argument("--slug", required=True, help="child subagent slug to reject")
+    pj.add_argument("--content", default="", help="rejection reason / correction")
+    pj.set_defaults(func=cmd_plan_reject)
 
     dn = sub.add_parser(
         "kill",
