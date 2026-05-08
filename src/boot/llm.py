@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import date, datetime
 from typing import Optional
 
 from anthropic import AsyncAnthropic
@@ -20,10 +21,23 @@ from anthropic import AsyncAnthropic
 from . import tokens
 
 from . import shell_tool
+from .paths import HOME_DIR
 from .processes import ProcessNotFound, append_log
 
 MAX_TOKENS = 4096
 MAX_ITERATIONS = 200
+
+
+def _append_narration_to_me_thread(pai_pid: str, line: str) -> None:
+    """Mirror interim text-block narration into the owner-facing me/ thread
+    so the TUI ChatPane shows it inline. Body is prefixed with `» ` to
+    distinguish it from a final reply."""
+    day = date.today().isoformat()
+    path = HOME_DIR / "communication" / "messages" / "me" / str(pai_pid) / f"{day}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    hm = datetime.now().strftime("%H:%M")
+    with path.open("a", encoding="utf-8") as f:
+        f.write(f"[{hm}] pai: » {line}\n")
 
 # provider key -> (base_url or None, api_key env var, default model, extra_body)
 PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
@@ -214,6 +228,7 @@ async def _loop(
                 text = (block.text or "").strip()
                 if not text:
                     continue
+                pai_pid = (env or {}).get("PAI_PID")
                 for line in text.splitlines():
                     line = line.strip()
                     if not line:
@@ -223,6 +238,8 @@ async def _loop(
                         append_log(pai_slug, f"» {line}")
                     except ProcessNotFound:
                         pass
+                    if pai_pid:
+                        _append_narration_to_me_thread(pai_pid, line)
 
         tool_results = []
         for use in tool_uses:

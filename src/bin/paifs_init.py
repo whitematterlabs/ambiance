@@ -14,10 +14,31 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+
+
+def _ensure_uv() -> None:
+    """Hard-fail with install instructions if `uv` is missing.
+
+    The whole FHS provisioning chain (venv creation, pip installs, paiman
+    deps) goes through uv. We don't auto-install it — curl-pipe-sh feels
+    inappropriate for a tool that touches Python toolchain — but we do
+    surface a single clear message instead of an opaque FileNotFoundError
+    deep in subprocess.run.
+    """
+    if shutil.which("uv") is not None:
+        return
+    sys.exit(
+        "paifs-init: `uv` is required but not on PATH.\n"
+        "Install it first:\n"
+        "    brew install uv                                   # macOS\n"
+        "    curl -LsSf https://astral.sh/uv/install.sh | sh   # any unix\n"
+        "Then re-run paifs-init."
+    )
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -404,6 +425,7 @@ def main() -> int:
         help="FHS root (default: $PAI_ROOT or ~/.pai)",
     )
     args = ap.parse_args()
+    _ensure_uv()
     lay_out(args.root)
     expose_pai_command(args.root)
     print(f"FHS skeleton ready at {args.root}")

@@ -391,12 +391,20 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
 
     # Activate.
     slot, target = _activation_slot(kind, name, entrypoint, topic=topic)
-    _atomic_symlink(target, slot)
     if kind in ("bin", "sbin"):
-        try:
-            target.chmod(target.stat().st_mode | 0o111)
-        except OSError:
-            pass
+        # Shell shim that hardcodes the local kernel venv python — same
+        # pattern paifs-init uses for kernel shims. Bypasses the bin's
+        # own shebang (which can't portably reference the venv) and
+        # frees the user from needing PAI's bin dir on PATH.
+        py = _venv_python()
+        shim = f'#!/bin/sh\nexec "{py}" "{target}" "$@"\n'
+        if slot.is_symlink() or slot.exists():
+            slot.unlink()
+        slot.parent.mkdir(parents=True, exist_ok=True)
+        slot.write_text(shim)
+        slot.chmod(0o755)
+    else:
+        _atomic_symlink(target, slot)
 
     _install_libexec(dest, manifest, name, kind)
 
@@ -421,7 +429,12 @@ def _venv_python() -> Path:
 
 
 def _pip_install(packages: set[str]) -> None:
-    """Install PyPI packages into the kernel venv."""
+    """Install PyPI packages into the kernel venv via uv.
+
+    The kernel venv is provisioned by paifs-init using `uv venv`, which
+    intentionally doesn't ship pip. Use `uv pip --python <venv-python>` to
+    target it from outside — same pattern paifs-init uses for runtime deps.
+    """
     if not packages:
         return
     py = _venv_python()
@@ -430,13 +443,18 @@ def _pip_install(packages: set[str]) -> None:
             f"paiman: kernel venv python not found at {py} — "
             "run paifs-init to provision the venv before installing pip deps"
         )
+    if shutil.which("uv") is None:
+        raise SystemExit(
+            "paiman: `uv` is required for pip installs but not on PATH. "
+            "Run paifs-init (which surfaces install instructions) and re-try."
+        )
     pkgs = sorted(packages)
-    print(f"pip install (kernel venv): {', '.join(pkgs)}")
+    print(f"uv pip install (kernel venv): {', '.join(pkgs)}")
     subprocess.run(
-        [str(py), "-m", "pip", "install", "--disable-pip-version-check", *pkgs],
+        ["uv", "pip", "install", "--python", str(py), *pkgs],
         check=True,
     )
-    _audit_log(f"pip install {' '.join(pkgs)}")
+    _audit_log(f"uv pip install {' '.join(pkgs)}")
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -466,8 +484,13 @@ def cmd_install(args: argparse.Namespace) -> int:
                 f"paiman: post_install for {owner!r} references missing bin "
                 f"{argv[0]!r} at {bin_path}"
             )
+        # Invoke via the kernel venv python directly: bypasses any shebang
+        # quirks in the bin and guarantees the interpreter has all pip deps
+        # we just installed (regardless of caller's PATH).
         print(f"post_install ({owner}): {' '.join(argv)}")
-        rc = subprocess.run([str(bin_path), *argv[1:]]).returncode
+        rc = subprocess.run(
+            [str(_venv_python()), str(bin_path), *argv[1:]]
+        ).returncode
         if rc != 0:
             print(
                 f"paiman: post_install hook for {owner!r} exited {rc} — "
