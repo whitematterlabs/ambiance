@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import os
 import signal
+import subprocess
 import sys
+import time
 import traceback
 from collections import defaultdict
 from datetime import date, datetime
@@ -747,7 +750,7 @@ async def run() -> None:
 
     # NOTE: layout/legacy migrations moved to boot.phases. Reconcile is
     # now phase 4 and runs before this function is invoked.
-    contacts.sync_to_people(M.PEOPLE_DIR)
+    contacts.sync(M.PEOPLE_DIR, M.MESSAGES_DIR)
     heap = T.rebuild_from_proc()
     watcher = EventWatcher(P.EVENTS_DIR, loop)
     watcher.start()
@@ -824,4 +827,161 @@ async def run() -> None:
                 print(f"[kernel] shutdown: preserving {len(survivors)} cron procs across restart", flush=True)
         except Exception as e:
             print(f"[kernel] shutdown sweep failed: {e!r}", flush=True)
+        try:
+            run_dir = Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai"))) / "run"
+            socks = sorted(run_dir.glob("tmux-*.sock"))
+            if socks:
+                print(f"[kernel] shutdown: killing {len(socks)} tmux servers", flush=True)
+                for sock in socks:
+                    try:
+                        subprocess.run(
+                            ["tmux", "-S", str(sock), "kill-server"],
+                            timeout=2,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    except Exception as e:
+                        print(f"[kernel] tmux kill-server failed for {sock.name}: {e!r}", flush=True)
+                    try:
+                        sock.unlink()
+                    except FileNotFoundError:
+                        pass
+                    except Exception as e:
+                        print(f"[kernel] unlink failed for {sock.name}: {e!r}", flush=True)
+        except Exception as e:
+            print(f"[kernel] tmux reap sweep failed: {e!r}", flush=True)
+        _reap_pgrp()
+        _reap_descendants()
         print("[kernel] stopped", flush=True)
+
+
+def _reap_pgrp(grace: float = 2.0) -> None:
+    """SIGTERM every other process in our process group, then SIGKILL survivors.
+
+    Why: driver coroutines that spawn external subprocesses (chromium, tmux,
+    long-running watchers) don't always tear them down cleanly when cancelled.
+    The kernel is its own pgrp leader (started via shell job control or
+    start_new_session), so any descendant — direct or grand- — sits in our
+    pgrp and is reachable here. Without this, Ctrl-C kills the kernel but
+    leaves orphaned drivers behind, which then race a fresh kernel on restart.
+    """
+    my_pid = os.getpid()
+    try:
+        pgid = os.getpgrp()
+    except OSError:
+        return
+    # Only reap if we're the pgrp leader — otherwise we'd be signaling
+    # processes we don't own (e.g. a parent shell).
+    if pgid != my_pid:
+        return
+    try:
+        out = subprocess.check_output(
+            ["ps", "-eo", "pid=,pgid="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return
+    targets: list[int] = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            pid, gid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        if gid == pgid and pid != my_pid:
+            targets.append(pid)
+    if not targets:
+        return
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        targets = [p for p in targets if _pid_alive(p)]
+        if not targets:
+            return
+        time.sleep(0.1)
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _reap_descendants(grace: float = 2.0) -> None:
+    """SIGTERM every descendant of this kernel by PPID-tree, then SIGKILL survivors.
+
+    Why: drivers spawn children that daemonize (call setsid()/setpgrp() or
+    fork-and-detach) — tmux servers, node bridges, headless browsers. Those
+    leave the kernel's pgrp, so _reap_pgrp() can't see them, but they remain
+    descendants in the PPID tree until the kernel exits and they reparent
+    to PID 1. Walking the tree here, *before* the kernel exits, catches
+    them while the link is still intact.
+    """
+    my_pid = os.getpid()
+    try:
+        out = subprocess.check_output(
+            ["ps", "-eo", "pid=,ppid="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return
+    children: dict[int, list[int]] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(ppid, []).append(pid)
+    targets: list[int] = []
+    stack = list(children.get(my_pid, []))
+    seen: set[int] = set()
+    while stack:
+        pid = stack.pop()
+        if pid in seen or pid == my_pid:
+            continue
+        seen.add(pid)
+        targets.append(pid)
+        stack.extend(children.get(pid, []))
+    if not targets:
+        return
+    print(f"[kernel] shutdown: reaping {len(targets)} descendant procs", flush=True)
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            pass
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        targets = [p for p in targets if _pid_alive(p)]
+        if not targets:
+            return
+        time.sleep(0.1)
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            pass
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

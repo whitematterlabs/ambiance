@@ -10,6 +10,7 @@ import atexit
 import errno
 import fcntl
 import os
+import subprocess
 import sys
 import traceback
 
@@ -34,13 +35,31 @@ def _acquire_pid_lock() -> bool:
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
+        # The PID-file *contents* can drift from the actual lock holder
+        # (e.g. a forked-then-exited parent inherits its PID into the file
+        # while the child holds the lock). lsof is the source of truth for
+        # who holds the fd; fall back to file contents only if that fails.
+        holder = "?"
         try:
-            existing = os.read(fd, 64).decode().strip() or "?"
-        except OSError:
-            existing = "?"
+            out = subprocess.run(
+                ["lsof", "-t", str(_LOCK_FILE)],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            pids = [p for p in out.stdout.split() if p.strip()]
+            if pids:
+                holder = ",".join(pids)
+        except Exception:
+            pass
+        if holder == "?":
+            try:
+                holder = os.read(fd, 64).decode().strip() or "?"
+            except OSError:
+                pass
         os.close(fd)
         print(
-            f"[boot] kernel already running (pid={existing}); exiting",
+            f"[boot] kernel already running (pid={holder}); exiting",
             file=sys.stderr,
             flush=True,
         )

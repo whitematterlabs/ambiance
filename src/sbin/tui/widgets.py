@@ -41,7 +41,7 @@ class ChatPane(RichLog):
                 self.write(Text(""))
 
     @staticmethod
-    def _style_message(msg: str) -> tuple[Text, Markdown | None]:
+    def _style_message(msg: str) -> tuple[Text, Markdown | Text | None]:
         # Split "[HH:MM] sender: <body>" into a styled header and a
         # Markdown body. Body may span multiple lines; markdown rendering
         # turns headings/lists/fences into proper Rich renderables.
@@ -74,6 +74,8 @@ class ChatPane(RichLog):
         body_str = first_body + rest
         if body_str.strip() == "":
             return header, None
+        if body_str.lstrip().startswith("» "):
+            return header, Text(body_str, style="italic dim cyan")
         return header, Markdown(body_str)
 
 

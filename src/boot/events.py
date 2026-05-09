@@ -8,6 +8,8 @@ asyncio.Queue that the kernel loop awaits.
 from __future__ import annotations
 
 import asyncio
+import collections
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -28,11 +30,20 @@ class _Handler(FileSystemEventHandler):
     def __init__(self, loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[Path]):
         self.loop = loop
         self.queue = queue
+        # Defense-in-depth against FSEvents redelivering the same path:
+        # filenames embed microseconds so distinct events never collide.
+        self._seen: "collections.OrderedDict[str, float]" = collections.OrderedDict()
 
     def _enqueue(self, raw_path: str) -> None:
         path = Path(raw_path)
         if not _is_event_file(path):
             return
+        now = time.monotonic()
+        while self._seen and next(iter(self._seen.values())) < now - 5.0:
+            self._seen.popitem(last=False)
+        if raw_path in self._seen:
+            return
+        self._seen[raw_path] = now
         self.loop.call_soon_threadsafe(self.queue.put_nowait, path)
 
     def on_created(self, event) -> None:  # type: ignore[override]

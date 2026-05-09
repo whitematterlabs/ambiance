@@ -44,11 +44,26 @@ def cmd_start(args: argparse.Namespace) -> int:
         tui_main()
     finally:
         if kernel.poll() is None:
-            kernel.send_signal(signal.SIGTERM)
+            # Signal the kernel's whole process group, not just the leader —
+            # if the kernel itself is wedged, this still tears down its
+            # driver subprocesses (chromium, tmux, etc).
+            try:
+                pgid = os.getpgid(kernel.pid)
+            except ProcessLookupError:
+                pgid = None
+            if pgid is not None:
+                try:
+                    os.killpg(pgid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
             try:
                 kernel.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                kernel.kill()
+                if pgid is not None:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                 kernel.wait()
     return kernel.returncode or 0
 

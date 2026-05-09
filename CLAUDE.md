@@ -67,3 +67,4 @@ Four tools, one layer each: `paiman` (bundles) / `paiadd`+`paidel` (configure in
 - Symlinks over duplication — single source of truth, linked from multiple contexts.
 - Config is the source of truth: `/etc/config.yaml` declares the fleet (name, provider, model, prompt, wake_on, fallback). Reconcile rewrites `/proc/<pai>/spec.yaml` from it.
 - The kernel routes events; it does not know what a "message" is. On-disk shape decisions belong to drivers.
+

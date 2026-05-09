@@ -4,6 +4,7 @@ Every process is a directory in home/proc/{slug}/ containing spec.yaml,
 status, and log.md. See src/usr/share/doc/KERNEL.md for the full spec.
 """
 
+import os
 import re
 import shutil
 from datetime import datetime
@@ -56,8 +57,12 @@ def emit_event(payload: dict) -> Path:
     # Microseconds + source keep filenames unique and debuggable.
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
     path = EVENTS_DIR / f"{stamp}-{source}.yaml"
-    with path.open("w") as f:
+    # Atomic write: tmp + rename so watchdog sees a single CREATE event
+    # instead of multiple deliveries across the open/write/close window.
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
         yaml.safe_dump(payload, f, sort_keys=False)
+    os.replace(tmp, path)
     return path
 
 
