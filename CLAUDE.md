@@ -61,6 +61,20 @@ Four tools, one layer each: `paiman` (bundles) / `paiadd`+`paidel` (configure in
 
 `paifs-init` provisions `~/.pai/` from the repo: creates the FHS skeleton, symlinks `/usr/src/`/`/usr/lib/drivers/`/`/usr/share/prompts/` at the live repo, builds a self-contained venv at `/usr/lib/venv/`, and generates console-script shims at `/usr/bin/` and `/sbin/`. Idempotent and non-destructive — safe to re-run after `git pull` to refresh shims/venv. To wipe runtime state, use `reset` (destructive).
 
+## Graduating from TTY to .app
+
+PAI runs in a terminal today. That is deliberate while the kernel's contract with the world is still moving (driver layout, FHS semantics, prompt assembly, IPC shape). An `.app` adds a second surface to keep in sync — window lifecycle, dock, notifications, Sparkle-style updates, code signing, and Location/Contacts/Calendar entitlements as a *bundled identity* instead of borrowed from Terminal — and doing that before the kernel is stable means re-doing it.
+
+Three signals to graduate:
+
+1. **The TUI is the daily driver, not the terminal.** When the owner stops dropping to bare shell to inspect `/proc` or tail logs and lives in the TUI, the terminal is just chrome around it.
+2. **Owner-facing things the TTY can't do well.** Native notifications, menubar presence, launch-at-login without a launchd plist, a Location Services prompt tied to *PAI* (not Terminal/iTerm), drag-drop into a PAI's home, global hotkey to summon. Each is a hack in TTY, native in `.app`.
+3. **Non-technical users.** Setup today is `uv sync` + `paifs-init` + grant Terminal accessibility. An `.app` is the only path to "double-click, grant once."
+
+Graduate when **2 of 3** hit — specifically when per-PAI native notifications or owner-bound Location/Contacts permissions are wanted, because that's when borrowing Terminal's identity becomes the wrong abstraction rather than just an aesthetic one.
+
+**Intermediate step before a full `.app`:** package the kernel + TUI as a launchd-managed background agent + a thin SwiftUI menubar app that attaches to the running kernel over the existing IPC. Native notifications and proper entitlements without rewriting the kernel or committing to a windowed app. The TTY still works for dev.
+
 ## Design principles
 
 - Plain text over databases — everything should be greppable, tailable, appendable.

@@ -31,6 +31,7 @@ from . import outbound_echo
 from . import paths
 from . import processes as P
 from . import proc_watcher
+from . import shell_tool
 from . import supervisor
 from . import timers as T
 from .events import EventWatcher, read_event
@@ -827,6 +828,10 @@ async def run() -> None:
                 print(f"[kernel] shutdown: preserving {len(survivors)} cron procs across restart", flush=True)
         except Exception as e:
             print(f"[kernel] shutdown sweep failed: {e!r}", flush=True)
+        try:
+            await shell_tool.shutdown_all()
+        except Exception as e:
+            print(f"[kernel] shell_tool shutdown failed: {e!r}", flush=True)
         try:
             run_dir = Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai"))) / "run"
             socks = sorted(run_dir.glob("tmux-*.sock"))

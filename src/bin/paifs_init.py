@@ -316,9 +316,12 @@ def lay_out(root: Path) -> None:
 
 
 # System-level binaries the kernel itself shells out to. Drivers may add
-# their own via libexec/install.sh — this is the floor.
-SYSTEM_DEPS: tuple[str, ...] = (
-    "tmux",   # shell_tool drives PAI bash sessions through tmux
+# their own via libexec/install.sh — this is the floor. Each entry is
+# (brew_formula, binary_name); they differ for some formulas (e.g.
+# corelocationcli ships /opt/homebrew/bin/CoreLocationCLI).
+SYSTEM_DEPS: tuple[tuple[str, str], ...] = (
+    ("tmux", "tmux"),                          # shell_tool spawns a viewer tmux per PAI
+    ("corelocationcli", "CoreLocationCLI"),    # bootstrap.py reads location for the per-turn header
 )
 
 
@@ -332,14 +335,15 @@ def ensure_system_deps() -> None:
         return
     brew = shutil.which("brew")
     if not brew:
+        formulas = ", ".join(f for f, _ in SYSTEM_DEPS)
         print("warning: brew not found; cannot install system deps "
-              f"({', '.join(SYSTEM_DEPS)}). Install Homebrew or these manually.")
+              f"({formulas}). Install Homebrew or these manually.")
         return
-    for pkg in SYSTEM_DEPS:
-        if shutil.which(pkg):
+    for formula, binary in SYSTEM_DEPS:
+        if shutil.which(binary):
             continue
-        print(f"installing system dep: {pkg}")
-        subprocess.run([brew, "install", pkg], check=True)
+        print(f"installing system dep: {formula}")
+        subprocess.run([brew, "install", formula], check=True)
 
 
 def seed_kernel_essentials(root: Path) -> None:

@@ -7,6 +7,9 @@ lifetime; restart the kernel to pick up edits to the role prompt.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -680,6 +683,46 @@ def build_system_prompt(
     )
 
 
+_LOCATION_TTL_SEC = 6 * 3600
+
+
+def _read_location() -> Optional[str]:
+    """Return a short "City, Region, Country" string, or None if unavailable.
+
+    Uses CoreLocationCLI if installed, cached to /var/cache/location.txt
+    for `_LOCATION_TTL_SEC`. Silent on any failure — the LOCATION block is
+    a hint, not load-bearing.
+    """
+    cache = PAI_ROOT / "var/cache/location.txt"
+    try:
+        if cache.exists() and (time.time() - cache.stat().st_mtime) < _LOCATION_TTL_SEC:
+            text = cache.read_text().strip()
+            if text:
+                return text
+    except OSError:
+        pass
+
+    cli = shutil.which("CoreLocationCLI")
+    if not cli:
+        return None
+    try:
+        result = subprocess.run(
+            [cli, "-once", "-format", "%locality, %administrativeArea, %country"],
+            capture_output=True, text=True, timeout=8,
+        )
+        loc = result.stdout.strip()
+        if not loc or result.returncode != 0:
+            return None
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(loc + "\n")
+        except OSError:
+            pass
+        return loc
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
 def build_user_turn(
     reason: str,
     slug: Optional[str] = None,
@@ -690,6 +733,7 @@ def build_user_turn(
     # The caller (nudge.py) is responsible for choosing the prefix; we just
     # render it.
     now = datetime.now().astimezone().isoformat(timespec="seconds")
+    location = _read_location()
     event_block: dict = {"reason": reason}
     if sender:
         event_block["from"] = sender
@@ -698,4 +742,7 @@ def build_user_turn(
     if context:
         event_block["context"] = context
     event_yaml = yaml.safe_dump(event_block, sort_keys=False).rstrip()
-    return f"Current time: {now}\n\nEvent:\n{event_yaml}"
+    header = f"Current time: {now}"
+    if location:
+        header += f"\nLocation: {location}"
+    return f"{header}\n\nEvent:\n{event_yaml}"

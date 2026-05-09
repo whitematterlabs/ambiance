@@ -1,17 +1,23 @@
 """The single tool exposed to PAI: a bash shell rooted at home/.
 
-Backed by a per-PAI tmux session so:
+Backed by a kernel-owned bash subprocess running under a PTY so:
   - state (cwd, env, history) persists across tool calls,
-  - interactive CLIs and TUIs get a real PTY,
-  - the owner can `tmux attach -t pai-<slug>` to watch live.
+  - interactive CLIs and TUIs (vim, claude, npm init) get a real PTY,
+  - the owner can `tmux -S run/tmux-<slug>.sock attach -t pai-<slug>`
+    to watch a live tail of decoded commands and outputs.
 
 Two modes via the same tool:
-  - `command`: run a bash command to completion. Polls the pane until
-    a per-call sentinel marker appears, then returns the slice between
-    start/end markers and the parsed exit code. Default mode.
-  - `keys`: send raw keystrokes to whatever is currently running in the
-    foreground (interactive prompts, vim, claude, etc.). Returns a
-    snapshot of the rendered screen plus cursor position. No exit code.
+  - `command`: run a bash command to completion. The command is
+    base64-encoded and `eval`'d inside a helper function whose stdout
+    and stderr are redirected to dedicated side-channel pipes; the
+    exit code arrives on a third pipe. The kernel's writer-side parser
+    interaction is a single fixed-shape line (`_pai_run <b64>\\n`),
+    which has no quoting surface — structurally impossible to wedge
+    bash into a continuation prompt.
+  - `keys`: send raw keystrokes to whatever is currently running in
+    the foreground (vim, htop, claude, prompts). The PTY master is
+    fed into an in-process pyte virtual terminal; snapshots return
+    the rendered screen + cursor position.
 
 Freesolo by design. The agent is trusted in its own world.
 """
@@ -19,11 +25,19 @@ Freesolo by design. The agent is trusted in its own world.
 from __future__ import annotations
 
 import asyncio
+import base64
+import fcntl
 import os
+import pty
 import re
-import secrets
-from dataclasses import dataclass
+import struct
+import subprocess
+import termios
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
+
+import pyte
 
 from . import stitch
 from .paths import PAI_ROOT
@@ -49,27 +63,19 @@ TOOL_DESCRIPTION = (
 )
 
 
-# FHS slot prefixes that should be rewritten to live under PAI_ROOT.
-# /dev and /mnt are intentionally NOT rewritten — /dev/null, /dev/stdin
-# etc. are real OS facilities PAI legitimately uses.
 _FHS_SLOTS = (
     "etc", "usr", "var", "proc", "run", "sys",
     "boot", "sbin", "bin", "opt", "home", "root", "tmp",
 )
 _FHS_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_./])"                    # not mid-token / not a hostname
-    r"(/(?:" + "|".join(_FHS_SLOTS) + r"))"   # the FHS prefix
-    r"(?=/|\s|$|[\"'`\);\],:|&>])"            # boundary: path continues, or shell delimiter
+    r"(?<![A-Za-z0-9_./])"
+    r"(/(?:" + "|".join(_FHS_SLOTS) + r"))"
+    r"(?=/|\s|$|[\"'`\);\],:|&>])"
 )
 
 
 def rewrite_fhs_paths(command: str, root: str) -> str:
-    """Rewrite leading-slash FHS paths to live under `root`.
-
-    Substring substitution with anchored boundaries — robust across
-    quoting, heredocs, and `bash -c` / `python -c` strings, since we
-    operate on the raw command before bash tokenizes anything.
-    """
+    """Rewrite leading-slash FHS paths to live under `root`."""
     return _FHS_PATTERN.sub(lambda m: f"{root}{m.group(1)}", command)
 
 
@@ -92,12 +98,12 @@ TOOL_SCHEMA = {
                 "description": (
                     "Raw keystrokes to send to the currently-running "
                     "foreground program. Whitespace-separated tokens; "
-                    "tmux key names like Enter, Tab, Escape, Space, "
-                    "BSpace, Up/Down/Left/Right, PageUp/PageDown, "
-                    "Home, End, C-<x> (Ctrl-x), M-<x> (Meta-x), "
-                    "F1..F12 are sent as keys; other tokens are typed "
-                    "as literal text. To type a literal space use the "
-                    "`Space` token (e.g. `hello Space world Enter`)."
+                    "named keys Enter, Tab, Escape, Space, BSpace, "
+                    "Up/Down/Left/Right, PageUp/PageDown, Home, End, "
+                    "C-<x> (Ctrl-x), M-<x> (Meta-x), F1..F12 are sent "
+                    "as keys; other tokens are typed as literal text. "
+                    "To type a literal space use the `Space` token "
+                    "(e.g. `hello Space world Enter`)."
                 ),
             },
             "wait_ms": {
@@ -132,187 +138,473 @@ class ShellResult:
 
 
 # ---------------------------------------------------------------------------
-# tmux backend
+# PTY + side-channel backend
 
 
-def _socket_path(slug: str) -> str:
+_ROWS = 40
+_COLS = 120
+_DEFAULT_TIMEOUT = 24 * 60 * 60  # 24h wall-clock per command
+
+
+@dataclass
+class _Session:
+    slug: str
+    proc: subprocess.Popen
+    master_fd: int
+    exit_r: int
+    out_r: int
+    err_r: int
+    screen: pyte.Screen
+    stream: pyte.ByteStream
+    live_log: object  # binary file
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    stdout_buf: bytearray = field(default_factory=bytearray)
+    stderr_buf: bytearray = field(default_factory=bytearray)
+    exit_buf: bytearray = field(default_factory=bytearray)
+    exit_event: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+_sessions: dict[str, _Session] = {}
+_spawn_lock = asyncio.Lock()
+
+
+def _socket_path(slug: str) -> Path:
     run_dir = PAI_ROOT / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
-    return str(run_dir / f"tmux-{slug}.sock")
+    return run_dir / f"tmux-{slug}.sock"
 
 
-def _target(slug: str) -> str:
-    return f"pai-{slug}"
+def _live_log_path(slug: str) -> Path:
+    p = PAI_ROOT / "var" / "log" / "pai"
+    p.mkdir(parents=True, exist_ok=True)
+    return p / f"{slug}.live"
 
 
-async def _tmux(
-    sock: str,
-    *args: str,
-    env: Optional[dict] = None,
-) -> tuple[int, bytes, bytes]:
-    proc = await asyncio.create_subprocess_exec(
-        "tmux", "-S", sock, *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env if env is not None else os.environ.copy(),
-    )
-    out, err = await proc.communicate()
-    return proc.returncode if proc.returncode is not None else -1, out, err
+def _set_winsize(fd: int, rows: int, cols: int) -> None:
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
 
-async def _has_session(sock: str, slug: str) -> bool:
-    rc, _, _ = await _tmux(sock, "has-session", "-t", _target(slug))
-    return rc == 0
+def _set_nonblocking(fd: int) -> None:
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
 
-async def _kill_session(sock: str, slug: str) -> None:
-    await _tmux(sock, "kill-session", "-t", _target(slug))
+def _disable_echo(fd: int) -> None:
+    attrs = termios.tcgetattr(fd)
+    # lflag is index 3
+    attrs[3] &= ~termios.ECHO
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 
-async def _ensure_session(slug: str, cwd: str, env: dict) -> None:
-    sock = _socket_path(slug)
-    if await _has_session(sock, slug):
+def _safe_write_log(sess: _Session, data: bytes) -> None:
+    try:
+        sess.live_log.write(data)
+    except Exception:
+        pass
+
+
+def _on_master_readable(sess: _Session) -> None:
+    try:
+        data = os.read(sess.master_fd, 65536)
+    except (BlockingIOError, InterruptedError):
         return
-    rc, _, err = await _tmux(
-        sock, "new-session", "-d",
-        "-s", _target(slug),
-        "-x", "120", "-y", "40",
-        "-c", cwd,
-        env=env,
-    )
-    if rc != 0:
-        raise RuntimeError(
-            f"tmux new-session failed for {slug}: {err.decode('utf-8', 'replace')}"
-        )
-    # Set a deterministic prompt and clear startup noise. The shell may
-    # need a beat to be ready to accept keystrokes.
-    await asyncio.sleep(0.1)
-    await _tmux(
-        sock, "send-keys", "-t", _target(slug),
-        "export PS1='$ '; clear", "Enter",
-    )
-    await asyncio.sleep(0.1)
+    except OSError:
+        return
+    if not data:
+        return
+    try:
+        sess.stream.feed(data)
+    except Exception:
+        pass
+    _safe_write_log(sess, data)
 
 
-async def _capture(sock: str, slug: str, full: bool) -> str:
-    args = ["capture-pane", "-p", "-t", _target(slug)]
-    if full:
-        args[1:1] = ["-S", "-100000"]
-    rc, out, _ = await _tmux(sock, *args)
-    if rc != 0:
-        return ""
-    return out.decode("utf-8", errors="replace")
+def _on_out_readable(sess: _Session) -> None:
+    try:
+        data = os.read(sess.out_r, 65536)
+    except (BlockingIOError, InterruptedError):
+        return
+    except OSError:
+        return
+    if not data:
+        return
+    sess.stdout_buf.extend(data)
+    _safe_write_log(sess, data)
 
 
-async def _exec_command(slug: str, command: str, cwd: str, env: dict) -> ShellResult:
-    sock = _socket_path(slug)
-    await _ensure_session(slug, cwd, env)
-    rewritten = rewrite_fhs_paths(command, str(PAI_ROOT))
-    nonce = secrets.token_hex(8)
-    start_marker = f"__PAI_START_{nonce}"
-    # Subshell so the inner command's exit status is captured cleanly,
-    # but cd / export still affect the parent shell when not in a subshell —
-    # so we DON'T wrap in (...). Use { ...; } group instead, which keeps
-    # state changes in the persistent shell while still letting `$?` reach
-    # our trailing echo.
-    built = (
-        f"echo {start_marker}; "
-        f"{{ {rewritten}; }}; "
-        f"echo __PAI_DONE_{nonce}_$?"
-    )
-    end_re = re.compile(rf"^__PAI_DONE_{nonce}_(\d+)\s*$", re.M)
-    start_re = re.compile(rf"^{start_marker}\s*$", re.M)
+def _on_err_readable(sess: _Session) -> None:
+    try:
+        data = os.read(sess.err_r, 65536)
+    except (BlockingIOError, InterruptedError):
+        return
+    except OSError:
+        return
+    if not data:
+        return
+    sess.stderr_buf.extend(data)
+    _safe_write_log(sess, b"[stderr] ")
+    _safe_write_log(sess, data)
 
-    async def _send() -> tuple[int, bytes]:
-        rc, _, err = await _tmux(
-            sock, "send-keys", "-t", _target(slug), built, "Enter"
-        )
-        return rc, err
 
-    rc, err = await _send()
-    if rc != 0:
-        # Session may have died mid-call — recreate once and retry.
-        await _kill_session(sock, slug)
+def _on_exit_readable(sess: _Session) -> None:
+    try:
+        data = os.read(sess.exit_r, 4096)
+    except (BlockingIOError, InterruptedError):
+        return
+    except OSError:
+        return
+    if not data:
+        return
+    sess.exit_buf.extend(data)
+    if b"\n" in sess.exit_buf:
+        sess.exit_event.set()
+
+
+_INIT_SCRIPT = (
+    # Job control on, even though bash isn't interactive — this puts each
+    # foreground command in its own pgroup, so writing \x03 to the PTY
+    # only kills the foreground command, not the persistent bash itself.
+    "set -m\n"
+    'export PS1="$ "\n'
+    "_pai_run() { "
+    'eval "$(printf %s "$1" | base64 -d)" >&"$PAI_FD_OUT" 2>&"$PAI_FD_ERR"; '
+    'printf "%d\\n" "$?" >&"$PAI_FD_EXIT"; '
+    "}\n"
+)
+
+
+async def _drain_pipe_pending(sess: _Session) -> None:
+    """Give the event loop a couple of ticks to drain pipe readers
+    after exit_event fires, so trailing fd4/fd5 bytes land in the
+    per-call buffers before we snapshot them.
+    """
+    for _ in range(4):
+        await asyncio.sleep(0.005)
+
+
+async def _exec_via_session(
+    sess: _Session, command: str, timeout: float = _DEFAULT_TIMEOUT
+) -> ShellResult:
+    async with sess.lock:
+        sess.stdout_buf.clear()
+        sess.stderr_buf.clear()
+        sess.exit_buf.clear()
+        sess.exit_event.clear()
+
+        b64 = base64.b64encode(command.encode("utf-8")).decode("ascii")
+        line = f"_pai_run {b64}\n".encode("ascii")
+        _safe_write_log(sess, b"$ " + command.encode("utf-8", "replace") + b"\n")
         try:
-            await _ensure_session(slug, cwd, env)
-        except RuntimeError as exc:
-            return ShellResult(stdout="", stderr=str(exc), exit_code=-1)
-        rc, err = await _send()
-        if rc != 0:
-            return ShellResult(
-                stdout="",
-                stderr=err.decode("utf-8", "replace"),
-                exit_code=-1,
-            )
+            os.write(sess.master_fd, line)
+        except OSError as e:
+            return ShellResult(stdout="", stderr=f"write to bash failed: {e!r}", exit_code=-1)
 
-    while True:
-        captured = await _capture(sock, slug, full=True)
-        m_end = end_re.search(captured)
-        if m_end:
-            exit_code = int(m_end.group(1))
-            m_start = start_re.search(captured)
-            if m_start and m_start.end() <= m_end.start():
-                output = captured[m_start.end():m_end.start()]
-            else:
-                output = captured[:m_end.start()]
-            output = output.lstrip("\n").rstrip()
-            return ShellResult(stdout=output, stderr="", exit_code=exit_code)
-        await asyncio.sleep(0.05)
+        try:
+            await asyncio.wait_for(sess.exit_event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            try:
+                os.write(sess.master_fd, b"\x03")  # ctrl-c via PTY foreground pgroup
+            except Exception:
+                pass
+            await asyncio.sleep(0.1)
+            stdout = bytes(sess.stdout_buf).decode("utf-8", "replace")
+            stderr = bytes(sess.stderr_buf).decode("utf-8", "replace")
+            if stderr:
+                stderr += "\n"
+            stderr += f"[pai] command timed out after {timeout}s, sent SIGINT"
+            return ShellResult(stdout=stdout, stderr=stderr, exit_code=-1)
+
+        await _drain_pipe_pending(sess)
+
+        try:
+            exit_code = int(bytes(sess.exit_buf).decode("ascii", "replace").strip().splitlines()[0])
+        except Exception:
+            exit_code = -1
+        stdout = bytes(sess.stdout_buf).decode("utf-8", "replace")
+        stderr = bytes(sess.stderr_buf).decode("utf-8", "replace")
+        return ShellResult(stdout=stdout, stderr=stderr, exit_code=exit_code)
+
+
+async def _spawn_session(slug: str, cwd: str, env: dict) -> _Session:
+    master, slave = pty.openpty()
+    try:
+        _disable_echo(slave)
+        _set_winsize(master, _ROWS, _COLS)
+        _set_nonblocking(master)
+    except Exception:
+        os.close(master); os.close(slave)
+        raise
+
+    exit_r, exit_w = os.pipe()
+    out_r, out_w = os.pipe()
+    err_r, err_w = os.pipe()
+    for fd in (exit_r, out_r, err_r):
+        _set_nonblocking(fd)
+
+    proc_env = dict(env)
+    proc_env["PAI_FD_EXIT"] = str(exit_w)
+    proc_env["PAI_FD_OUT"] = str(out_w)
+    proc_env["PAI_FD_ERR"] = str(err_w)
+    proc_env["PS1"] = "$ "
+    proc_env.setdefault("TERM", "xterm-256color")
+
+    def _child_setup():
+        # Make the PTY slave the controlling terminal of the new session.
+        # start_new_session=True calls setsid(), which clears ctty; without
+        # this, bash's `set -m` job control can't tcsetpgrp() and PTY-level
+        # SIGINT (\x03) has no foreground pgroup to deliver to.
+        try:
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        except Exception:
+            pass
+
+    proc = subprocess.Popen(
+        ["bash", "--norc", "--noprofile"],
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        cwd=cwd,
+        env=proc_env,
+        pass_fds=(exit_w, out_w, err_w),
+        start_new_session=True,
+        close_fds=True,
+        preexec_fn=_child_setup,
+    )
+    # Parent doesn't need slave or write-ends.
+    os.close(slave)
+    os.close(exit_w); os.close(out_w); os.close(err_w)
+
+    screen = pyte.Screen(_COLS, _ROWS)
+    stream = pyte.ByteStream(screen)
+    log_path = _live_log_path(slug)
+    # Truncate live log per session boot.
+    live_log = open(log_path, "wb", buffering=0)
+
+    sess = _Session(
+        slug=slug,
+        proc=proc,
+        master_fd=master,
+        exit_r=exit_r,
+        out_r=out_r,
+        err_r=err_r,
+        screen=screen,
+        stream=stream,
+        live_log=live_log,
+    )
+
+    loop = asyncio.get_running_loop()
+    loop.add_reader(master, _on_master_readable, sess)
+    loop.add_reader(out_r, _on_out_readable, sess)
+    loop.add_reader(err_r, _on_err_readable, sess)
+    loop.add_reader(exit_r, _on_exit_readable, sess)
+
+    # Send init script (defines _pai_run). Bash will parse it before reading
+    # the next line we send.
+    try:
+        os.write(master, _INIT_SCRIPT.encode("ascii"))
+    except OSError as e:
+        _force_teardown(sess)
+        raise RuntimeError(f"bash init write failed for {slug}: {e!r}")
+
+    _sessions[slug] = sess
+
+    # Self-test: `_pai_run dHJ1ZQ==` (b64 of `true`) → fd 3 yields "0\n".
+    try:
+        result = await _exec_via_session(sess, "true", timeout=10)
+    except Exception as e:
+        _force_teardown(sess)
+        raise RuntimeError(f"bash self-test crashed for {slug}: {e!r}")
+    if result.exit_code != 0:
+        _force_teardown(sess)
+        raise RuntimeError(
+            f"bash self-test failed for {slug}: rc={result.exit_code} "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+    _spawn_viewer_tmux(slug, log_path)
+    return sess
+
+
+def _spawn_viewer_tmux(slug: str, log_path: Path) -> None:
+    """Spawn a detached tmux session whose only job is `tail -F <live_log>`,
+    so the owner can attach with the same socket-based muscle memory and
+    watch decoded commands + outputs in real time. Tmux is no longer in
+    the kernel's parsing path; this is display-only.
+    """
+    sock = _socket_path(slug)
+    target = f"pai-{slug}"
+    try:
+        subprocess.run(
+            ["tmux", "-S", str(sock), "kill-session", "-t", target],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
+        )
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            [
+                "tmux", "-S", str(sock), "new-session", "-d",
+                "-s", target, "-x", "200", "-y", "50",
+                "tail", "-F", str(log_path),
+            ],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3,
+        )
+    except Exception:
+        # Viewer is best-effort. Kernel keeps working without it.
+        pass
+
+
+def _force_teardown(sess: _Session) -> None:
+    loop = None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    for fd in (sess.master_fd, sess.exit_r, sess.out_r, sess.err_r):
+        if loop is not None:
+            try:
+                loop.remove_reader(fd)
+            except Exception:
+                pass
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+    try:
+        sess.proc.terminate()
+    except Exception:
+        pass
+    try:
+        sess.live_log.close()
+    except Exception:
+        pass
+    _sessions.pop(sess.slug, None)
+
+
+async def shutdown_all() -> None:
+    """Tear down every live bash subprocess + viewer tmux. Called from
+    the kernel's finally block on shutdown.
+    """
+    for sess in list(_sessions.values()):
+        _force_teardown(sess)
+    # The viewer tmux servers are killed by main.py's existing
+    # tmux-*.sock sweep, so we don't duplicate that here.
+
+
+def interrupt(slug: str) -> bool:
+    """Send Ctrl-C to the foreground process group of the slug's PTY.
+
+    Used by the kernel's nudge-cancel path to interrupt a long-running
+    command without killing the persistent shell. The init script runs
+    `set -m` so foreground commands sit in their own pgroup and bash
+    itself doesn't share their SIGINT.
+    """
+    sess = _sessions.get(slug)
+    if sess is None:
+        return False
+    try:
+        os.write(sess.master_fd, b"\x03")
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Keys mode
+
+
+_KEY_MAP: dict[str, bytes] = {
+    "Enter": b"\r",
+    "Tab": b"\t",
+    "Escape": b"\x1b",
+    "Space": b" ",
+    "BSpace": b"\x7f",
+    "Up": b"\x1b[A",
+    "Down": b"\x1b[B",
+    "Right": b"\x1b[C",
+    "Left": b"\x1b[D",
+    "PageUp": b"\x1b[5~",
+    "PageDown": b"\x1b[6~",
+    "Home": b"\x1b[H",
+    "End": b"\x1b[F",
+    "F1": b"\x1bOP", "F2": b"\x1bOQ", "F3": b"\x1bOR", "F4": b"\x1bOS",
+    "F5": b"\x1b[15~", "F6": b"\x1b[17~", "F7": b"\x1b[18~",
+    "F8": b"\x1b[19~", "F9": b"\x1b[20~", "F10": b"\x1b[21~",
+    "F11": b"\x1b[23~", "F12": b"\x1b[24~",
+}
 
 
 def _parse_keys(keys: str) -> list[str]:
-    """Whitespace-tokenize a keys string for tmux send-keys.
-
-    tmux send-keys recognizes named keys (Enter, Tab, C-c, etc.) and
-    treats anything else as literal text. We just split on whitespace
-    and pass the tokens through; to type literal whitespace, callers
-    use the `Space` token.
-    """
+    """Whitespace-tokenize a keys string."""
     return keys.split()
 
 
-async def _send_keys_mode(
-    slug: str, keys: str, wait_ms: int, cwd: str, env: dict
+def _token_to_bytes(token: str) -> bytes:
+    if token in _KEY_MAP:
+        return _KEY_MAP[token]
+    if token.startswith("C-") and len(token) == 3:
+        ch = token[2].lower()
+        if "a" <= ch <= "z":
+            return bytes([ord(ch) - ord("a") + 1])
+        if ch == " ":
+            return b"\x00"
+    if token.startswith("M-") and len(token) >= 3:
+        return b"\x1b" + token[2:].encode("utf-8")
+    return token.encode("utf-8")
+
+
+async def _send_keys_via_session(
+    sess: _Session, keys: str, wait_ms: int
 ) -> ShellResult:
-    sock = _socket_path(slug)
-    await _ensure_session(slug, cwd, env)
-    tokens = _parse_keys(keys)
-    if not tokens:
-        return ShellResult(stdout="", stderr="empty keys", exit_code=-1)
-    rc, _, err = await _tmux(sock, "send-keys", "-t", _target(slug), *tokens)
-    if rc != 0:
-        await _kill_session(sock, slug)
+    async with sess.lock:
+        tokens = _parse_keys(keys)
+        if not tokens:
+            return ShellResult(stdout="", stderr="empty keys", exit_code=-1)
+        buf = b"".join(_token_to_bytes(t) for t in tokens)
         try:
-            await _ensure_session(slug, cwd, env)
-        except RuntimeError as exc:
-            return ShellResult(stdout="", stderr=str(exc), exit_code=-1)
-        rc, _, err = await _tmux(sock, "send-keys", "-t", _target(slug), *tokens)
-        if rc != 0:
-            return ShellResult(
-                stdout="", stderr=err.decode("utf-8", "replace"), exit_code=-1
-            )
-    await asyncio.sleep(max(0, wait_ms) / 1000)
-    screen = await _capture(sock, slug, full=False)
-    rc, cur_out, _ = await _tmux(
-        sock, "display-message", "-p", "-t", _target(slug),
-        "#{cursor_x},#{cursor_y}",
-    )
-    cursor = cur_out.decode("utf-8", "replace").strip() if rc == 0 else ""
-    body = screen.rstrip("\n")
-    if cursor:
-        body = f"{body}\n[cursor {cursor}]"
-    return ShellResult(stdout=body, stderr="", exit_code=None)
+            os.write(sess.master_fd, buf)
+        except OSError as e:
+            return ShellResult(stdout="", stderr=f"keys write failed: {e!r}", exit_code=-1)
+        await asyncio.sleep(max(0, wait_ms) / 1000)
+
+        # Snapshot pyte
+        try:
+            display_lines = list(sess.screen.display)
+        except Exception:
+            display_lines = []
+        # Trim trailing blank lines for compactness
+        while display_lines and not display_lines[-1].strip():
+            display_lines.pop()
+        body = "\n".join(line.rstrip() for line in display_lines)
+        cursor = f"{sess.screen.cursor.x},{sess.screen.cursor.y}"
+        if body:
+            body = f"{body}\n[cursor {cursor}]"
+        else:
+            body = f"[cursor {cursor}]"
+        return ShellResult(stdout=body, stderr="", exit_code=None)
 
 
 # ---------------------------------------------------------------------------
 # Public dispatcher
 
 
+async def _get_or_spawn(slug: str, cwd: str, env: dict) -> _Session:
+    sess = _sessions.get(slug)
+    if sess is not None and sess.proc.poll() is None:
+        return sess
+    async with _spawn_lock:
+        sess = _sessions.get(slug)
+        if sess is not None and sess.proc.poll() is None:
+            return sess
+        if sess is not None:
+            _force_teardown(sess)
+        return await _spawn_session(slug, cwd, env)
+
+
 async def run(
     tool_input: dict | str,
     env: Optional[dict] = None,
 ) -> ShellResult:
-    # Accept a bare command string for backwards compat with internal callers.
     if isinstance(tool_input, str):
         tool_input = {"command": tool_input}
 
@@ -337,16 +629,11 @@ async def run(
             exit_code=-1,
         )
 
-    # Per-PAI cwd: each PAI's stitched home (root → /root/, others → /home/<slug>/).
-    # Falls back to the global HOME_DIR if the caller didn't pass PAI_SLUG.
     raw_slug = (env or {}).get("PAI_SLUG")
     slug = raw_slug or "pai"
     cwd = stitch.home_for(raw_slug) if raw_slug else HOME_DIR
     cwd.mkdir(parents=True, exist_ok=True)
 
-    # Prepend the kernel venv + PAI bin slots so tool shebangs like
-    # `#!/usr/bin/env python` resolve to the venv interpreter (which has
-    # the deps the bins import) and bare bin names work without paths.
     pai_path_prefix = os.pathsep.join([
         str(PAI_ROOT / "usr" / "lib" / "venv" / "bin"),
         str(PAI_ROOT / "usr" / "bin"),
@@ -357,6 +644,12 @@ async def run(
     base_env["TERM"] = "xterm-256color"
     proc_env = {**base_env, **env} if env else base_env
 
+    try:
+        sess = await _get_or_spawn(slug, str(cwd), proc_env)
+    except Exception as e:
+        return ShellResult(stdout="", stderr=f"bash spawn failed: {e!r}", exit_code=-1)
+
     if keys:
-        return await _send_keys_mode(slug, keys, wait_ms, str(cwd), proc_env)
-    return await _exec_command(slug, command, str(cwd), proc_env)
+        return await _send_keys_via_session(sess, keys, wait_ms)
+    rewritten = rewrite_fhs_paths(command, str(PAI_ROOT))
+    return await _exec_via_session(sess, rewritten)
