@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import re
 import sys
 import time
@@ -36,6 +37,19 @@ from boot import timers as T
 
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")
+
+
+def _default_parent_pid() -> int:
+    """Owning PID for a new service. Inherits from the calling PAI's $PAI_PID
+    (kernel sets this on every PAI turn); falls back to 1 (kernel) when
+    invoked outside a PAI turn (manual shell, kernel itself)."""
+    raw = os.environ.get("PAI_PID")
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return 1
 
 
 def _today_slug_suffix() -> str:
@@ -276,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--deadline", help="ISO datetime; kernel auto-expires if passed")
     sp.add_argument("--description", help="free-text description")
     sp.add_argument("--people", help="comma-separated list of related people")
-    sp.add_argument("--parent", type=int, default=1, help="PID of the owning PAI (default: 1)")
+    sp.add_argument("--parent", type=int, default=_default_parent_pid(), help="PID of the owning PAI (default: $PAI_PID, else 1)")
     sp.add_argument("--parent-slug", help="resolve owning PAI by slug (overrides --parent)")
     sp.add_argument("--spec", help="YAML file with the spec body (mutually exclusive with per-field flags)")
     sp.set_defaults(func=cmd_start)
@@ -292,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     en.add_argument("--deadline", help="ISO datetime; kernel auto-expires if passed")
     en.add_argument("--description", help="free-text description")
     en.add_argument("--people", help="comma-separated list of related people")
-    en.add_argument("--parent", type=int, default=1, help="PID of the owning PAI (default: 1)")
+    en.add_argument("--parent", type=int, default=_default_parent_pid(), help="PID of the owning PAI (default: $PAI_PID, else 1)")
     en.add_argument("--parent-slug", help="resolve owning PAI by slug (overrides --parent)")
     en.add_argument("--spec", help="YAML file with the spec body")
     en.set_defaults(func=cmd_ensure)

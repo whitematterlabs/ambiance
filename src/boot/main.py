@@ -250,6 +250,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             received_at=received_at,
             source=event.get("source"),
             sender_override="me" if from_me else None,
+            chat_handles=event.get("chat_handles"),
         )
         tag = "new message"
         if from_me:
@@ -299,6 +300,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
                 received_at=ts,
                 source=event.get("source"),
                 sender_override="me" if from_me else None,
+                chat_handles=m.get("chat_handles"),
             )
             bucket = per_thread[result.slug]
             if from_me:
