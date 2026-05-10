@@ -227,6 +227,14 @@ class _Registry:
         return self._path
 
     def lookup(self, name: str, *, required: bool = True) -> Path | None:
+        # Explicit `<kind>/<name>` disambiguates when the same name lives
+        # under multiple typed roots (e.g. `bin/subagent` vs `prompts/subagent`).
+        if "/" in name:
+            typed_root, _, leaf = name.partition("/")
+            if typed_root in TYPED_ROOTS and leaf and "/" not in leaf:
+                candidate = self.root() / typed_root / leaf
+                if (candidate / "package.yaml").is_file():
+                    return candidate
         for typed_root in TYPED_ROOTS:
             candidate = self.root() / typed_root / name
             if (candidate / "package.yaml").is_file():

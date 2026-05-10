@@ -84,6 +84,7 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("boot", REPO_ROOT / "src" / "boot"),
     ("usr/src", REPO_ROOT / "src"),
     ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
+    ("etc/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
 )
 
 # Prompts paifs-init seeds via paiman so the kernel boots on first run.
@@ -95,6 +96,10 @@ ROOT_SEED_PROMPTS: tuple[str, ...] = (
     # Sysprompt fragment stitched in by build_system_prompt for every
     # non-root, non-subagent PAI. Not a role itself — shared across roles.
     "capability-escalation",
+    # Sysprompt fragments stitched in for spawned subagents so the child
+    # knows it IS the subagent and shouldn't recursively spawn another.
+    "subagent",
+    "subagent-persistent",
 )
 
 # Drivers the kernel imports as libraries at module-load time. A fresh
@@ -387,8 +392,15 @@ def seed_kernel_essentials(root: Path) -> None:
     needed_skills = [
         name for name in KERNEL_SEED_SKILLS if not _skill_installed(name)
     ]
-    for name in needed_prompts + needed_drivers + needed_skills:
-        subprocess.run([str(paiman), "install", name], check=True, env=env)
+    # Use typed `<kind>/<name>` form so `subagent` resolves to the prompt
+    # rather than colliding with `bin/subagent`.
+    typed = (
+        [f"prompts/{n}" for n in needed_prompts]
+        + [f"drivers/{n}" for n in needed_drivers]
+        + [f"skills/{n}" for n in needed_skills]
+    )
+    for src in typed:
+        subprocess.run([str(paiman), "install", src], check=True, env=env)
 
 
 def expose_pai_command(root: Path) -> None:

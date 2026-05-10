@@ -190,7 +190,41 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             t.cancel()
         return
 
-    if kind == "new_message":
+    # The `new_message` and `messages_backlog` branches below are iMessage-
+    # shaped (require `handle`, ingest via M.ingest, route as imessage:*). Other
+    # drivers emit their own `<driver>:<kind>` and fall through to the generic
+    # router at the bottom. Gate on source so we don't grab whatsapp/etc.
+    event_source = event.get("source")
+    is_imessage = event_source in (None, "imessage")
+
+    # TUI owner messages share `kind="new_message"` but carry `source="tui"`
+    # and a `target_pid`. They're not iMessage-shaped (no handle/ingest), so
+    # handle them before the iMessage gate or they fall through to the
+    # generic router and land on the fallback PAI instead of the targeted one.
+    if (
+        kind == "new_message"
+        and event.get("thread") == "me"
+        and isinstance(event.get("target_pid"), int)
+    ):
+        text = event.get("text") or ""
+        if not text:
+            print(f"[kernel] dropping empty owner message: {event!r}", flush=True)
+            return
+        pid = int(event["target_pid"])
+        day = date.today().isoformat()
+        _dispatch_nudge(
+            pid,
+            "owner message",
+            context={
+                "thread": "me",
+                "sender": "me",
+                "text": text,
+                "day_file": f"communication/messages/me/{pid}/{day}.md",
+            },
+        )
+        return
+
+    if kind == "new_message" and is_imessage:
         # TUI-originated owner messages: the line is already appended to
         # me/YYYY-MM-DD.md by the client, so we skip ingest() and just nudge.
         if event.get("thread") == "me":
@@ -266,7 +300,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         for pid in _route_to_pids("imessage:new"):
             _dispatch_nudge(pid, tag, context=ctx)
 
-    elif kind == "messages_backlog":
+    elif kind == "messages_backlog" and is_imessage:
         messages = event.get("messages") or []
         if not messages:
             return

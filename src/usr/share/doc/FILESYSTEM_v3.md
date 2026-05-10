@@ -384,7 +384,9 @@ All persistent mutable state.
   packages provision their own dirs at install time. Existing precedent:
   drivers like `imessage` and `whatsapp` keep cursors and per-domain
   state under `/var/lib/<driver>/`; the `browse` subagent stores
-  imported Chrome cookies under `/var/lib/browse/cookies/`.
+  imported Chrome cookies under `/var/lib/browse/cookies/` and its
+  dedicated CDP-mode Chrome profile under
+  `/var/lib/browse/chrome-cdp-profile/`.
 - `var/log/` — append-only logs.
 - `var/spool/communication/` — message queues (see Communication Layout).
 - `var/cache/` — regenerable derived state (deferred).

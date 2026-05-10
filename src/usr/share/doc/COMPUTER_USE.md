@@ -1,5 +1,48 @@
 # COMPUTER_USE
 
+## Status — what shipped, what's still aspirational
+
+This file started as a design exploration (sections below). Some of it is now
+real and lives in the `browse` subagent (`/usr/lib/subagents/browse/`); the
+rest is still open. Quick map:
+
+**Shipped** (use the `browse` subagent — see its `prompt.md`):
+- Playwright + Chromium via [browser-use](https://github.com/browser-use/browser-use)
+  as the agent loop. Accessibility-tree-first with VLM fallback baked into the
+  library. (Approach C from below — hybrid won.)
+- Two execution modes: bundled headless Chromium (default) and **CDP attach**
+  to a real Chrome instance the subagent launches against a dedicated
+  `--user-data-dir` (`$PAI_ROOT/var/lib/browse/chrome-cdp-profile/`).
+- Auto-routing: hosts known to wall headless Chromium (OpenTable, Resy,
+  Tock, Yelp, SevenRooms, Google captcha) are silently routed to CDP mode.
+- Cookie import from owner's real Chrome via
+  `libexec/chrome_cookies_import.py` for the bundled-Chromium path
+  (`--profile <name>`), stored under `/var/lib/browse/cookies/`.
+- One result file per spawn at `/proc/$PAI_SLUG/result.md`. Distinct exit
+  codes for "WAF blocked us in bundled mode → retry with CDP" vs "WAF
+  blocked us in CDP mode → don't loop" so parents don't thrash.
+
+**Auth model in practice (replaces the "hands the browser to the human"
+sketch below):** PAI doesn't hold passwords. The dedicated CDP profile is a
+real, isolated Chrome profile; on first launch it's blank. The owner signs
+into OpenTable/Resy/etc once in that Chrome window, and sessions persist
+there for all subsequent spawns. No symlinks into the owner's real Chrome
+profile — that would corrupt cookies and Local State if both Chromes ran.
+
+**Still open:**
+- Generalized "pause and hand the browser to the human mid-task" flow. Today
+  it's pre-seeded sign-in, not interactive handoff.
+- Per-domain action log under `home/communication/browser/{domain}/`. Today
+  the only artifact is `result.md`.
+- Sandboxing / per-domain allowlists / POST-confirmation prompts. None.
+- Long-running browser daemon model. Today each spawn either reuses an
+  existing CDP Chrome (port 9222 alive) or launches one; there's no
+  supervisor managing tabs across spawns.
+
+The rest of this doc is the original brainstorm — kept as design rationale.
+
+---
+
 ## The bet
 
 Instead of writing N custom integrations (Gmail driver, Calendar driver, Linear driver, Notion driver, ...), give PAI **one** general capability: a browser it can drive. Anything a human can do through a webpage, PAI can do too.
@@ -73,11 +116,17 @@ First time PAI uses a site, a human (or VLM) walks through the flow and PAI save
 - Pros: fast and reliable in steady state.
 - Cons: doesn't generalize; brittle to redesigns. Probably a complement to A/B/C, not a replacement.
 
-## Auth model
+## Auth model (original sketch — see Status block at top for what shipped)
 
 - PAI never holds raw passwords. When a site needs login, PAI **pauses and hands the browser window to the human** ("I need you to log in to foo.com — taking control of the browser now"). User logs in, PAI resumes with the session cookie.
 - Per-domain cookie jars stored under `home/workspace/browser/cookies/{domain}/`.
 - Re-auth is a normal pause-and-handoff event; not an error.
+
+> What actually shipped is simpler: a dedicated CDP-mode Chrome profile at
+> `/var/lib/browse/chrome-cdp-profile/` that the owner signs into once, plus
+> a one-shot cookie import from the owner's real Chrome at
+> `/var/lib/browse/cookies/` for the bundled-Chromium path. No interactive
+> mid-task handoff yet.
 
 ## Open questions
 

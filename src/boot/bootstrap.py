@@ -592,6 +592,9 @@ def build_system_prompt(
     role = _read_or_empty(REPO_ROOT / prompt_path) if prompt_path else ""
     role_block = f"<role>\n{role}</role>\n\n" if role else ""
 
+    owner = _read_or_empty(PAI_ROOT / "etc" / "owner.md").strip()
+    owner_block = f"<owner>\n{owner}\n</owner>\n\n" if owner else ""
+
     # Self-notes: append-only file the PAI maintains about itself —
     # preferences, lessons learned, recurring context. Lives in the
     # instance's private memory so it persists across reboots and is
@@ -650,6 +653,7 @@ def build_system_prompt(
 
     return (
         f"<pai-instance>\n{pai_line}</pai-instance>\n\n"
+        f"{owner_block}"
         f"{role_block}"
         f"{self_block}"
         f"{subagent_block}"
