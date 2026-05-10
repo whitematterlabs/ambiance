@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import os
 import shlex
+import time
 from datetime import datetime
+from typing import Optional
 
 from rich.text import Text
 
@@ -22,6 +24,17 @@ from textual.widgets import Header, Input, Static, TabbedContent, TabPane
 
 from boot.nudge import apply_pending_history_action
 from boot.processes import HOME_DIR, emit_event, _iter_pai_specs, read_status
+
+def _format_busy(slug: str, busy: Optional[tuple[str, float]]) -> str:
+    if busy is None:
+        return "idle"
+    reason, started_at = busy
+    reason = reason.strip() or "thinking"
+    if started_at > 0:
+        elapsed = max(0, int(time.time() - started_at))
+        return f"{slug}: {reason} ({elapsed}s)"
+    return f"{slug}: {reason}"
+
 
 PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
 PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek")]
@@ -331,7 +344,7 @@ class TuiApp(App):
             return
         for r in rows:
             if r.pid == str(active_pid):
-                status.update(f"{r.slug} is thinking…" if r.busy else "idle")
+                status.update(_format_busy(r.slug, r.busy))
                 return
         status.update("idle")
 

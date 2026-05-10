@@ -7,8 +7,10 @@ status, and log.md. See src/usr/share/doc/KERNEL.md for the full spec.
 import os
 import re
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -331,12 +333,32 @@ def append_log(slug: str, message: str) -> None:
 
 def mark_busy(slug: str, reason: str = "") -> None:
     """Flag a PAI as actively running a nudge. Presence-based: the file
-    exists iff a nudge is in flight. Body holds the reason for debugging.
+    exists iff a nudge is in flight. Body is `reason\\n<unix_ts>` so the
+    TUI can show what phase the nudge is in and how long it's been there.
     `_pai_locks` serializes nudges per PAI, so this is binary."""
     proc = _proc_dir(slug)
     if not proc.exists():
         raise ProcessNotFound(slug)
-    (proc / "busy").write_text(f"{reason}\n")
+    (proc / "busy").write_text(f"{reason}\n{time.time()}\n")
+
+
+def set_busy_reason(slug: str, reason: str) -> None:
+    """Update the reason on an already-busy PAI without resetting the
+    started_at timestamp. No-op if the PAI isn't currently busy."""
+    proc = _proc_dir(slug)
+    busy_file = proc / "busy"
+    if not busy_file.exists():
+        return
+    started_at = ""
+    try:
+        existing = busy_file.read_text().splitlines()
+        if len(existing) >= 2:
+            started_at = existing[1].strip()
+    except OSError:
+        pass
+    if not started_at:
+        started_at = str(time.time())
+    busy_file.write_text(f"{reason}\n{started_at}\n")
 
 
 def clear_busy(slug: str) -> None:
@@ -347,6 +369,26 @@ def clear_busy(slug: str) -> None:
 
 def is_busy(slug: str) -> bool:
     return (_proc_dir(slug) / "busy").exists()
+
+
+def read_busy(slug: str) -> Optional[tuple[str, float]]:
+    """Return (reason, started_at) for a busy PAI, or None if not busy.
+    A malformed file (missing ts) returns (reason, 0.0)."""
+    busy_file = _proc_dir(slug) / "busy"
+    if not busy_file.exists():
+        return None
+    try:
+        lines = busy_file.read_text().splitlines()
+    except OSError:
+        return None
+    reason = lines[0].strip() if lines else ""
+    started_at = 0.0
+    if len(lines) >= 2:
+        try:
+            started_at = float(lines[1].strip())
+        except ValueError:
+            started_at = 0.0
+    return reason, started_at
 
 
 def list_procs(status_filter: str | None = None) -> list[str]:

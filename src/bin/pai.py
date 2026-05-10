@@ -29,7 +29,7 @@ def cmd_start(args: argparse.Namespace) -> int:
         os.execvp(sys.executable, [sys.executable, "-u", "-m", "boot.entry"])
         raise AssertionError("execvp returned without replacing process")
 
-    log_path = HOME_DIR / "tmp" / "kernel.log"
+    log_path = HOME_DIR / "var" / "log" / "kernel" / "kernel.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_fp = log_path.open("a", buffering=1, encoding="utf-8")
     kernel = subprocess.Popen(

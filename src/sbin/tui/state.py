@@ -25,12 +25,12 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, is_busy, list_procs, read_spec, read_status
+from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_busy, read_spec, read_status
 from boot.proctree import order_as_tree
 from boot.tokens import read_last_window
 
 ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
-KERNEL_LOG = HOME_DIR / "tmp" / "kernel.log"
+KERNEL_LOG = HOME_DIR / "var" / "log" / "kernel" / "kernel.log"
 
 
 def me_thread_dir(pid: int) -> Path:
@@ -146,7 +146,8 @@ class ProcRow:
     description: str
     status: str
     tree_prefix: str = ""  # box-drawing indent for nested subagents
-    busy: bool = False  # True iff /proc/<slug>/busy exists (nudge in flight)
+    # (reason, started_at_unix) iff /proc/<slug>/busy exists, else None.
+    busy: Optional[tuple[str, float]] = None
     ctx_tokens: int = 0  # last_window_tokens from /proc/<slug>/tokens, 0 if absent
 
 
@@ -224,7 +225,7 @@ class ProcWatcher:
             rows.append(ProcRow(
                 slug=slug, pid=pid_str, type=ptype, parent=parent_str,
                 when=when, description=desc, status=spec["_status"],
-                tree_prefix=prefix, busy=is_busy(slug),
+                tree_prefix=prefix, busy=read_busy(slug),
                 ctx_tokens=_read_ctx_tokens(slug),
             ))
         return rows

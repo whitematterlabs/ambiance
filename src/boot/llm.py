@@ -128,6 +128,7 @@ async def run_turn(
     *,
     provider: Optional[str] = None,
     model: Optional[str] = None,
+    set_status: Optional[callable] = None,
 ) -> tuple[str, list[dict]]:
     """Run one nudge through the model.
 
@@ -147,7 +148,7 @@ async def run_turn(
     messages.append({"role": "user", "content": user})
 
     try:
-        return await _loop(client, model, extra_body, system, messages, env)
+        return await _loop(client, model, extra_body, system, messages, env, set_status)
     except asyncio.CancelledError:
         _prune_unresolved_tool_uses(messages)
         raise TurnCancelled(messages)
@@ -185,7 +186,14 @@ async def _loop(
     system: str,
     messages: list[dict],
     env: Optional[dict],
+    set_status: Optional[callable] = None,
 ) -> tuple[str, list[dict]]:
+    def _status(reason: str) -> None:
+        if set_status is not None:
+            try:
+                set_status(reason)
+            except Exception:
+                pass
     # System prompt is static across nudges — cache it. The tail of `messages`
     # is also marked per-iteration so the growing history reuses the cached
     # prefix on subsequent iterations and subsequent nudges (within the
@@ -193,7 +201,9 @@ async def _loop(
     system_blocks = [
         {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
     ]
+    short_model = model.split("/")[-1] if "/" in model else model
     for _ in range(MAX_ITERATIONS):
+        _status(f"waiting on {short_model}")
         response = await client.messages.create(
             model=model,
             max_tokens=MAX_TOKENS,
@@ -246,10 +256,13 @@ async def _loop(
             if use.name == shell_tool.TOOL_NAME:
                 pai_slug = (env or {}).get("PAI_SLUG") or "?"
                 if use.input.get("keys"):
-                    print(f"[pai:{pai_slug}] [keys] {use.input['keys']}", flush=True)
+                    keys_repr = use.input["keys"]
+                    print(f"[pai:{pai_slug}] [keys] {keys_repr}", flush=True)
+                    _status(f"shell: send-keys {keys_repr}"[:120])
                 else:
                     command = use.input.get("command", "")
                     print(f"[pai:{pai_slug}] $ {command}", flush=True)
+                    _status(f"shell: {command}"[:120])
                 result = await shell_tool.run(use.input, env=env)
                 rendered = result.render()
                 print(rendered, flush=True)

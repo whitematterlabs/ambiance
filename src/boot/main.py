@@ -522,7 +522,7 @@ def _install_stdout_tee() -> None:
             return
     except (AttributeError, ValueError):
         return
-    log_path = P.HOME_DIR / "tmp" / "kernel.log"
+    log_path = P.HOME_DIR / "var" / "log" / "kernel" / "kernel.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     f = log_path.open("a", buffering=1, encoding="utf-8")
     sys.stdout = _Tee(sys.stdout, f)

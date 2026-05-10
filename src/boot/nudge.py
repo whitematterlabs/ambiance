@@ -361,6 +361,12 @@ async def _nudge_body(
         "PAI_PARENT": parent_str or "",
     }
 
+    def _set_status(reason: str) -> None:
+        try:
+            P.set_busy_reason(pai_slug, reason)
+        except ProcessNotFound:
+            pass
+
     try:
         reply, new_history = await llm.run_turn(
             system,
@@ -369,6 +375,7 @@ async def _nudge_body(
             env=env,
             provider=pai_spec.get("provider"),
             model=pai_spec.get("model"),
+            set_status=_set_status,
         )
     except llm.TurnCancelled as c:
         _save_history(history_path, c.messages)
