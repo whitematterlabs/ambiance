@@ -216,10 +216,18 @@ def _set_nonblocking(fd: int) -> None:
     fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
 
-def _disable_echo(fd: int) -> None:
+def _setup_slave_termios(fd: int) -> None:
+    # Clear ECHO so the PTY doesn't echo our `_pai_run <b64>` line back into
+    # the master, and clear ICANON so the line discipline stops buffering by
+    # line. With ICANON on, macOS caps a canonical input line at MAX_CANON
+    # (1024 bytes) and silently drops the rest — long commands (heredocs,
+    # large printfs) get truncated past byte 1024, the `_pai_run` payload
+    # arrives malformed, and the eval fails silently. Leave ISIG on so a
+    # `\x03` written to the master still raises SIGINT in the foreground
+    # pgroup (the timeout / interrupt paths depend on this).
     attrs = termios.tcgetattr(fd)
     # lflag is index 3
-    attrs[3] &= ~termios.ECHO
+    attrs[3] &= ~(termios.ECHO | termios.ICANON)
     termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 
@@ -300,6 +308,18 @@ _INIT_SCRIPT = (
 )
 
 
+async def _write_all_to_master(fd: int, data: bytes) -> None:
+    # PTY master is non-blocking; a single os.write can short-write when
+    # the slave's input buffer fills (~4KB on macOS). Loop until everything
+    # lands, yielding to the event loop on EAGAIN so pipe readers drain.
+    n = 0
+    while n < len(data):
+        try:
+            n += os.write(fd, data[n:])
+        except BlockingIOError:
+            await asyncio.sleep(0.005)
+
+
 async def _drain_pipe_pending(sess: _Session) -> None:
     """Give the event loop a couple of ticks to drain pipe readers
     after exit_event fires, so trailing fd4/fd5 bytes land in the
@@ -322,7 +342,7 @@ async def _exec_via_session(
         line = f"_pai_run {b64}\n".encode("ascii")
         _safe_write_log(sess, b"$ " + command.encode("utf-8", "replace") + b"\n")
         try:
-            os.write(sess.master_fd, line)
+            await _write_all_to_master(sess.master_fd, line)
         except OSError as e:
             return ShellResult(stdout="", stderr=f"write to bash failed: {e!r}", exit_code=-1)
 
@@ -355,7 +375,7 @@ async def _exec_via_session(
 async def _spawn_session(slug: str, cwd: str, env: dict) -> _Session:
     master, slave = pty.openpty()
     try:
-        _disable_echo(slave)
+        _setup_slave_termios(slave)
         _set_winsize(master, _ROWS, _COLS)
         _set_nonblocking(master)
     except Exception:
