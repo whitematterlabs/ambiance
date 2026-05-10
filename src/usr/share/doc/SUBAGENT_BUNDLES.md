@@ -58,7 +58,7 @@ $EDITOR /usr/lib/subagents/memory/package.yaml      # set description, provider,
     package: memory
 ```
 
-`ipc emit kernel:reload_config` (or kernel restart) — `_reconcile_persubs` resolves the bundle and spawns `/proc/pai.memory/`.
+`sbin/reboot` — `_reconcile_persubs` resolves the bundle and spawns `/proc/pai.memory/`.
 
 ### Use it ad-hoc from a parent's turn
 

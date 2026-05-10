@@ -65,7 +65,10 @@ def test_add_creates_instance_and_config(fhs: Path, monkeypatch: pytest.MonkeyPa
 
     home = fhs / "home" / "email-pai"
     assert (home / "memory" / "shared").is_symlink()
-    assert (home / "memory" / "skills").is_symlink()
+    # memory/skills is now a directory of per-skill symlinks (filtered by
+    # `visible_to:`), not a single symlink to /usr/lib/skills/.
+    assert (home / "memory" / "skills").is_dir()
+    assert not (home / "memory" / "skills").is_symlink()
 
     cfg = yaml.safe_load((fhs / "etc" / "config.yaml").read_text())
     entry = next(e for e in cfg["pais"] if e["name"] == "email-pai")

@@ -96,7 +96,7 @@ via `paiman install`, etc.) is an implementation detail tracked in Open Question
 | `src/pai.py` | `~/.pai/sbin/init` | Refactored into the kernel entrypoint |
 | `src/boot/` | `~/.pai/boot/` | Kernel source — the supervisor and its helper libraries (PID 1's image). Not userspace; never under `/usr/`. |
 | `~/Projects/pairegistry/drivers/<name>/` | split two ways | Code + shipped manifest → `/usr/lib/drivers/<name>/` (events.yaml ships here, not in /etc/). Live runtime state → `/sys/drivers/<name>/`. Driver enable/disable rides on `/proc/<slug>/spec.yaml` `active:` like any other process. *Source lives in pairegistry, not this pyproject repo.* |
-| `src/bin/` | split by privilege | PAI-callable shims (`paictl`, `paicron`, `ipc`, `subagent`, …) → `~/.pai/usr/bin/` (`/bin/` is a symlink to `usr/bin/`). Fleet-mutation / kernel ops (`paiman`, `paiadd`, `paidel`, `paifs-init`) → `~/.pai/sbin/`. Split lives in `SBIN_SCRIPTS` in `bin/paifs_init.py`. |
+| `src/bin/` | split by privilege | PAI-callable shims (`paictl`, `paicron`, `send-message`, `subagent`, …) → `~/.pai/usr/bin/` (`/bin/` is a symlink to `usr/bin/`). Fleet-mutation / kernel ops (`paiman`, `paiadd`, `paidel`, `paifs-init`) → `~/.pai/sbin/`. Split lives in `SBIN_SCRIPTS` in `bin/paifs_init.py`. |
 | `src/sbin/tui/` | `~/.pai/sbin/tui` | Owner's terminal client (privileged ops) |
 | `src/sbin/migrate.py` | `~/.pai/sbin/migrate` | One-shot kernelPAI op |
 | `src/sbin/reset.py` | `~/.pai/sbin/reset` | One-shot kernelPAI op — destructive; wipes runtime state |
@@ -323,7 +323,7 @@ boot. Contains:
 
 - `current → /proc/<pid>/` — symlink to the live process dir
 - `pid` — current PID as a plain file (`kill $(cat pid)` works)
-- `inbox/` — name-addressed message drop for IPC
+- `inbox/` — name-addressed message drop for send_message
 - `spec.yaml` — what should be running (declared state)
 - `status` — `running | stopped | failed`
 - `log.md` — durable, restart-spanning activity log

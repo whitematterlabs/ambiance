@@ -17,6 +17,7 @@ from typing import Optional
 import yaml
 
 from . import processes
+from . import skills as _skills_filter
 from .paths import HOME_DIR, PAI_ROOT, PROC_DIR, REPO_ROOT, usr_lib_skills, usr_lib_subagents
 
 
@@ -146,7 +147,7 @@ To act, write to files or invoke tools:
   runs in the background; it is *persistent* — it stays alive across
   turns and does not resolve on its own. Conversation is non-blocking:
   - To talk to your subagent: `bin/send-message --to {child pid} --content "..."`
-    (this is the same generic peer-IPC channel you'd use for any PAI).
+    (this is the same generic peer messaging channel you'd use for any PAI).
   - When the subagent has something for you, you'll be nudged with
     `reason: subagent response` and `from: subagent:{child pid}` —
     that's your signal it's one of your own children, not a PAI peer.
@@ -168,10 +169,10 @@ To act, write to files or invoke tools:
   logs all stay put. Use when the buffer is getting unwieldy.
 - Delegating to a peer PAI = if another fleet PAI owns the capability
   (e.g. the email PAI for outbound email, the imessage PAI for iMessages),
-  prefer sending it an IPC message over doing the work yourself:
+  prefer sending it a message over doing the work yourself:
     bin/send-message --to {peer_pid} --content "send an email to alice@example.com: ..."
   The peer's pid and what it handles are listed in <fleet> below.
-  Peer replies arrive as reason `ipc message` from `pai:{pid}`.
+  Peer replies arrive as reason `pai message` from `pai:{pid}`.
   If the owner asks you for something that another fleet member has access
   to, `send-message` to them for whatever's been asked of you — don't try
   to do it yourself.
@@ -280,11 +281,11 @@ def _append_skill_entry(entries: list[str], label: str, skill_dir: Path) -> None
     entries.append(f"{label}: {desc}" if desc else label)
 
 
-def _list_system_skills(path: Path) -> str:
+def _list_system_skills(path: Path, pai_slug: str = "", pai_pid: int = 0) -> str:
     """System skills live at /usr/lib/skills/<topic>/<name>/SKILL.md, organized
     by topic subdirectory. Emit `<topic>/<name>: <description>` per line so
-    PAI can pick which to read without opening every file. Flat (no-topic)
-    skills are still supported for backward compatibility."""
+    PAI can pick which to read without opening every file. Skills with
+    `visible_to:` set are filtered out for PAIs not in that list."""
     if not path.exists():
         return ""
     entries: list[str] = []
@@ -292,11 +293,15 @@ def _list_system_skills(path: Path) -> str:
         if not topic_dir.is_dir() or topic_dir.name.startswith("."):
             continue
         if (topic_dir / "SKILL.md").exists():
-            # Flat skill (no topic subdir).
-            _append_skill_entry(entries, topic_dir.name, topic_dir)
+            if _skills_filter.is_visible(topic_dir / "SKILL.md", pai_slug, pai_pid):
+                _append_skill_entry(entries, topic_dir.name, topic_dir)
             continue
         for skill_dir in sorted(topic_dir.iterdir()):
             if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+                continue
+            if not _skills_filter.is_visible(
+                skill_dir / "SKILL.md", pai_slug, pai_pid
+            ):
                 continue
             _append_skill_entry(
                 entries, f"{topic_dir.name}/{skill_dir.name}", skill_dir
@@ -333,7 +338,7 @@ def _list_system_subagents(path: Path) -> str:
 _FHS_GLOSS: dict[str, str] = {
     "boot": "kernel image (supervisor + linked libs); avoid editing",
     "sbin": "owner-only tools that mutate /etc/ or fleet state (init, paiman, paiadd, paictl)",
-    "bin": "PAI-callable tools (paictl, paicron, ipc, subagent, nudge, ...)",
+    "bin": "PAI-callable tools (paictl, paicron, send-message, subagent, nudge, ...)",
     "etc": "control plane: config.yaml declares the fleet",
     "home": "stitched per-PAI home views",
     "root": "root's stitched home",
@@ -548,7 +553,11 @@ def build_system_prompt(
         self_notes = read_self_notes(home)
     bins = _list_dir(home / "bin")
     skills = _list_skills(home / "memory" / "skills")
-    system_skills = _list_system_skills(usr_lib_skills())
+    try:
+        pai_slug = processes.find_pai_slug(pai)
+    except Exception:
+        pai_slug = ""
+    system_skills = _list_system_skills(usr_lib_skills(), pai_slug, pai)
     # Subagent and FHS blocks are only useful for non-subagent PAIs —
     # subagents have a focused brief and don't need the full system map.
     is_subagent = parent is not None

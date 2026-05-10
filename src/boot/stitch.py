@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 from . import paths
+from . import skills as _skills_filter
 
 # Top-level home entries the kernel always seeds. A bundle's `home.links`
 # may not collide with any of these.
@@ -46,9 +47,10 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
     home_under_root = home.relative_to(paths.PAI_ROOT)
     inst_under_root = instance.relative_to(paths.PAI_ROOT)
     mem_under_root = paths.var_lib_memory().relative_to(paths.PAI_ROOT)
-    skills_under_root = paths.usr_lib_skills().relative_to(paths.PAI_ROOT)
     doc_under_root = paths.usr_share_doc().relative_to(paths.PAI_ROOT)
 
+    # `memory/skills` is NOT in this list — it's stitched as a directory of
+    # per-skill symlinks (filtered by `visible_to:`) by `_stitch_skills`.
     links: tuple[tuple[str, Path], ...] = (
         ("bin", Path("usr") / "bin"),
         *extra_links,
@@ -56,7 +58,6 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
         ("workspace", inst_under_root / "workspace"),
         ("memory/private", inst_under_root / "memory" / "private"),
         ("memory/shared", mem_under_root),
-        ("memory/skills", skills_under_root),
         ("memory/doc", doc_under_root),
     )
     # Prune stale top-level symlinks the kernel no longer manages (e.g. the
@@ -85,6 +86,68 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
                 continue
         link.symlink_to(target)
     (home / "tmp").mkdir(exist_ok=True)
+
+
+def _stitch_skills(home: Path, slug: str, pid: int | None) -> None:
+    """Build `home/memory/skills/` as a per-PAI filtered view.
+
+    Each skill's `visible_to:` is consulted; a public skill (no field) is
+    linked for everyone, a restricted skill is only linked when the PAI's
+    slug or pid is in the list. Re-runs are cheap — we wipe symlinks under
+    the dir and rebuild from `/usr/lib/skills/`.
+    """
+    skills_root = paths.usr_lib_skills()
+    target_root = home / "memory" / "skills"
+
+    # Legacy: `memory/skills` used to be a single symlink to /usr/lib/skills.
+    # Replace it with a real directory so we can populate per-skill symlinks.
+    if target_root.is_symlink():
+        target_root.unlink()
+    target_root.mkdir(parents=True, exist_ok=True)
+
+    # Wipe the existing symlink tree so removed/now-hidden skills disappear.
+    # Real files/dirs (someone dropped a note in here) are left alone.
+    if target_root.exists():
+        for topic_dir in list(target_root.iterdir()):
+            if not topic_dir.is_dir() or topic_dir.is_symlink():
+                if topic_dir.is_symlink():
+                    topic_dir.unlink()
+                continue
+            for entry in list(topic_dir.iterdir()):
+                if entry.is_symlink():
+                    entry.unlink()
+            try:
+                topic_dir.rmdir()
+            except OSError:
+                # Non-empty (user added something) — leave it.
+                pass
+
+    if not skills_root.exists():
+        return
+
+    for topic_dir in sorted(skills_root.iterdir()):
+        if not topic_dir.is_dir() or topic_dir.name.startswith("."):
+            continue
+        # Flat skill (SKILL.md directly under topic dir, no nested topic).
+        if (topic_dir / "SKILL.md").exists():
+            if _skills_filter.is_visible(topic_dir / "SKILL.md", slug, pid or 0):
+                link = target_root / topic_dir.name
+                if not link.exists():
+                    link.symlink_to(topic_dir.resolve(), target_is_directory=True)
+            continue
+        for skill_dir in sorted(topic_dir.iterdir()):
+            if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+                continue
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.exists():
+                continue
+            if not _skills_filter.is_visible(skill_md, slug, pid or 0):
+                continue
+            link = target_root / topic_dir.name / skill_dir.name
+            link.parent.mkdir(parents=True, exist_ok=True)
+            if link.is_symlink() or link.exists():
+                continue
+            link.symlink_to(skill_dir.resolve(), target_is_directory=True)
 
 
 def _seed_instance(instance: Path) -> None:
@@ -170,10 +233,18 @@ def _resolve_extras(slug: str) -> tuple[tuple[str, Path], ...]:
 
 def stitch_home(slug: str) -> Path:
     """Build (or heal) the home tree for `slug`. Returns the home path."""
+    from . import processes  # local import to avoid cycle at module load
+
     instance = paths.var_lib_instance(slug)
     home = home_for(slug)
     _seed_instance(instance)
     home.mkdir(parents=True, exist_ok=True)
     extra = _resolve_extras(slug)
     _stitch_links(home, instance, extra)
+    pid: int | None
+    try:
+        pid = processes.read_pai_pid(slug)
+    except Exception:
+        pid = None
+    _stitch_skills(home, slug, pid)
     return home

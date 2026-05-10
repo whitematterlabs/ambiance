@@ -27,7 +27,7 @@ These are not interchangeable. Do not put kernel code under `/usr/`, and do not 
 - **`/boot/`** — the kernel image. The supervisor (PID 1, pure Python) and every helper library it links against. The kernel is *not* a userspace program. Repo source for it lives at `src/boot/`.
 - **`/usr/`** — userspace. Drivers, skills, PAI bundles, shipped data. Anything a PAI or a driver runs against. Never holds kernel code.
 - **`/sbin/`** — kernelPAI / owner-only tools that mutate `/etc/`, the fleet, or system state: `init` (entrypoint that `exec`s into the kernel), `reboot` (re-execs the kernel in place via `kernel:restart`), `paiman`, `paiadd`, `paidel`, `paifs-init`, `migrate`, `reset`, `tui`.
-- **`/bin/`** — PAI-callable tools (`paictl`, `paicron`, `ipc`, `subagent`, etc.). `/bin/` is a relative symlink to `usr/bin/`.
+- **`/bin/`** — PAI-callable tools (`paictl`, `paicron`, `send-message`, `subagent`, etc.). `/bin/` is a relative symlink to `usr/bin/`.
 
 ## Driver layout
 
@@ -63,7 +63,7 @@ Four tools, one layer each: `paiman` (bundles) / `paiadd`+`paidel` (configure in
 
 ## Graduating from TTY to .app
 
-PAI runs in a terminal today. That is deliberate while the kernel's contract with the world is still moving (driver layout, FHS semantics, prompt assembly, IPC shape). An `.app` adds a second surface to keep in sync — window lifecycle, dock, notifications, Sparkle-style updates, code signing, and Location/Contacts/Calendar entitlements as a *bundled identity* instead of borrowed from Terminal — and doing that before the kernel is stable means re-doing it.
+PAI runs in a terminal today. That is deliberate while the kernel's contract with the world is still moving (driver layout, FHS semantics, prompt assembly, send_message shape). An `.app` adds a second surface to keep in sync — window lifecycle, dock, notifications, Sparkle-style updates, code signing, and Location/Contacts/Calendar entitlements as a *bundled identity* instead of borrowed from Terminal — and doing that before the kernel is stable means re-doing it.
 
 Three signals to graduate:
 
@@ -73,7 +73,7 @@ Three signals to graduate:
 
 Graduate when **2 of 3** hit — specifically when per-PAI native notifications or owner-bound Location/Contacts permissions are wanted, because that's when borrowing Terminal's identity becomes the wrong abstraction rather than just an aesthetic one.
 
-**Intermediate step before a full `.app`:** package the kernel + TUI as a launchd-managed background agent + a thin SwiftUI menubar app that attaches to the running kernel over the existing IPC. Native notifications and proper entitlements without rewriting the kernel or committing to a windowed app. The TTY still works for dev.
+**Intermediate step before a full `.app`:** package the kernel + TUI as a launchd-managed background agent + a thin SwiftUI menubar app that attaches to the running kernel over the existing send_message channel. Native notifications and proper entitlements without rewriting the kernel or committing to a windowed app. The TTY still works for dev.
 
 ## Design principles
 
