@@ -229,12 +229,15 @@ class _Registry:
     def lookup(self, name: str, *, required: bool = True) -> Path | None:
         # Explicit `<kind>/<name>` disambiguates when the same name lives
         # under multiple typed roots (e.g. `bin/subagent` vs `prompts/subagent`).
+        leaf_only: str | None = None
         if "/" in name:
             typed_root, _, leaf = name.partition("/")
             if typed_root in TYPED_ROOTS and leaf and "/" not in leaf:
                 candidate = self.root() / typed_root / leaf
                 if (candidate / "package.yaml").is_file():
                     return candidate
+                if typed_root == "skills":
+                    leaf_only = leaf
         for typed_root in TYPED_ROOTS:
             candidate = self.root() / typed_root / name
             if (candidate / "package.yaml").is_file():
@@ -243,14 +246,18 @@ class _Registry:
         # extra level under skills/ to find topic-foldered bundles.
         skills_root = self.root() / "skills"
         if skills_root.is_dir():
+            search_names = [name]
+            if leaf_only and leaf_only != name:
+                search_names.append(leaf_only)
             for topic_dir in sorted(skills_root.iterdir()):
                 if not topic_dir.is_dir() or topic_dir.name.startswith("."):
                     continue
                 if (topic_dir / "package.yaml").is_file():
                     continue  # flat skill at this level, not a topic dir
-                candidate = topic_dir / name
-                if (candidate / "package.yaml").is_file():
-                    return candidate
+                for search_name in search_names:
+                    candidate = topic_dir / search_name
+                    if (candidate / "package.yaml").is_file():
+                        return candidate
         if required:
             raise SystemExit(
                 f"paiman: {name!r} not found in registry {self.root()}"
