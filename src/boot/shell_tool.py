@@ -59,7 +59,22 @@ TOOL_DESCRIPTION = (
     "(interactive prompts, vim, htop, claude). Returns the visible "
     "screen and cursor position. Use this only when something is "
     "already running in the foreground and waiting for input. To "
-    "interrupt a stuck command, send `keys: \"C-c\"`."
+    "interrupt a stuck command, send `keys: \"C-c\"`.\n\n"
+    "Timeouts. `command` mode has a wall-clock cap via `timeout_ms` "
+    "(default 120000, max 600000). On expiry the foreground command "
+    "gets SIGINT, partial stdout/stderr come back with exit_code -1, "
+    "and you can react. Raise it for slow work — test runs, builds, "
+    "slow CLIs, AppleScript queries. The cap is the cap; don't fight "
+    "it, background instead.\n\n"
+    "Background work. For anything that legitimately needs to outlive "
+    "a single tool call (long batch jobs, watchers, servers, slow "
+    "queries), background it: "
+    "`nohup cmd > /tmp/<descriptive-name>.log 2>&1 & echo $!`. "
+    "Capture the PID and remember the log path. Manage across "
+    "subsequent calls with `tail /tmp/<name>.log`, `ps -p $pid`, "
+    "`kill $pid`, `wait $pid`. The bash session is persistent across "
+    "tool calls for this PAI's lifetime, so PIDs and `jobs` survive "
+    "between invocations."
 )
 
 
@@ -113,6 +128,17 @@ TOOL_SCHEMA = {
                     "before snapshotting the screen. Default 300."
                 ),
             },
+            "timeout_ms": {
+                "type": "integer",
+                "description": (
+                    "Wall-clock timeout in milliseconds for `command` mode. "
+                    "Default 120000 (2 min). Maximum 600000 (10 min). "
+                    "On timeout the foreground command is sent SIGINT, partial "
+                    "stdout/stderr are returned, and exit_code is -1. For work "
+                    "that must run longer than 10 min, background it with "
+                    "`nohup ... &` (see tool description). Ignored in `keys` mode."
+                ),
+            },
         },
     },
 }
@@ -143,7 +169,8 @@ class ShellResult:
 
 _ROWS = 40
 _COLS = 120
-_DEFAULT_TIMEOUT = 24 * 60 * 60  # 24h wall-clock per command
+_DEFAULT_TIMEOUT_MS = 120_000  # 2 min default per command
+_MAX_TIMEOUT_MS = 600_000  # 10 min cap; background longer work via nohup
 
 
 @dataclass
@@ -283,7 +310,7 @@ async def _drain_pipe_pending(sess: _Session) -> None:
 
 
 async def _exec_via_session(
-    sess: _Session, command: str, timeout: float = _DEFAULT_TIMEOUT
+    sess: _Session, command: str, timeout: float = _DEFAULT_TIMEOUT_MS / 1000
 ) -> ShellResult:
     async with sess.lock:
         sess.stdout_buf.clear()
@@ -616,6 +643,14 @@ async def run(
     except (TypeError, ValueError):
         wait_ms = 300
 
+    timeout_ms_raw = tool_input.get("timeout_ms")
+    try:
+        timeout_ms = int(timeout_ms_raw) if timeout_ms_raw is not None else _DEFAULT_TIMEOUT_MS
+    except (TypeError, ValueError):
+        timeout_ms = _DEFAULT_TIMEOUT_MS
+    timeout_ms = max(1_000, min(_MAX_TIMEOUT_MS, timeout_ms))
+    timeout_s = timeout_ms / 1000
+
     if command and keys:
         return ShellResult(
             stdout="",
@@ -652,4 +687,4 @@ async def run(
     if keys:
         return await _send_keys_via_session(sess, keys, wait_ms)
     rewritten = rewrite_fhs_paths(command, str(PAI_ROOT))
-    return await _exec_via_session(sess, rewritten)
+    return await _exec_via_session(sess, rewritten, timeout=timeout_s)
