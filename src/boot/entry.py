@@ -107,6 +107,18 @@ def boot() -> int:
         asyncio.run(supervise.run())
     except KeyboardInterrupt:
         pass
+    except BaseException:
+        tb = traceback.format_exc()
+        print(f"[kernel] fatal: uncaught in supervise.run()\n{tb}", file=sys.stderr, flush=True)
+        try:
+            from datetime import datetime
+            crash_dir = paths.PAI_ROOT / "var" / "log" / "kernel"
+            crash_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+            (crash_dir / f"crash-{ts}.log").write_text(tb)
+        except Exception:
+            pass
+        return 3
     if supervise._restart_requested:
         print("[boot] re-exec for kernel:restart", flush=True)
         _release_pid_lock()  # drop lock so the re-exec can re-acquire
