@@ -484,12 +484,13 @@ def cmd_install(args: argparse.Namespace) -> int:
                 f"paiman: post_install for {owner!r} references missing bin "
                 f"{argv[0]!r} at {bin_path}"
             )
-        # Invoke via the kernel venv python directly: bypasses any shebang
-        # quirks in the bin and guarantees the interpreter has all pip deps
-        # we just installed (regardless of caller's PATH).
+        # Exec the bin directly via its own shebang — shims route to the
+        # right interpreter (venv python for .py, /bin/sh for shell wrappers
+        # around node/etc.). Forcing everything through venv python breaks
+        # non-Python shims.
         print(f"post_install ({owner}): {' '.join(argv)}")
         rc = subprocess.run(
-            [str(_venv_python()), str(bin_path), *argv[1:]]
+            [str(bin_path), *argv[1:]]
         ).returncode
         if rc != 0:
             print(

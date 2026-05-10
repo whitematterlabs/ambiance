@@ -20,7 +20,7 @@ from anthropic import AsyncAnthropic
 
 from . import tokens
 
-from . import shell_tool
+from . import bash_tool, shell_tool
 from .paths import HOME_DIR
 from .processes import ProcessNotFound, append_log
 
@@ -208,7 +208,7 @@ async def _loop(
             model=model,
             max_tokens=MAX_TOKENS,
             system=system_blocks,
-            tools=[shell_tool.TOOL_SCHEMA],
+            tools=[bash_tool.TOOL_SCHEMA, shell_tool.TOOL_SCHEMA],
             messages=_with_cache_control(messages),
             extra_body=extra_body,
         )
@@ -253,7 +253,20 @@ async def _loop(
 
         tool_results = []
         for use in tool_uses:
-            if use.name == shell_tool.TOOL_NAME:
+            if use.name == bash_tool.TOOL_NAME:
+                pai_slug = (env or {}).get("PAI_SLUG") or "?"
+                command = use.input.get("command", "")
+                print(f"[pai:{pai_slug}] $ {command}", flush=True)
+                _status(f"bash: {command}"[:120])
+                result = await bash_tool.run(use.input, env=env)
+                rendered = result.render()
+                print(rendered, flush=True)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": use.id,
+                    "content": rendered,
+                })
+            elif use.name == shell_tool.TOOL_NAME:
                 pai_slug = (env or {}).get("PAI_SLUG") or "?"
                 if use.input.get("keys"):
                     keys_repr = use.input["keys"]

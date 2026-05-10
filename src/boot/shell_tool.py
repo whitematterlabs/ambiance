@@ -1,4 +1,4 @@
-"""The single tool exposed to PAI: a bash shell rooted at home/.
+"""Persistent PTY-backed bash session — the `shell` tool.
 
 Backed by a kernel-owned bash subprocess running under a PTY so:
   - state (cwd, env, history) persists across tool calls,
@@ -19,6 +19,11 @@ Two modes via the same tool:
     fed into an in-process pyte virtual terminal; snapshots return
     the rendered screen + cursor position.
 
+For one-shot stateless commands (the 95% case), use the sibling `bash`
+tool instead — a clean subprocess, no PTY, no persistence. Reach for
+`shell` only when you need persistent cwd/env, a TUI, or to send
+keystrokes to a running foreground program.
+
 Freesolo by design. The agent is trusted in its own world.
 """
 
@@ -29,7 +34,6 @@ import base64
 import fcntl
 import os
 import pty
-import re
 import struct
 import subprocess
 import termios
@@ -40,21 +44,24 @@ from typing import Optional
 import pyte
 
 from . import stitch
+from ._shell_common import ShellResult, rewrite_fhs_paths
 from .paths import PAI_ROOT
 from .processes import HOME_DIR
 
-TOOL_NAME = "bash"
+TOOL_NAME = "shell"
 TOOL_DESCRIPTION = (
-    "Run bash in PAI's persistent shell. State (cwd, env, history) "
-    "survives across calls — this is one long-lived shell, not a fresh "
-    "subprocess per call. PAI's filesystem is rooted at an FHS layout — "
-    "`/etc/`, `/usr/`, `/var/`, `/proc/`, `/run/`, `/sys/`, `/boot/`, "
-    "`/sbin/`, `/bin/`, `/opt/`, `/home/`, `/root/`, `/tmp/` all refer "
-    "to PAI's world; FHS prefixes are rewritten to PAI's root before "
-    "exec.\n\n"
+    "Persistent PTY-backed bash session. Use this when you need "
+    "persistent cwd/env across calls, an interactive TUI (vim, htop, "
+    "claude), or to send keystrokes to a foreground program. "
+    "For one-shot stateless commands, prefer the `bash` tool — it "
+    "is faster, isolated, and avoids PTY-inherited termios surprises.\n\n"
+    "PAI's filesystem is rooted at an FHS layout — `/etc/`, `/usr/`, "
+    "`/var/`, `/proc/`, `/run/`, `/sys/`, `/boot/`, `/sbin/`, `/bin/`, "
+    "`/opt/`, `/home/`, `/root/`, `/tmp/` all refer to PAI's world; "
+    "FHS prefixes are rewritten to PAI's root before exec.\n\n"
     "Two modes (exactly one of `command` or `keys` must be set):\n"
-    "  - `command` — run a bash command to completion; returns combined "
-    "stdout+stderr and exit code. Use this by default.\n"
+    "  - `command` — run a bash command to completion in the persistent "
+    "shell; returns combined stdout+stderr and exit code.\n"
     "  - `keys` — send raw keystrokes to whatever is currently running "
     "(interactive prompts, vim, htop, claude). Returns the visible "
     "screen and cursor position. Use this only when something is "
@@ -72,26 +79,10 @@ TOOL_DESCRIPTION = (
     "`nohup cmd > /tmp/<descriptive-name>.log 2>&1 & echo $!`. "
     "Capture the PID and remember the log path. Manage across "
     "subsequent calls with `tail /tmp/<name>.log`, `ps -p $pid`, "
-    "`kill $pid`, `wait $pid`. The bash session is persistent across "
+    "`kill $pid`, `wait $pid`. The shell session is persistent across "
     "tool calls for this PAI's lifetime, so PIDs and `jobs` survive "
     "between invocations."
 )
-
-
-_FHS_SLOTS = (
-    "etc", "usr", "var", "proc", "run", "sys",
-    "boot", "sbin", "bin", "opt", "home", "root", "tmp",
-)
-_FHS_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_./])"
-    r"(/(?:" + "|".join(_FHS_SLOTS) + r"))"
-    r"(?=/|\s|$|[\"'`\);\],:|&>])"
-)
-
-
-def rewrite_fhs_paths(command: str, root: str) -> str:
-    """Rewrite leading-slash FHS paths to live under `root`."""
-    return _FHS_PATTERN.sub(lambda m: f"{root}{m.group(1)}", command)
 
 
 TOOL_SCHEMA = {
@@ -142,25 +133,6 @@ TOOL_SCHEMA = {
         },
     },
 }
-
-
-@dataclass
-class ShellResult:
-    stdout: str
-    stderr: str
-    exit_code: Optional[int]
-
-    def render(self) -> str:
-        out = self.stdout.rstrip("\n")
-        err = self.stderr.rstrip("\n")
-        parts = []
-        if out:
-            parts.append(out)
-        if err:
-            parts.append(f"[stderr]\n{err}")
-        if self.exit_code is not None:
-            parts.append(f"[exit {self.exit_code}]")
-        return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
