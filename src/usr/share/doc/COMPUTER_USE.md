@@ -7,27 +7,23 @@ real and lives in the `browse` subagent (`/usr/lib/subagents/browse/`); the
 rest is still open. Quick map:
 
 **Shipped** (use the `browse` subagent — see its `prompt.md`):
-- Playwright + Chromium via [browser-use](https://github.com/browser-use/browser-use)
-  as the agent loop. Accessibility-tree-first with VLM fallback baked into the
-  library. (Approach C from below — hybrid won.)
-- Two execution modes: bundled headless Chromium (default) and **CDP attach**
-  to a real Chrome instance the subagent launches against a dedicated
-  `--user-data-dir` (`$PAI_ROOT/var/lib/browse/chrome-cdp-profile/`).
-- Auto-routing: hosts known to wall headless Chromium (OpenTable, Resy,
-  Tock, Yelp, SevenRooms, Google captcha) are silently routed to CDP mode.
-- Cookie import from owner's real Chrome via
-  `libexec/chrome_cookies_import.py` for the bundled-Chromium path
-  (`--profile <name>`), stored under `/var/lib/browse/cookies/`.
-- One result file per spawn at `/proc/$PAI_SLUG/result.md`. Distinct exit
-  codes for "WAF blocked us in bundled mode → retry with CDP" vs "WAF
-  blocked us in CDP mode → don't loop" so parents don't thrash.
+- [browser-use](https://github.com/browser-use/browser-use) as the agent
+  loop, with Playwright purely as a CDP client transport. Accessibility-
+  tree-first with VLM fallback baked into the library.
+- **One execution mode: CDP attach to the owner's real Chrome.** No
+  bundled Chromium, no separate profile. `entry.py` takes over the
+  owner's running Chrome (quits it first, SQLite-corruption guard) and
+  relaunches it against `~/Library/Application Support/Google/Chrome`
+  with `--remote-debugging-port=9222`. WAFs see a returning logged-in
+  user, not a bot.
+- One result file per spawn at `/proc/$PAI_SLUG/result.md`. Exit code
+  `2` + `WAF_BLOCKED: <host>` marker when even the real Chrome gets
+  walled — parents should not retry.
 
 **Auth model in practice (replaces the "hands the browser to the human"
-sketch below):** PAI doesn't hold passwords. The dedicated CDP profile is a
-real, isolated Chrome profile; on first launch it's blank. The owner signs
-into OpenTable/Resy/etc once in that Chrome window, and sessions persist
-there for all subsequent spawns. No symlinks into the owner's real Chrome
-profile — that would corrupt cookies and Local State if both Chromes ran.
+sketch below):** PAI doesn't hold passwords. It uses the owner's real
+Chrome profile, so whatever the owner is signed into is what browse can
+act on. No separate sign-in step.
 
 **Still open:**
 - Generalized "pause and hand the browser to the human mid-task" flow. Today
@@ -122,11 +118,10 @@ First time PAI uses a site, a human (or VLM) walks through the flow and PAI save
 - Per-domain cookie jars stored under `home/workspace/browser/cookies/{domain}/`.
 - Re-auth is a normal pause-and-handoff event; not an error.
 
-> What actually shipped is simpler: a dedicated CDP-mode Chrome profile at
-> `/var/lib/browse/chrome-cdp-profile/` that the owner signs into once, plus
-> a one-shot cookie import from the owner's real Chrome at
-> `/var/lib/browse/cookies/` for the bundled-Chromium path. No interactive
-> mid-task handoff yet.
+> What actually shipped is simpler: browse takes over the owner's real
+> Chrome (real Default profile) over CDP. Whatever the owner is signed
+> into is what browse can use. No separate profile, no cookie import,
+> no interactive mid-task handoff yet.
 
 ## Open questions
 
