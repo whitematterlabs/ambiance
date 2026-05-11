@@ -15,7 +15,7 @@ from typing import Optional
 import yaml
 
 from . import paths
-from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR
+from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR, ACKS_DIR
 
 _METRICS_DIR = HOME_DIR / "sys" / "subagents"
 
@@ -61,6 +61,20 @@ def emit_event(payload: dict) -> Path:
     path = EVENTS_DIR / f"{stamp}-{source}.yaml"
     # Atomic write: tmp + rename so watchdog sees a single CREATE event
     # instead of multiple deliveries across the open/write/close window.
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(payload, f, sort_keys=False)
+    os.replace(tmp, path)
+    return path
+
+
+def emit_ack(msg_id: str, payload: dict) -> Path:
+    """Write a per-msg delivery ack file under /run/pai/acks/<msg_id>.yaml.
+
+    Senders (bin/send-message) poll this path with a short timeout.
+    Lives outside EVENTS_DIR so the kernel watcher does not consume it."""
+    ACKS_DIR.mkdir(parents=True, exist_ok=True)
+    path = ACKS_DIR / f"{msg_id}.yaml"
     tmp = path.with_suffix(".yaml.tmp")
     with tmp.open("w") as f:
         yaml.safe_dump(payload, f, sort_keys=False)
@@ -274,6 +288,8 @@ def spawn_pai(
     description: str = "Main PAI",
     *,
     prompt: str | None = None,
+    prompt_dir: str | None = None,
+    boilerplate: list[str] | None = None,
     provider: str | None = None,
     model: str | None = None,
     wake_on: list[str] | None = None,
@@ -292,6 +308,10 @@ def spawn_pai(
     spec: dict = {"kind": "pai", "pid": pid, "slug": slug, "description": description}
     if prompt is not None:
         spec["prompt"] = prompt
+    if prompt_dir is not None:
+        spec["prompt_dir"] = prompt_dir
+    if boilerplate is not None:
+        spec["boilerplate"] = list(boilerplate)
     if provider is not None:
         spec["provider"] = provider
     if model is not None:

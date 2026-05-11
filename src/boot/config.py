@@ -40,15 +40,37 @@ RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 # spec.yaml; everything else on disk (spawned, persistent, etc.) is
 # preserved across reconciles.
 CONFIG_MANAGED_FIELDS = (
-    "description", "prompt", "provider", "model", "wake_on",
-    "fallback", "parent", "persistent", "active", "dependencies",
-    "compact_threshold",
+    "description", "prompt", "prompt_dir", "boilerplate", "provider",
+    "model", "wake_on", "fallback", "parent", "persistent", "active",
+    "dependencies", "compact_threshold",
 )
 
 # Fields a `dependencies:` entry can carry (each entry materializes a persub
 # child of the declaring PAI). `name` is required; everything else inherits
 # from the parent or has a sensible default.
-DEP_FIELDS = ("name", "description", "prompt", "provider", "model", "package", "wake_on")
+DEP_FIELDS = (
+    "name", "description", "prompt", "prompt_dir", "boilerplate",
+    "provider", "model", "package", "wake_on",
+)
+
+
+def _boilerplate_dir(config_path: Path) -> Path:
+    """Boilerplate lives next to the config file (etc/boilerplate/), so that
+    tests pointing at a synthetic etc/ get their own boilerplate scope."""
+    return config_path.parent / "boilerplate"
+
+
+def _validate_boilerplate_names(
+    names: list, *, where: str, config_path: Path
+) -> None:
+    if not isinstance(names, list) or not all(isinstance(n, str) and n for n in names):
+        raise ConfigError(f"{where} boilerplate must be list[str]")
+    base = _boilerplate_dir(config_path)
+    for n in names:
+        if not (base / f"{n}.md").exists():
+            raise ConfigError(
+                f"{where} boilerplate {n!r} not found at {base / f'{n}.md'}"
+            )
 
 
 class ConfigError(Exception):
@@ -99,7 +121,7 @@ def resolve_subagent_package(name: str) -> dict:
     return data
 
 
-def _validate_pai_entry(entry: dict, *, source: str) -> None:
+def _validate_pai_entry(entry: dict, *, source: str, config_path: Path) -> None:
     name = entry.get("name")
     if not isinstance(name, str) or not name:
         raise ConfigError(f"{source}: entry missing required string `name`: {entry!r}")
@@ -111,6 +133,14 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
         raise ConfigError(f"{source}: entry {name!r} has non-integer pid")
     if "prompt" in entry and not isinstance(entry["prompt"], str):
         raise ConfigError(f"{source}: entry {name!r} has non-string prompt")
+    if "prompt_dir" in entry and not isinstance(entry["prompt_dir"], str):
+        raise ConfigError(f"{source}: entry {name!r} has non-string prompt_dir")
+    if "boilerplate" in entry:
+        _validate_boilerplate_names(
+            entry["boilerplate"],
+            where=f"{source}: entry {name!r}",
+            config_path=config_path,
+        )
     if "provider" in entry:
         prov = entry["provider"]
         if not isinstance(prov, str):
@@ -168,11 +198,17 @@ def _validate_pai_entry(entry: dict, *, source: str) -> None:
                 raise ConfigError(
                     f"{source}: entry {name!r} dependency {dep_name!r} missing string `description`"
                 )
-            for k in ("prompt", "provider", "model", "package"):
+            for k in ("prompt", "prompt_dir", "provider", "model", "package"):
                 if k in dep and not isinstance(dep[k], str):
                     raise ConfigError(
                         f"{source}: entry {name!r} dependency {dep_name!r} field {k!r} must be a string"
                     )
+            if "boilerplate" in dep:
+                _validate_boilerplate_names(
+                    dep["boilerplate"],
+                    where=f"{source}: entry {name!r} dependency {dep_name!r}",
+                    config_path=config_path,
+                )
             if "wake_on" in dep:
                 wo = dep["wake_on"]
                 if not isinstance(wo, list) or not all(isinstance(p, str) for p in wo):
@@ -226,21 +262,25 @@ def load_config(path: Path | None = None) -> dict[str, dict]:
             if not isinstance(pkg_name, str):
                 raise ConfigError(f"{path}: `package` must be a string, got {pkg_name!r}")
             pkg = resolve_package(pkg_name)
-            for k in ("description", "prompt", "provider", "model", "wake_on"):
+            for k in (
+                "description", "prompt_dir", "boilerplate",
+                "provider", "model", "wake_on",
+            ):
                 if k in pkg:
                     merged[k] = pkg[k]
-            # Bundle prompts are relative to the bundle dir; rewrite to
-            # absolute so bootstrap.build_system_prompt can read them
-            # without knowing about packages. (Inline `prompt:` on the
-            # entry below overrides this and is left as-written.)
-            if "prompt" in merged and not Path(merged["prompt"]).is_absolute():
-                merged["prompt"] = str(PACKAGES_DIR / pkg_name / merged["prompt"])
+            # Default prompt_dir for a packaged PAI is the bundle dir
+            # itself — every `*.md` inside it is the PAI's custom prose.
+            merged.setdefault("prompt_dir", str(PACKAGES_DIR / pkg_name))
+            # Bundle paths are relative to the bundle dir; rewrite to
+            # absolute so bootstrap can read without knowing about packages.
+            if not Path(merged["prompt_dir"]).is_absolute():
+                merged["prompt_dir"] = str(PACKAGES_DIR / pkg_name / merged["prompt_dir"])
         for k, v in entry.items():
             if k == "package":
                 continue
             merged[k] = v
 
-        _validate_pai_entry(merged, source=str(path))
+        _validate_pai_entry(merged, source=str(path), config_path=path)
         name = merged["name"]
 
         if name in resolved:
@@ -356,6 +396,8 @@ def reconcile_from_config(path: Path | None = None) -> None:
             slug=name,
             description=spec["description"],
             prompt=spec.get("prompt"),
+            prompt_dir=spec.get("prompt_dir"),
+            boilerplate=spec.get("boilerplate"),
             provider=spec.get("provider"),
             model=spec.get("model"),
             wake_on=spec.get("wake_on"),
@@ -481,9 +523,6 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
             if dep.get("package"):
                 bundle = resolve_subagent_package(dep["package"])
             prompt = dep.get("prompt") or bundle.get("prompt")
-            # If the prompt came from the bundle (not the dep override),
-            # rewrite it absolute against the bundle dir so bootstrap
-            # can read it without knowing about packages.
             if (
                 prompt
                 and not dep.get("prompt")
@@ -491,6 +530,20 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
                 and not Path(prompt).is_absolute()
             ):
                 prompt = str(SUBAGENTS_DIR / dep["package"] / prompt)
+            prompt_dir = dep.get("prompt_dir") or bundle.get("prompt_dir")
+            if (
+                prompt_dir
+                and not dep.get("prompt_dir")
+                and bundle.get("prompt_dir")
+                and not Path(prompt_dir).is_absolute()
+            ):
+                prompt_dir = str(SUBAGENTS_DIR / dep["package"] / prompt_dir)
+            # Inherit boilerplate from dep override, else bundle, else parent.
+            boilerplate = (
+                dep.get("boilerplate")
+                or bundle.get("boilerplate")
+                or parent_spec.get("boilerplate")
+            )
             provider = (
                 dep.get("provider")
                 or bundle.get("provider")
@@ -518,6 +571,8 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
                 slug=slug,
                 description=dep["description"],
                 prompt=prompt,
+                prompt_dir=prompt_dir,
+                boilerplate=boilerplate,
                 provider=provider,
                 model=model,
                 wake_on=wake_on,

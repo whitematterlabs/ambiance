@@ -75,13 +75,30 @@ def test_route_fallback_with_wake_on_match(live_dir: Path) -> None:
     assert M._route_to_pids("kernel:foo") == [2]  # via fallback path
 
 
-def test_build_system_prompt_includes_role(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_system_prompt_custom_block_from_prompt_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     role = tmp_path / "role.md"
     role.write_text("you are the test role\n")
     monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
-    bootstrap.build_system_prompt.cache_clear()
-    out = bootstrap.build_system_prompt(pai=2, prompt_path="role.md")
-    assert "<role>\nyou are the test role\n</role>" in out
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    out = bootstrap.build_system_prompt(pai=2, prompt_path="role.md", boilerplate=[])
+    assert "<custom>\nyou are the test role\n</custom>" in out
+
+
+def test_build_system_prompt_custom_block_from_prompt_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdir = tmp_path / "myrole"
+    pdir.mkdir()
+    (pdir / "a-intro.md").write_text("intro body\n")
+    (pdir / "b-rules.md").write_text("rules body\n")
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    out = bootstrap.build_system_prompt(pai=2, prompt_dir="myrole", boilerplate=[])
+    # Files concatenated in sorted order inside a single <custom> block.
+    assert "<custom>" in out and "</custom>" in out
+    assert out.index("intro body") < out.index("rules body")
 
 
 def test_build_user_turn_renders_sender_verbatim() -> None:
@@ -94,38 +111,64 @@ def test_build_user_turn_renders_sender_verbatim() -> None:
     assert "from: pai:42" in out
 
 
-def test_capability_escalation_injected_for_non_root_top_level(
+def test_boilerplate_default_picks_per_role(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Stage a fragment under PAI_ROOT/usr/share/prompts/ and verify
-    # build_system_prompt injects it for pai_default (pid 2, no parent)
-    # but NOT for root (pid 1) and NOT for subagents (parent is set).
-    prompts = tmp_path / "usr" / "share" / "prompts"
-    prompts.mkdir(parents=True)
-    (prompts / "capability-escalation.md").write_text(
-        "ESCALATION FRAGMENT BODY\n"
-    )
+    # Stage all three default boilerplate files and verify the kernel-level
+    # defaults: root → owner only; fleet pai → owner + memory-usage +
+    # capability-escalation; subagent → owner only.
+    bp = tmp_path / "etc" / "boilerplate"
+    bp.mkdir(parents=True)
+    (bp / "owner.md").write_text("OWNER BODY\n")
+    (bp / "memory-usage.md").write_text("MEMORY BODY\n")
+    (bp / "capability-escalation.md").write_text("ESC BODY\n")
     monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
 
-    bootstrap.build_system_prompt.cache_clear()
     out_default = bootstrap.build_system_prompt(pai=2, prompt_path=None)
+    assert "<owner>" in out_default
+    assert "<memory-usage>" in out_default
     assert "<capability-escalation>" in out_default
-    assert "ESCALATION FRAGMENT BODY" in out_default
 
-    bootstrap.build_system_prompt.cache_clear()
     out_root = bootstrap.build_system_prompt(pai=1, prompt_path=None)
+    assert "<owner>" in out_root
     assert "<capability-escalation>" not in out_root
+    assert "<memory-usage>" not in out_root
 
-    bootstrap.build_system_prompt.cache_clear()
     out_subagent = bootstrap.build_system_prompt(pai=7, parent=2, prompt_path=None)
     assert "<capability-escalation>" not in out_subagent
+    assert "<memory-usage>" not in out_subagent
 
 
-def test_build_system_prompt_no_role_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_boilerplate_explicit_list_renders_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bp = tmp_path / "etc" / "boilerplate"
+    bp.mkdir(parents=True)
+    (bp / "alpha.md").write_text("A\n")
+    (bp / "beta.md").write_text("B\n")
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
     monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
-    bootstrap.build_system_prompt.cache_clear()
-    out_none = bootstrap.build_system_prompt(pai=1, prompt_path=None)
-    assert "<role>" not in out_none
-    bootstrap.build_system_prompt.cache_clear()
-    out_missing = bootstrap.build_system_prompt(pai=1, prompt_path="does/not/exist.md")
-    assert "<role>" not in out_missing
+    out = bootstrap.build_system_prompt(pai=2, boilerplate=["beta", "alpha"])
+    assert out.index("<beta>") < out.index("<alpha>")
+
+
+def test_boilerplate_missing_file_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    with pytest.raises(FileNotFoundError):
+        bootstrap.build_system_prompt(pai=2, boilerplate=["does-not-exist"])
+
+
+def test_build_system_prompt_no_custom_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    out_none = bootstrap.build_system_prompt(pai=1, prompt_path=None, boilerplate=[])
+    assert "<custom>" not in out_none
+    out_missing = bootstrap.build_system_prompt(
+        pai=1, prompt_path="does/not/exist.md", boilerplate=[]
+    )
+    assert "<custom>" not in out_missing

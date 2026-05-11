@@ -45,6 +45,7 @@ def _reset_compaction_state(live_dir: Path, monkeypatch: pytest.MonkeyPatch):
     # nudge.py imports HOME_DIR by name at module load — re-bind it so
     # _apply_history_action looks at the test tree, not the real ~/.pai.
     monkeypatch.setattr(N, "HOME_DIR", P.HOME_DIR, raising=True)
+    monkeypatch.setattr(N, "PROC_DIR", P.PROC_DIR, raising=True)
 
 
 def test_threshold_triggers_compact_then_original_nudge(live_dir: Path) -> None:
@@ -55,7 +56,7 @@ def test_threshold_triggers_compact_then_original_nudge(live_dir: Path) -> None:
 
     calls: list[str] = []
 
-    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None):
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
         # The first call is the compact nudge — simulate the PAI calling
         # bin/compact during the turn by writing the .history-action file.
         if "kernel:compact" in user:
@@ -98,7 +99,7 @@ def test_no_compact_when_under_threshold(live_dir: Path) -> None:
 
     calls: list[str] = []
 
-    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None):
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
         calls.append("compact" if "kernel:compact" in user else "original")
         return ("ok", list(history or []) + [
             {"role": "user", "content": user},
@@ -123,7 +124,7 @@ def test_no_compact_when_no_tokens_file(live_dir: Path) -> None:
 
     calls: list[str] = []
 
-    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None):
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
         calls.append("compact" if "kernel:compact" in user else "original")
         return ("ok", [{"role": "user", "content": user},
                        {"role": "assistant", "content": "ok"}])
@@ -149,7 +150,7 @@ def test_concurrent_nudges_queue_behind_compaction(live_dir: Path) -> None:
     compact_started = asyncio.Event()
     release_compact = asyncio.Event()
 
-    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None):
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
         if "kernel:compact" in user:
             order.append("compact-start")
             compact_started.set()

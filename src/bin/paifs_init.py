@@ -49,6 +49,7 @@ SKELETON: tuple[str, ...] = (
     "sbin",
     "dev",
     "etc/prompts",
+    "etc/boilerplate",
     "home",
     "root",
     "mnt",
@@ -85,6 +86,9 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("usr/src", REPO_ROOT / "src"),
     ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
     ("etc/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
+    ("etc/boilerplate/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
+    ("etc/boilerplate/memory-usage.md", REPO_ROOT / "src" / "etc" / "boilerplate" / "memory-usage.md"),
+    ("etc/boilerplate/capability-escalation.md", REPO_ROOT / "src" / "etc" / "boilerplate" / "capability-escalation.md"),
 )
 
 # Prompts paifs-init seeds via paiman so the kernel boots on first run.
@@ -93,9 +97,6 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
 ROOT_SEED_PROMPTS: tuple[str, ...] = (
     "root",
     "pai_default",
-    # Sysprompt fragment stitched in by build_system_prompt for every
-    # non-root, non-subagent PAI. Not a role itself — shared across roles.
-    "capability-escalation",
     # Sysprompt fragments stitched in for spawned subagents so the child
     # knows it IS the subagent and shouldn't recursively spawn another.
     "subagent",
@@ -140,7 +141,8 @@ pais:
   - name: root
     pid: 1
     description: kernel-internal events + errored nudges
-    prompt: src/prompts/root.md
+    prompt_dir: opt/paiman/root
+    boilerplate: [owner]
     provider: deepseek
     model: deepseek-v4-pro
     wake_on: ['kernel:*']
@@ -148,7 +150,8 @@ pais:
   - name: pai
     pid: 2
     description: owner-facing PAI; catch-all for unclaimed events
-    prompt: src/prompts/pai_default.md
+    prompt_dir: opt/paiman/pai_default
+    boilerplate: [owner, memory-usage, capability-escalation]
     provider: deepseek
     model: deepseek-v4-pro
     fallback: true

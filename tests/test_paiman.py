@@ -17,6 +17,11 @@ FIXTURES = Path(__file__).parent / "fixtures" / "paiman"
 def fhs_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "pai"
     (root / "usr" / "lib" / "pais").mkdir(parents=True)
+    venv_bin = root / "usr" / "lib" / "venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    py = venv_bin / "python"
+    py.write_text("#!/bin/sh\nexit 0\n")
+    py.chmod(0o755)
     monkeypatch.setattr(paths, "PAI_ROOT", root, raising=True)
     monkeypatch.setattr(C, "PACKAGES_DIR", root / "usr" / "lib" / "pais", raising=True)
     monkeypatch.setenv("PAIMAN_REGISTRY", str(FIXTURES / "registry"))
@@ -69,11 +74,15 @@ def test_install_prompt(fhs_root: Path) -> None:
 def test_install_bin(fhs_root: Path) -> None:
     assert paiman.main(["install", str(FIXTURES / "testbin")]) == 0
     slot = fhs_root / "usr" / "bin" / "testbin"
-    assert slot.is_symlink()
-    target = slot.resolve()
-    assert target.is_file()
-    # Executable bit set on entrypoint.
-    assert target.stat().st_mode & 0o111
+    # bin/sbin install now writes a shell shim that execs the bundle
+    # entrypoint via the kernel venv python — not a symlink.
+    assert slot.is_file()
+    assert slot.stat().st_mode & 0o111
+    shim = slot.read_text()
+    assert shim.startswith("#!/bin/sh")
+    bundle_entry = fhs_root / "opt" / "paiman" / "testbin" / "bin" / "testbin.py"
+    assert str(bundle_entry) in shim
+    assert bundle_entry.is_file()
 
 
 def test_install_driver(fhs_root: Path) -> None:
@@ -167,7 +176,7 @@ def test_install_pai_pulls_deps_from_registry(fhs_root: Path) -> None:
     assert (fhs_root / "usr" / "lib" / "pais" / "testpai").is_symlink()
     # All three deps installed and activated.
     assert (fhs_root / "usr" / "lib" / "skills" / "testskill1").is_symlink()
-    assert (fhs_root / "usr" / "bin" / "testbin1").is_symlink()
+    assert (fhs_root / "usr" / "bin" / "testbin1").is_file()
     assert (fhs_root / "usr" / "share" / "prompts" / "testprompt1.md").is_symlink()
 
 
@@ -197,9 +206,7 @@ def test_install_pai_dep_missing_from_registry_falls_through_to_pip(
 
     monkeypatch.setattr(paiman.subprocess, "run", fake_run)
     # Provision the kernel venv python so _pip_install doesn't bail.
-    venv_bin = fhs_root / "usr" / "lib" / "venv" / "bin"
-    venv_bin.mkdir(parents=True)
-    (venv_bin / "python").write_text("#!/bin/sh\n")
+    # fhs_root fixture already provisioned a stub venv python.
 
     pkg = tmp_path / "needs-pip"
     pkg.mkdir()

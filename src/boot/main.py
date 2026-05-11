@@ -379,6 +379,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         target_pid = event.get("target_pid")
         text = event.get("text") or ""
         sender_pid = event.get("sender_pid")
+        msg_id = event.get("msg_id")
         if target_pid is None:
             print(f"[kernel] dropping malformed pai_message event: {event!r}", flush=True)
             return
@@ -387,6 +388,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             "peer message",
             from_=int(sender_pid) if sender_pid is not None else None,
             context={"text": text},
+            msg_id=msg_id,
         )
 
     elif kind == "subagent:response":

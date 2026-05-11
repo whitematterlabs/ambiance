@@ -18,16 +18,20 @@ def test_boot_runs_and_supervises(tmp_path: Path) -> None:
     from bin.paifs_init import lay_out
     lay_out(tmp_path)
     env = {**os.environ, "PAI_ROOT": str(tmp_path)}
+    # Use the tmp_path's provisioned kernel venv — its .pth file puts
+    # usr/lib (and thus the installed drivers) on sys.path, which the
+    # repo's dev .venv does not.
+    py = str(tmp_path / "usr" / "lib" / "venv" / "bin" / "python")
 
     # check-only path
     rc = subprocess.run(
-        [sys.executable, "-m", "boot.init", "--check-only"], env=env
+        [py, "-m", "boot.init", "--check-only"], env=env
     ).returncode
     assert rc == 0
 
     # full boot — let it run for a few seconds, then SIGTERM
     proc = subprocess.Popen(
-        [sys.executable, "-u", "-m", "boot"],
+        [py, "-u", "-m", "boot"],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

@@ -198,6 +198,7 @@ async def nudge(
     to: int = 1,
     from_: Optional[int] = None,
     from_kind: str = "pai",
+    msg_id: Optional[str] = None,
     _exempt: bool = False,
 ) -> None:
     header = f"[kernel] nudge: {reason}"
@@ -210,7 +211,22 @@ async def nudge(
         pai_slug = P.find_pai_slug(pai_pid)
     except ProcessNotFound:
         print(f"[kernel] nudge: no PAI with pid={pai_pid}", flush=True)
+        if msg_id:
+            P.emit_ack(msg_id, {
+                "kind": "pai_message:dropped",
+                "msg_id": msg_id,
+                "target_pid": pai_pid,
+                "reason": "no PAI with pid",
+            })
         return
+
+    if msg_id:
+        P.emit_ack(msg_id, {
+            "kind": "pai_message:ack",
+            "msg_id": msg_id,
+            "target_pid": pai_pid,
+            "slug": pai_slug,
+        })
 
     if _exempt:
         await _nudge_locked(reason, slug, context, pai_pid, pai_slug, from_, from_kind)
@@ -324,7 +340,9 @@ async def _nudge_body(
     system = bootstrap.build_system_prompt(
         pai=pai_pid,
         parent=parent_pid,
+        prompt_dir=pai_spec.get("prompt_dir"),
         prompt_path=pai_spec.get("prompt"),
+        boilerplate=pai_spec.get("boilerplate"),
         home_dir=str(home),
         persub=bool(pai_spec.get("persub")),
         self_notes=bootstrap.read_self_notes(home),

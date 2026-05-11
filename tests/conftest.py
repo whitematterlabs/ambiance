@@ -6,9 +6,20 @@ of each test so reconcile and friends operate against a throwaway tree."""
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 import pytest
+
+# Make installed drivers importable during tests. The dev .venv's editable
+# install only puts `src/` on sys.path; the real drivers live at
+# $PAI_ROOT/usr/lib/drivers/<name>/ (installed by paiman). Tests that
+# import boot.main need them since boot.main does `from drivers import contacts`.
+_pai_root = Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai")))
+_usr_lib = str(_pai_root / "usr" / "lib")
+if _usr_lib not in sys.path:
+    sys.path.insert(0, _usr_lib)
 
 from boot import config as C
 from boot import processes as P

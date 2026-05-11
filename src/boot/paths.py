@@ -33,6 +33,9 @@ DEFAULT_PAI: str = os.environ.get("PAI_NAME", "pai")
 HOME_DIR: Path = PAI_ROOT / "home" / DEFAULT_PAI
 PROC_DIR: Path = PAI_ROOT / "proc"
 EVENTS_DIR: Path = PAI_ROOT / "run" / "pai" / "events"
+# Delivery-ack files for send-message. Kept out of EVENTS_DIR so the kernel
+# loop doesn't consume them as events; senders poll a per-msg path here.
+ACKS_DIR: Path = PAI_ROOT / "run" / "pai" / "acks"
 
 
 # v3 FHS helpers — wired up incrementally by later phases.

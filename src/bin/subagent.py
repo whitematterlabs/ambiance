@@ -2,9 +2,10 @@
 """subagent — spawn and manage subordinate PAI instances.
 
 Usage:
-    subagent spawn --slug NAME --prompt "..."   # fork a subagent, return its pid
-    subagent reply --content "..."              # (child only) reply to your parent
-    subagent kill --slug NAME                   # resolve a subagent (parent or child)
+    subagent spawn --slug NAME --prompt "..."             # fork a subagent, return its pid
+    subagent reply --content "..."                        # (child only) intermediate update to parent
+    subagent reply --done --content "..."                 # (child only) final reply; kernel reaps the child
+    subagent kill --slug NAME                             # (parent only) abort a child you spawned
 
 Subagents are persistent: they stay alive across turns and do not
 auto-resolve after answering the initial prompt. The kickoff prompt is
@@ -18,10 +19,12 @@ finish — every spawned subagent automatically gets a subagent-mode block
 in its system prompt that explains the lifecycle. So `--prompt` should
 just describe the task.
 
-Either side can call `subagent kill` to end the relationship: the parent
-to dismiss the child, or the child to self-resolve once its task is
-complete. Either path resolves the child and nudges the parent with the
-final transcript pointer.
+Standard exit: the subagent calls `subagent reply --done`. The kernel
+emits the final response, then resolves the proc — so the parent's
+wake-up nudge already reflects a dead child and any out-of-band
+`send-message` the parent attempts will fail loudly instead of racing
+a self-kill. `subagent kill` is the parent's escape hatch for aborting
+a child; it is not for self-termination.
 """
 
 from __future__ import annotations
@@ -164,13 +167,34 @@ def cmd_reply(args: argparse.Namespace) -> int:
         print("error: $PAI_PID/$PAI_PARENT must be ints", file=sys.stderr)
         return 1
 
-    P.emit_event({
+    payload = {
         "source": "subagent",
         "kind": "subagent:response",
         "target_pid": parent_pid,
         "sender_pid": sender_pid,
         "text": args.content,
-    })
+    }
+    if args.done:
+        payload["done"] = True
+    P.emit_event(payload)
+
+    if args.done:
+        # Emit-then-resolve ordering matters: the response event lands
+        # before the proc_resolved event, so the parent's wake-up nudge
+        # sees the reply with a (now-dead) child slug — no race window
+        # for the parent to send-message a reaped pid.
+        slug = os.environ.get("PAI_SLUG")
+        if not slug:
+            print("error: $PAI_SLUG not set — required for --done", file=sys.stderr)
+            return 1
+        try:
+            P.resolve(slug, "completed")
+        except P.ProcessNotFound:
+            print(f"error: own proc {slug!r} not found", file=sys.stderr)
+            return 1
+        print(f"replied to parent pid={parent_pid} (done)")
+        return 0
+
     print(f"replied to parent pid={parent_pid}")
     return 0
 
@@ -263,10 +287,10 @@ def cmd_kill(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    if parent_pid != int(spec["parent"]) and parent_pid != int(spec["pid"]):
+    if parent_pid != int(spec["parent"]):
         print(
-            f"error: {args.slug!r} can only be resolved by its parent (pid {spec['parent']}) "
-            f"or itself (pid {spec['pid']}); you are pid {parent_pid}",
+            f"error: {args.slug!r} can only be aborted by its parent (pid {spec['parent']}); "
+            f"you are pid {parent_pid}. Subagents end via `subagent reply --done`, not kill.",
             file=sys.stderr,
         )
         return 1
@@ -286,9 +310,10 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Spawn and manage PAI subagents. Subagents are persistent — they "
             "stay alive across turns. The kickoff --prompt is the task itself; "
-            "you do NOT need to explain how to reply or self-resolve, the "
+            "you do NOT need to explain how to reply or how to finish — the "
             "subagent already knows its own lifecycle (it gets a subagent-mode "
-            "block in its system prompt). Just describe the work."
+            "block in its system prompt teaching `reply --done` as the standard "
+            "exit). Just describe the work."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -298,10 +323,10 @@ def main(argv: list[str] | None = None) -> int:
         help="spawn a persistent subagent",
         description=(
             "Spawn a subagent. --prompt should describe the task only — the "
-            "subagent already knows to reply via `bin/subagent reply` and to "
-            "self-resolve via `bin/subagent kill` when finished, so you don't "
-            "need to spell that out. Either side can call `kill` to end the "
-            "relationship."
+            "subagent already knows to send intermediate updates via "
+            "`bin/subagent reply` and to finish via `bin/subagent reply --done`, "
+            "so you don't need to spell that out. As the parent, you can call "
+            "`bin/subagent kill` to abort a child early."
         ),
     )
     sp.add_argument("--slug", required=True, help="base slug (date is auto-appended unless --persistent)")
@@ -332,8 +357,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     sp.set_defaults(func=cmd_spawn)
 
-    rp = sub.add_parser("reply", help="(child only) send a subagent:response to your parent")
+    rp = sub.add_parser(
+        "reply",
+        help="(child only) send a subagent:response to your parent (use --done for the final reply)",
+    )
     rp.add_argument("--content", required=True, help="message text")
+    rp.add_argument(
+        "--done",
+        action="store_true",
+        help="terminating reply: emit the response and resolve own proc as completed",
+    )
     rp.set_defaults(func=cmd_reply)
 
     pr = sub.add_parser(
@@ -353,9 +386,9 @@ def main(argv: list[str] | None = None) -> int:
 
     dn = sub.add_parser(
         "kill",
-        help="resolve a subagent (callable by the parent OR the subagent itself)",
+        help="(parent only) abort a child subagent; subagents end themselves via `reply --done`",
     )
-    dn.add_argument("--slug", required=True, help="full slug as printed by spawn (or $PAI_SLUG if self-resolving)")
+    dn.add_argument("--slug", required=True, help="full slug as printed by spawn")
     dn.set_defaults(func=cmd_kill)
 
     args = parser.parse_args(argv)
