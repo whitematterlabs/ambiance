@@ -26,6 +26,7 @@ import argparse
 import datetime as dt
 import os
 import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -185,6 +186,7 @@ def cmd_ensure(args: argparse.Namespace) -> int:
             P.resolve(slug, "cancelled")
         except P.ProcessNotFound:
             pass
+        shutil.rmtree(P.PROC_DIR / slug, ignore_errors=True)
 
     try:
         P.spawn(slug, spec)
