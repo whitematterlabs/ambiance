@@ -423,6 +423,15 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
 
     _install_libexec(dest, manifest, name, kind)
 
+    # A driver bundle may ship a top-level SKILL.md that documents how PAIs
+    # mounting this driver should use it. Surface it as a skill under
+    # `/usr/lib/skills/drivers/<name>/` so the standard skills machinery
+    # filters/lists it. Visibility is gated by the skill's own `driver:`
+    # frontmatter (see boot/skills.py:is_visible).
+    if kind == "driver" and (dest / "SKILL.md").is_file():
+        skill_slot = paths.usr_lib_skills() / "drivers" / name
+        _atomic_symlink(dest, skill_slot)
+
     raw_hook = manifest.get("post_install")
     if raw_hook is not None:
         if not isinstance(raw_hook, list) or not raw_hook or not all(
@@ -588,6 +597,12 @@ def cmd_remove(args: argparse.Namespace) -> int:
     libexec_slot = _libexec_slot(name, kind)
     if libexec_slot.is_symlink() or libexec_slot.exists():
         libexec_slot.unlink()
+    if kind == "driver":
+        # Mirror the install-time skill-activation: clean up the
+        # /usr/lib/skills/drivers/<name>/ symlink if we created one.
+        skill_slot = paths.usr_lib_skills() / "drivers" / name
+        if skill_slot.is_symlink() or skill_slot.exists():
+            skill_slot.unlink()
     shutil.rmtree(bundle_dir)
     _audit_log(f"remove {kind} {name}")
     print(f"removed {kind} {name}")

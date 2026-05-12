@@ -312,6 +312,23 @@ def load_config(path: Path | None = None) -> dict[str, dict]:
     return resolved
 
 
+def is_fallback(slug: str, path: Path | None = None) -> bool:
+    """Return True iff `slug` has `fallback: true` in /etc/config.yaml.
+    Read-only and tolerant: missing config or malformed entry → False."""
+    if path is None:
+        path = CONFIG_PATH
+    if not path.exists():
+        return False
+    try:
+        raw = _load_yaml(path)
+    except ConfigError:
+        return False
+    for entry in raw.get("pais") or []:
+        if isinstance(entry, dict) and entry.get("name") == slug:
+            return bool(entry.get("fallback"))
+    return False
+
+
 def package_for(slug: str, path: Path | None = None) -> str | None:
     """Return the bundle name declared for `slug` in /etc/config.yaml, or
     None if the slug is bundleless (or absent). Read-only — does not

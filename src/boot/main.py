@@ -190,10 +190,11 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             t.cancel()
         return
 
-    # The `new_message` and `messages_backlog` branches below are iMessage-
-    # shaped (require `handle`, ingest via M.ingest, route as imessage:*). Other
-    # drivers emit their own `<driver>:<kind>` and fall through to the generic
-    # router at the bottom. Gate on source so we don't grab whatsapp/etc.
+    # The `new_message`, `messages_backlog`, and `messages_multiple` branches
+    # below are iMessage-shaped (require `handle`, ingest via M.ingest, route
+    # as imessage:*). Other drivers emit their own `<driver>:<kind>` and fall
+    # through to the generic router at the bottom. Gate on source so we don't
+    # grab whatsapp/etc.
     event_source = event.get("source")
     is_imessage = event_source in (None, "imessage")
 
@@ -360,6 +361,56 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         }
         for pid in _route_to_pids("imessage:backlog"):
             _dispatch_nudge(pid, "messages backlog", context=ctx)
+
+    elif kind == "messages_multiple" and is_imessage:
+        # Live burst — multiple new rows in a single drain. Ingest each so
+        # the day-files get written, dedupe PAI's own outbound echoes, then
+        # nudge once with the full ordered list of what landed.
+        messages = event.get("messages") or []
+        if not messages:
+            return
+        ingested: list[dict] = []
+        for m in messages:
+            handle = m.get("handle") or ""
+            text = m.get("text") or ""
+            if not handle or not text:
+                continue
+            from_me = bool(m.get("is_from_me"))
+            if from_me:
+                existing_slug = M.resolve_slug(handle, m.get("chat_guid"))
+                if existing_slug and outbound_echo.consume(existing_slug, text):
+                    print(
+                        f"[kernel] dropped chat.db echo of PAI send → {existing_slug}",
+                        flush=True,
+                    )
+                    continue
+            recv = m.get("received_at")
+            ts = None
+            if isinstance(recv, str):
+                try:
+                    ts = datetime.fromisoformat(recv)
+                except ValueError:
+                    ts = None
+            result = M.ingest(
+                handle=handle,
+                text=text,
+                chat_guid=m.get("chat_guid"),
+                received_at=ts,
+                source=event.get("source"),
+                sender_override="me" if from_me else None,
+                chat_handles=m.get("chat_handles"),
+            )
+            ingested.append({
+                "thread": result.slug,
+                "sender": result.sender,
+                "text": text,
+                "day_file": f"communication/messages/{result.day_file.relative_to(paths.var_spool_messages())}",
+            })
+        if not ingested:
+            return  # everything was an echo
+        ctx = {"messages": ingested, "total": len(ingested)}
+        for pid in _route_to_pids("imessage:multiple_messages"):
+            _dispatch_nudge(pid, f"{len(ingested)} new messages", context=ctx)
 
     elif kind == "proc_resolved":
         slug = event.get("slug")

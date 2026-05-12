@@ -239,7 +239,12 @@ def _append_skill_entry(entries: list[str], label: str, skill_dir: Path) -> None
     entries.append(f"{label}: {desc}" if desc else label)
 
 
-def _list_system_skills(path: Path, pai_slug: str = "", pai_pid: int = 0) -> str:
+def _list_system_skills(
+    path: Path,
+    pai_slug: str = "",
+    pai_pid: int = 0,
+    mounted_drivers: Optional[set[str]] = None,
+) -> str:
     """System skills live at /usr/lib/skills/<topic>/<name>/SKILL.md, organized
     by topic subdirectory. Emit `<topic>/<name>: <description>` per line so
     PAI can pick which to read without opening every file. Skills with
@@ -251,14 +256,16 @@ def _list_system_skills(path: Path, pai_slug: str = "", pai_pid: int = 0) -> str
         if not topic_dir.is_dir() or topic_dir.name.startswith("."):
             continue
         if (topic_dir / "SKILL.md").exists():
-            if _skills_filter.is_visible(topic_dir / "SKILL.md", pai_slug, pai_pid):
+            if _skills_filter.is_visible(
+                topic_dir / "SKILL.md", pai_slug, pai_pid, mounted_drivers
+            ):
                 _append_skill_entry(entries, topic_dir.name, topic_dir)
             continue
         for skill_dir in sorted(topic_dir.iterdir()):
             if not skill_dir.is_dir() or skill_dir.name.startswith("."):
                 continue
             if not _skills_filter.is_visible(
-                skill_dir / "SKILL.md", pai_slug, pai_pid
+                skill_dir / "SKILL.md", pai_slug, pai_pid, mounted_drivers
             ):
                 continue
             _append_skill_entry(
@@ -625,7 +632,14 @@ def _resolve_listings(pai: int, home: Path) -> tuple[str, str, str]:
         pai_slug = processes.find_pai_slug(pai)
     except Exception:
         pai_slug = ""
-    system_skills = _list_system_skills(usr_lib_skills(), pai_slug, pai)
+    mounted: set[str] = set()
+    if pai_slug:
+        try:
+            from . import stitch
+            mounted = stitch.mounted_drivers_for(pai_slug)
+        except Exception:
+            mounted = set()
+    system_skills = _list_system_skills(usr_lib_skills(), pai_slug, pai, mounted)
     return bins, skills, system_skills
 
 

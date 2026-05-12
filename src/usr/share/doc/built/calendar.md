@@ -1,17 +1,32 @@
-# calendar
+# calendar driver
 
-Reads today's macOS Calendar events via EventKit. One-shot CLI bin.
+Watches Apple Calendar via EventKit (NSNotificationCenter subscription, not polling) and emits `calendar:new`, `calendar:changed`, `calendar:removed` for events within the upcoming horizon.
 
-**Call it:**
+## How to use
+
+The driver runs as a kernel-supervised process:
+```sh
+paictl start calendar-in    # activate after install
+paictl stop calendar-in     # deactivate
+paictl status calendar-in   # check state
 ```
-bin/calendar --today          # today's events (default)
-bin/calendar --date 2026-05-11  # specific date
-```
 
-**State:** None — pure read. No spool, no files written. Reads from the owner's `~/Library/Calendars/` via EventKit.
+PAIs subscribe via `wake_on: ["calendar:*"]` in `/Users/arda/.pai/etc/config.yaml`.
 
-**When to use:** Whenever a PAI needs to check what's on the owner's calendar — daily rundowns, scheduling questions, "do I have time at 3pm?"
+## State
 
-**When not to use:** For creating or editing events (not yet built). For recurring-event expansion beyond what Calendar.app itself exposes.
+- **Code**: `/Users/arda/.pai/usr/lib/drivers/calendar/` (symlink → `/Users/arda/.pai/opt/paiman/calendar/`)
+- **Runtime state**: `/Users/arda/.pai/sys/drivers/calendar/state.json` (cached event snapshot for diffing)
+- **Process**: `/Users/arda/.pai/proc/calendar-in/`
 
-**Gotchas:** Duplicate holiday calendars (Apple's "Holidays in United States" + a "US Holidays" feed) may produce duplicate all-day entries. Fix in Calendar.app, not in the bin. EventKit access must already be authorized (grant once in System Preferences > Privacy > Calendars).
+## When to use
+
+Use when a PAI needs to react to calendar changes — reminders before events, scheduling awareness, "what's next" queries. The driver emits the raw event stream; a waking PAI owns reminder timing and user-facing presentation.
+
+## Gotchas
+
+- **First boot** emits every upcoming event as `calendar:new` — PAIs should treat the initial burst as a seed, not as alerts.
+- **Calendar permission** — on first run, macOS prompts for Calendar access in System Settings → Privacy & Security → Calendars. If denied, the driver idles.
+- **EventKit-backed**, not raw SQLite. Apple schema migrations don't affect it.
+- **300s safety-net refresh** catches missed notifications across suspend/resume.
+- **Deploy needs two reboots**: one for driver discovery, one for `wake_on` config.

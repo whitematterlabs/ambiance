@@ -411,6 +411,7 @@ dependencies = [
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
     { name = "pyobjc-framework-contacts" },
+    { name = "pyobjc-framework-eventkit" },
     { name = "pyte" },
     { name = "pytest" },
     { name = "pytest-timeout" },
@@ -428,6 +429,7 @@ requires-dist = [
     { name = "google-auth", specifier = ">=2.35" },
     { name = "google-auth-oauthlib", specifier = ">=1.2" },
     { name = "pyobjc-framework-contacts", specifier = ">=10.0" },
+    { name = "pyobjc-framework-eventkit", specifier = ">=10.0" },
     { name = "pyte", specifier = ">=0.8" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-timeout", specifier = ">=2.3" },
@@ -586,6 +588,19 @@ sdist = { url = "https://files.pythonhosted.org/packages/4b/a0/ce0542d211d4ea02f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7e/8b/3200f69b77ea85fe69caa1afea444387b5e41bf44ceff11e772954d8a0d5/pyobjc_framework_contacts-12.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:65576c359eb31c5a5ef95e0c6714686a94bb154a508d791885ff7c33dbc8afa3", size = 12259, upload-time = "2025-11-14T09:43:10.705Z" },
     { url = "https://files.pythonhosted.org/packages/a2/81/0da71a88273aa73841cd3669431c30be627600162ec89cd170759dbffeaf/pyobjc_framework_contacts-12.1-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:1fac7feca7428047abf3f094fab678c4d0413296f34c30085119850509bc2905", size = 12410, upload-time = "2025-11-14T09:43:12.667Z" },
+]
+
+[[package]]
+name = "pyobjc-framework-eventkit"
+version = "12.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b6/42/4ec97e641fdcf30896fe76476181622954cb017117b1429f634d24816711/pyobjc_framework_eventkit-12.1.tar.gz", hash = "sha256:7c1882be2f444b1d0f71e9a0cd1e9c04ad98e0261292ab741fc9de0b8bbbbae9", size = 28538, upload-time = "2025-11-14T10:15:07.878Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/35/142f43227627d6324993869d354b9e57eb1e88c4e229e2271592254daf25/pyobjc_framework_eventkit-12.1-py2.py3-none-any.whl", hash = "sha256:3d2d36d5bd9e0a13887a6ac7cdd36675985ebe2a9cb3cdf8cec0725670c92c60", size = 6820, upload-time = "2025-11-14T09:48:14.035Z" },
 ]
 
 [[package]]

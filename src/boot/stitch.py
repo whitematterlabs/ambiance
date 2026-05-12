@@ -88,7 +88,12 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
     (home / "tmp").mkdir(exist_ok=True)
 
 
-def _stitch_skills(home: Path, slug: str, pid: int | None) -> None:
+def _stitch_skills(
+    home: Path,
+    slug: str,
+    pid: int | None,
+    mounted_drivers: set[str] | None = None,
+) -> None:
     """Build `home/memory/skills/` as a per-PAI filtered view.
 
     Each skill's `visible_to:` is consulted; a public skill (no field) is
@@ -130,7 +135,9 @@ def _stitch_skills(home: Path, slug: str, pid: int | None) -> None:
             continue
         # Flat skill (SKILL.md directly under topic dir, no nested topic).
         if (topic_dir / "SKILL.md").exists():
-            if _skills_filter.is_visible(topic_dir / "SKILL.md", slug, pid or 0):
+            if _skills_filter.is_visible(
+                topic_dir / "SKILL.md", slug, pid or 0, mounted_drivers
+            ):
                 link = target_root / topic_dir.name
                 if not link.exists():
                     link.symlink_to(topic_dir.resolve(), target_is_directory=True)
@@ -141,7 +148,7 @@ def _stitch_skills(home: Path, slug: str, pid: int | None) -> None:
             skill_md = skill_dir / "SKILL.md"
             if not skill_md.exists():
                 continue
-            if not _skills_filter.is_visible(skill_md, slug, pid or 0):
+            if not _skills_filter.is_visible(skill_md, slug, pid or 0, mounted_drivers):
                 continue
             link = target_root / topic_dir.name / skill_dir.name
             link.parent.mkdir(parents=True, exist_ok=True)
@@ -162,14 +169,13 @@ def home_for(slug: str) -> Path:
     return paths.root_home() if slug == "root" else paths.home_pai(slug)
 
 
-def _load_bundle_layout(package: str) -> tuple[tuple[str, Path], ...]:
-    """Read `home.links` from a PAI bundle's `package.yaml`.
+def _parse_home_links(pkg_path: Path) -> tuple[tuple[str, Path], ...]:
+    """Read `home.links` from any bundle's `package.yaml`.
 
     Each entry becomes a `(link, target)` tuple suitable for `extra_links`.
     Targets are relative to PAI_ROOT and must stay within it; links may not
     collide with the kernel-seeded universals.
     """
-    pkg_path = paths.usr_lib_pais() / package / "package.yaml"
     if not pkg_path.exists():
         return ()
     with pkg_path.open() as f:
@@ -216,9 +222,78 @@ def _load_bundle_layout(package: str) -> tuple[tuple[str, Path], ...]:
     return tuple(out)
 
 
-def _resolve_extras(slug: str) -> tuple[tuple[str, Path], ...]:
-    """Find the slug's home extras. Bundle-declared `home.links` win; fall
-    back to the per-slug bundleless seed map for PAIs without a bundle."""
+def _installed_driver_names() -> list[str]:
+    drivers_root = paths.usr_lib_drivers()
+    if not drivers_root.exists():
+        return []
+    out: list[str] = []
+    for entry in sorted(drivers_root.iterdir()):
+        if entry.name.startswith("."):
+            continue
+        if (entry / "package.yaml").is_file():
+            out.append(entry.name)
+    return out
+
+
+def mounted_drivers_for(slug: str) -> set[str]:
+    """Return the set of driver names this PAI mounts.
+
+    Rules:
+    - A fallback PAI (`fallback: true` in /etc/config.yaml) mounts every
+      installed driver — it must be able to handle any unrouted event.
+    - A bundled PAI mounts the drivers listed in its bundle `deps:` that
+      are installed locally.
+    - A bundleless, non-fallback PAI (e.g. `root`) mounts no drivers.
+    """
+    from . import config
+
+    installed = set(_installed_driver_names())
+    if not installed:
+        return set()
+    try:
+        if config.is_fallback(slug):
+            return set(installed)
+    except Exception:
+        pass
+    package: str | None = None
+    try:
+        package = config.package_for(slug)
+    except Exception:
+        package = None
+    if not package:
+        return set()
+    pkg_path = paths.usr_lib_pais() / package / "package.yaml"
+    if not pkg_path.exists():
+        return set()
+    try:
+        with pkg_path.open() as f:
+            data = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return set()
+    deps = data.get("deps") or []
+    if not isinstance(deps, list):
+        return set()
+    return {d for d in deps if isinstance(d, str) and d in installed}
+
+
+def _driver_home_links(drivers: set[str]) -> tuple[tuple[str, Path], ...]:
+    """Union of `home.links` declared by each mounted driver's bundle."""
+    out: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for name in sorted(drivers):
+        pkg = paths.usr_lib_drivers() / name / "package.yaml"
+        for link, target in _parse_home_links(pkg):
+            if link in seen:
+                continue
+            seen.add(link)
+            out.append((link, target))
+    return tuple(out)
+
+
+def _resolve_extras(slug: str, mounted_drivers: set[str]) -> tuple[tuple[str, Path], ...]:
+    """Find the slug's home extras. Bundle-declared `home.links` come first,
+    then driver `home.links` for every mounted driver. Bundleless PAIs fall
+    back to the per-slug seed map (root/pai keep `communication`)."""
     from . import config  # local import: stitch is imported during boot init
 
     package: str | None = None
@@ -226,9 +301,22 @@ def _resolve_extras(slug: str) -> tuple[tuple[str, Path], ...]:
         package = config.package_for(slug)
     except Exception:
         package = None
+    bundle_extras: tuple[tuple[str, Path], ...]
     if package:
-        return _load_bundle_layout(package)
-    return _BUNDLELESS_SEEDS.get(slug, ())
+        bundle_extras = _parse_home_links(paths.usr_lib_pais() / package / "package.yaml")
+    else:
+        bundle_extras = _BUNDLELESS_SEEDS.get(slug, ())
+    driver_extras = _driver_home_links(mounted_drivers)
+    seen: set[str] = {link for link, _ in bundle_extras}
+    extras = list(bundle_extras)
+    for link, target in driver_extras:
+        if link in seen:
+            raise ValueError(
+                f"home.link {link!r} declared by driver collides with bundle/seed for {slug!r}"
+            )
+        seen.add(link)
+        extras.append((link, target))
+    return tuple(extras)
 
 
 def stitch_home(slug: str) -> Path:
@@ -239,12 +327,13 @@ def stitch_home(slug: str) -> Path:
     home = home_for(slug)
     _seed_instance(instance)
     home.mkdir(parents=True, exist_ok=True)
-    extra = _resolve_extras(slug)
+    drivers = mounted_drivers_for(slug)
+    extra = _resolve_extras(slug, drivers)
     _stitch_links(home, instance, extra)
     pid: int | None
     try:
         pid = processes.read_pai_pid(slug)
     except Exception:
         pid = None
-    _stitch_skills(home, slug, pid)
+    _stitch_skills(home, slug, pid, drivers)
     return home
