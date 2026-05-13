@@ -36,6 +36,7 @@ from . import supervisor
 from . import timers as T
 from .events import EventWatcher, read_event
 from .nudge import nudge
+from .routing import route_to_pids as _route_to_pids
 
 
 # Active nudge tasks per PAI slug — populated by _dispatch_nudge, consumed
@@ -76,38 +77,6 @@ def _dispatch_nudge(
     _active_nudges[to].add(task)
     task.add_done_callback(lambda t: _active_nudges[to].discard(t))
     return task
-
-
-def _route_to_pids(event_kind: str, fallback_pid: int = 1) -> list[int]:
-    """Every running PAI that should be nudged for `event_kind`, by pid.
-
-    Two-tier:
-      1. Every PAI whose `wake_on` glob matches → nudged (fan-out).
-      2. If zero PAIs matched, every PAI with `fallback: true` → nudged.
-      3. If still zero, [fallback_pid] (pid 1 = kernel_manager) so the
-         event always lands somewhere.
-    """
-    matched: list[int] = []
-    fallbacks: list[int] = []
-    for slug, spec in P._iter_pai_specs():
-        try:
-            if P.read_status(slug) != "running":
-                continue
-        except P.ProcessNotFound:
-            continue
-        pid = spec.get("pid")
-        if not isinstance(pid, int):
-            continue
-        wake_on = spec.get("wake_on") or []
-        if isinstance(wake_on, list) and any(
-            fnmatch.fnmatchcase(event_kind, pat) for pat in wake_on
-        ):
-            matched.append(pid)
-        elif spec.get("fallback") is True:
-            fallbacks.append(pid)
-    chosen = matched or fallbacks or [fallback_pid]
-    chosen.sort()
-    return chosen
 
 
 async def _handle_timer(entry: T.TimerEntry, heap: list[T.TimerEntry]) -> None:
@@ -515,6 +484,17 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         }
         for pid in _route_to_pids("email:draft_failed"):
             _dispatch_nudge(pid, "draft failed", context=ctx)
+
+    elif kind == "kernel:backfill":
+        # Synthetic event emitted by boot.phases.backfill when the spool is
+        # storming. Routes directly to target_pid in the payload — no
+        # wake_on globbing — so the chosen PAI gets exactly one nudge with
+        # counts and a manifest_glob it can drill into.
+        target_pid = event.get("target_pid")
+        if not isinstance(target_pid, int):
+            print(f"[kernel] dropping malformed kernel:backfill event: {event!r}", flush=True)
+            return
+        _dispatch_nudge(target_pid, "backfill", context=event)
 
     elif kind == "kernel:reload_config":
         await _handle_reload_config()

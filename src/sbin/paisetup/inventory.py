@@ -9,6 +9,14 @@ from pathlib import Path
 
 from boot import paths
 from bin import paiman
+from bin.paifs_init import KERNEL_SEED_DRIVERS, KERNEL_SEED_SKILLS
+
+# Kernel-seeded packages are installed by paifs-init and required for the
+# kernel to import cleanly. They're not user-pickable, so paisetup hides them.
+_HIDDEN: dict[str, frozenset[str]] = {
+    "driver": frozenset(KERNEL_SEED_DRIVERS),
+    "skill": frozenset(KERNEL_SEED_SKILLS),
+}
 
 
 @dataclass
@@ -54,6 +62,8 @@ def discover() -> dict[str, list[Item]]:
     for name, data, _path in bundles:
         kind = data.get("kind")
         if kind not in groups:
+            continue
+        if name in _HIDDEN.get(kind, frozenset()):
             continue
         desc = (data.get("description") or "").strip()
         groups[kind].append(

@@ -13,6 +13,7 @@ instance content is never overwritten.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -41,10 +42,8 @@ _BUNDLELESS_SEEDS: dict[str, tuple[tuple[str, Path], ...]] = {
 
 def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
     # Symlink targets are relative so the home tree is portable if PAI_ROOT moves.
-    # Each link's `..`-prefix is computed from the link's *own* depth under
-    # PAI_ROOT (not the home's), so a link nested under `memory/` adds one
-    # more `..` than a top-level link in the home.
-    home_under_root = home.relative_to(paths.PAI_ROOT)
+    # Computed against the link's *physical* parent (resolve()) so links that
+    # nest under a symlinked dir still get a correct target.
     inst_under_root = instance.relative_to(paths.PAI_ROOT)
     mem_under_root = paths.var_lib_memory().relative_to(paths.PAI_ROOT)
     doc_under_root = paths.usr_share_doc().relative_to(paths.PAI_ROOT)
@@ -71,10 +70,14 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
     for rel, target_under_root in links:
         link = home / rel
         link.parent.mkdir(parents=True, exist_ok=True)
-        # Depth of the link's parent dir under PAI_ROOT — that's how many
-        # `..` segments are needed to climb back to PAI_ROOT.
-        link_parent_depth = len(home_under_root.parts) + rel.count("/")
-        target = Path(*[".."] * link_parent_depth) / target_under_root
+        target_abs = (paths.PAI_ROOT / target_under_root).resolve()
+        # If the link's physical parent already exposes the target (e.g. the
+        # parent is itself a symlink whose destination *is* the target's
+        # parent), creating a symlink here would point at itself → ELOOP.
+        link_physical = link.parent.resolve() / link.name
+        if link_physical == target_abs:
+            continue
+        target = Path(os.path.relpath(target_abs, link.parent.resolve()))
         if link.is_symlink():
             if link.readlink() == target:
                 continue
