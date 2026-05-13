@@ -2,15 +2,13 @@
 """paiman — PAI Package Manager.
 
 Mutable installs into `/opt/paiman/<name>/` with FHS activation symlinks.
-Seven bundle kinds:
+Five bundle kinds:
 
-    bin     -> /usr/bin/<name>             (file symlink to entrypoint)
-    sbin    -> /sbin/<name>                (file symlink to entrypoint)
-    driver  -> /usr/lib/drivers/<name>/    (dir symlink)
-    skill   -> /usr/lib/skills/<name>/     (dir symlink, contains SKILL.md)
+    bin     -> /usr/bin/<name>            (file symlink to entrypoint)
+    driver  -> /usr/lib/drivers/<name>/   (dir symlink)
+    skill   -> /usr/lib/skills/<name>/    (dir symlink, contains SKILL.md)
     prompt  -> /usr/share/prompts/<name>.md (file symlink)
-    pai     -> /usr/lib/pais/<name>/       (dir symlink)
-    lib     -> /usr/lib/<name>/            (dir symlink)
+    pai     -> /usr/lib/pais/<name>/      (dir symlink)
 
 Sources:
 
@@ -19,14 +17,10 @@ Sources:
     paiman install <git-url>[@ref]         clone and install
 
 The registry is `$PAIMAN_REGISTRY` (default
-`https://github.com/whitematterlabs/pairegistry`) — either a git URL or a
-local directory in the typed-root layout (`drivers/<name>/`, `bin/<name>/`,
-`sbin/<name>/`, `lib/<name>/`, `skills/<name>/`, `prompts/<name>/`,
-`pais/<name>/`), each with its own `package.yaml`. Bundles list their
-deps in `deps:` as bare names. Each entry is resolved registry-first
-(installed recursively); names not found in the registry are treated
-as PyPI packages and pip-installed into the kernel venv at
-`/usr/lib/venv/` once the bundle install completes.
+`https://github.com/whitematterlabs/pairegistry`) — either a git URL of a
+flat-layout repo (`<name>/package.yaml`) or a local directory of the same
+shape. Pai bundles list their deps in `deps:` as bare names; missing deps
+are fetched from the registry recursively.
 
 Other commands:
 
@@ -116,14 +110,10 @@ SCAFFOLD_TYPES = {
 
 # ---------- install / remove ----------
 
-INSTALLABLE_KINDS = ("bin", "sbin", "driver", "skill", "prompt", "pai", "lib", "subagent")
-PRIMITIVE_KINDS = ("bin", "sbin", "driver", "skill", "prompt", "lib")
-TYPED_ROOTS = ("drivers", "bin", "sbin", "lib", "skills", "prompts", "pais", "subagents")
+INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai")
+PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-COPY_IGNORE = shutil.ignore_patterns(
-    ".git", "__pycache__", ".DS_Store", "*.pyc",
-    "node_modules", "target", "vendor", ".venv", "dist", "build",
-)
+COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
 DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
 
 
@@ -147,12 +137,6 @@ def _activation_slot(
         if not entrypoint:
             raise SystemExit("paiman: bin bundle requires entrypoint")
         return paths.usr_bin() / name, bundle_dir / entrypoint
-    if kind == "sbin":
-        if not entrypoint:
-            raise SystemExit("paiman: sbin bundle requires entrypoint")
-        return paths.sbin() / name, bundle_dir / entrypoint
-    if kind == "lib":
-        return paths.usr_lib() / name, bundle_dir
     if kind == "driver":
         return paths.usr_lib_drivers() / name, bundle_dir
     if kind == "skill":
@@ -165,8 +149,6 @@ def _activation_slot(
         return paths.usr_share_prompts() / f"{name}.md", bundle_dir / entrypoint
     if kind == "pai":
         return paths.usr_lib_pais() / name, bundle_dir
-    if kind == "subagent":
-        return paths.usr_lib_subagents() / name, bundle_dir
     raise SystemExit(f"paiman: unsupported kind {kind!r}")
 
 
@@ -226,43 +208,20 @@ class _Registry:
             self._path = p.resolve()
         return self._path
 
-    def lookup(self, name: str, *, required: bool = True) -> Path | None:
-        # Explicit `<kind>/<name>` disambiguates when the same name lives
-        # under multiple typed roots (e.g. `bin/subagent` vs `prompts/subagent`).
-        leaf_only: str | None = None
-        if "/" in name:
-            typed_root, _, leaf = name.partition("/")
-            if typed_root in TYPED_ROOTS and leaf and "/" not in leaf:
-                candidate = self.root() / typed_root / leaf
-                if (candidate / "package.yaml").is_file():
-                    return candidate
-                if typed_root == "skills":
-                    leaf_only = leaf
-        for typed_root in TYPED_ROOTS:
-            candidate = self.root() / typed_root / name
+    def lookup(self, name: str) -> Path:
+        pkg_dir = self.root() / name
+        if (pkg_dir / "package.yaml").is_file():
+            return pkg_dir
+        # Topic-foldered: <root>/<topic>/<name>/package.yaml
+        for topic_dir in sorted(self.root().iterdir()):
+            if not topic_dir.is_dir() or topic_dir.name.startswith("."):
+                continue
+            candidate = topic_dir / name
             if (candidate / "package.yaml").is_file():
                 return candidate
-        # Skills support a `<typed_root>/<topic>/<name>/` layout. Walk one
-        # extra level under skills/ to find topic-foldered bundles.
-        skills_root = self.root() / "skills"
-        if skills_root.is_dir():
-            search_names = [name]
-            if leaf_only and leaf_only != name:
-                search_names.append(leaf_only)
-            for topic_dir in sorted(skills_root.iterdir()):
-                if not topic_dir.is_dir() or topic_dir.name.startswith("."):
-                    continue
-                if (topic_dir / "package.yaml").is_file():
-                    continue  # flat skill at this level, not a topic dir
-                for search_name in search_names:
-                    candidate = topic_dir / search_name
-                    if (candidate / "package.yaml").is_file():
-                        return candidate
-        if required:
-            raise SystemExit(
-                f"paiman: {name!r} not found in registry {self.root()}"
-            )
-        return None
+        raise SystemExit(
+            f"paiman: {name!r} not found in registry {self.root()}"
+        )
 
 
 def _resolve_source(arg: str, registry: _Registry, work: Path) -> Path:
@@ -298,52 +257,10 @@ def _audit_log(line: str) -> None:
         f.write(f"- {ts}  {line}\n")
 
 
-def _libexec_slot(name: str, kind: str) -> Path:
-    """Where `libexec/` from a bundle gets exposed.
-
-    Drivers stay at `/usr/libexec/<name>/` for backcompat. Other kinds
-    that ship a `libexec/` (e.g. subagents) get `/usr/libexec/<kind>s/<name>/`
-    so different kinds with the same name don't collide.
-    """
-    if kind == "driver":
-        return paths.usr_libexec() / name
-    return paths.usr_libexec() / f"{kind}s" / name
-
-
-def _install_libexec(bundle_dir: Path, manifest: dict, name: str, kind: str) -> None:
-    """If the bundle ships a `libexec/` subdir, expose it under
-    `/usr/libexec/...` and run the optional `libexec.install` argv.
-
-    Gated on the *presence* of the `libexec/` directory rather than `kind`,
-    so any package can opt in by shipping one.
-    """
-    libexec_dest = bundle_dir / "libexec"
-    if not libexec_dest.is_dir():
-        return
-    libexec_slot = _libexec_slot(name, kind)
-    libexec_slot.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_symlink(libexec_dest, libexec_slot)
-    install = (manifest.get("libexec") or {}).get("install")
-    if install is None:
-        return
-    if not isinstance(install, list) or not all(isinstance(x, str) for x in install):
-        raise SystemExit(
-            f"paiman: {name!r} libexec.install must be a list of strings (argv tokens)"
-        )
-    print(f"libexec install ({name}): {' '.join(install)}")
-    subprocess.run(install, cwd=libexec_dest, check=True)
-    _audit_log(f"libexec install {name}: {' '.join(install)}")
-
-
 def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
-                         seen: set[str], pip_deps: set[str],
-                         post_install: list[tuple[str, list[str]]]) -> str:
+                         seen: set[str]) -> str:
     """Install one bundle from a resolved source tree. Returns the bundle name.
-
-    `deps:` entries are resolved registry-first; misses are accumulated into
-    `pip_deps` for a single batch pip-install at the end of the top-level
-    install. `post_install` accumulates `(name, argv)` hooks declared in
-    each bundle's package.yaml; they run after pip deps are installed."""
+    Recursive for pai bundles via their `deps:` list."""
     manifest = _load_manifest(src)
     name = manifest.get("name")
     kind = manifest.get("kind")
@@ -361,28 +278,24 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         raise SystemExit(f"paiman: dependency cycle detected at {name!r}")
     seen.add(name)
 
-    if kind in ("bin", "sbin", "prompt"):
+    if kind in ("bin", "prompt"):
         if not entrypoint:
             raise SystemExit(f"paiman: {kind} bundle requires 'entrypoint'")
         if not (src / entrypoint).is_file():
             raise SystemExit(f"paiman: entrypoint {entrypoint!r} not found in source")
 
-    # Resolve deps before touching disk so we fail fast. Each entry is tried
-    # against the registry first; misses are queued as pip packages and
-    # batch-installed into /usr/lib/venv/ at the end.
-    deps = manifest.get("deps") or []
-    if not isinstance(deps, list):
-        raise SystemExit(f"paiman: {kind} bundle 'deps' must be a list of names")
-    for dep in deps:
-        if not isinstance(dep, str):
-            raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
-        if _find_installed_bundle(dep) is not None:
-            continue  # already installed as a bundle; leave it alone
-        dep_src = registry.lookup(dep, required=False)
-        if dep_src is not None:
-            _install_from_source(dep_src, dep, registry, work, seen, pip_deps, post_install)
-        else:
-            pip_deps.add(dep)
+    # For pai bundles, resolve deps first so we fail fast before touching disk.
+    if kind == "pai":
+        deps = manifest.get("deps") or []
+        if not isinstance(deps, list):
+            raise SystemExit("paiman: pai bundle 'deps' must be a list of names")
+        for dep in deps:
+            if not isinstance(dep, str):
+                raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
+            if _find_installed_bundle(dep) is not None:
+                continue  # already installed; mutable, leave it alone
+            dep_src = registry.lookup(dep)
+            _install_from_source(dep_src, dep, registry, work, seen)
 
     # Clean up old flat install if migrating into a topic subdir.
     if topic:
@@ -406,123 +319,47 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
 
     # Activate.
     slot, target = _activation_slot(kind, name, entrypoint, topic=topic)
-    if kind in ("bin", "sbin"):
-        # Shell shim that hardcodes the local kernel venv python — same
-        # pattern paifs-init uses for kernel shims. Bypasses the bin's
-        # own shebang (which can't portably reference the venv) and
-        # frees the user from needing PAI's bin dir on PATH.
-        py = _venv_python()
-        shim = f'#!/bin/sh\nexec "{py}" "{target}" "$@"\n'
-        if slot.is_symlink() or slot.exists():
-            slot.unlink()
-        slot.parent.mkdir(parents=True, exist_ok=True)
-        slot.write_text(shim)
-        slot.chmod(0o755)
-    else:
-        _atomic_symlink(target, slot)
-
-    _install_libexec(dest, manifest, name, kind)
-
-    # A driver bundle may ship a top-level SKILL.md that documents how PAIs
-    # mounting this driver should use it. Surface it as a skill under
-    # `/usr/lib/skills/drivers/<name>/` so the standard skills machinery
-    # filters/lists it. Visibility is gated by the skill's own `driver:`
-    # frontmatter (see boot/skills.py:is_visible).
-    if kind == "driver" and (dest / "SKILL.md").is_file():
-        skill_slot = paths.usr_lib_skills() / "drivers" / name
-        _atomic_symlink(dest, skill_slot)
-
-    raw_hook = manifest.get("post_install")
-    if raw_hook is not None:
-        if not isinstance(raw_hook, list) or not raw_hook or not all(
-            isinstance(x, str) for x in raw_hook
-        ):
-            raise SystemExit(
-                f"paiman: {name!r} post_install must be a non-empty list of "
-                "strings ([bin-name, args...])"
-            )
-        post_install.append((name, list(raw_hook)))
+    _atomic_symlink(target, slot)
+    if kind == "bin":
+        try:
+            target.chmod(target.stat().st_mode | 0o111)
+        except OSError:
+            pass
 
     _audit_log(f"install {kind} {name} from {src_arg}")
     print(f"installed {kind} {name} -> {slot}")
+
+    # Run install hooks. Failures are logged but do not abort — a bad
+    # hook should not leave the bundle half-uninstalled. Boot hooks are
+    # the kernel's responsibility (see src/boot/phases/hooks.py).
+    hooks = manifest.get("hooks") or {}
+    if isinstance(hooks, dict):
+        install_cmds = hooks.get("install") or []
+        if isinstance(install_cmds, str):
+            install_cmds = [install_cmds]
+        for cmd in install_cmds:
+            if not isinstance(cmd, str) or not cmd.strip():
+                continue
+            print(f"  hook[install]: {cmd}")
+            try:
+                rc = subprocess.run(
+                    cmd, shell=True, cwd=str(paths.PAI_ROOT), timeout=120
+                ).returncode
+            except (OSError, subprocess.TimeoutExpired) as e:
+                print(f"  hook[install]: FAILED — {e}")
+                continue
+            if rc != 0:
+                print(f"  hook[install]: rc={rc}")
     return name
-
-
-def _venv_python() -> Path:
-    return paths.usr_lib() / "venv" / "bin" / "python"
-
-
-def _pip_install(packages: set[str]) -> None:
-    """Install PyPI packages into the kernel venv via uv.
-
-    The kernel venv is provisioned by paifs-init using `uv venv`, which
-    intentionally doesn't ship pip. Use `uv pip --python <venv-python>` to
-    target it from outside — same pattern paifs-init uses for runtime deps.
-    """
-    if not packages:
-        return
-    py = _venv_python()
-    if not py.exists():
-        raise SystemExit(
-            f"paiman: kernel venv python not found at {py} — "
-            "run paifs-init to provision the venv before installing pip deps"
-        )
-    if shutil.which("uv") is None:
-        raise SystemExit(
-            "paiman: `uv` is required for pip installs but not on PATH. "
-            "Run paifs-init (which surfaces install instructions) and re-try."
-        )
-    pkgs = sorted(packages)
-    print(f"uv pip install (kernel venv): {', '.join(pkgs)}")
-    subprocess.run(
-        ["uv", "pip", "install", "--python", str(py), *pkgs],
-        check=True,
-    )
-    _audit_log(f"uv pip install {' '.join(pkgs)}")
 
 
 def cmd_install(args: argparse.Namespace) -> int:
     src_arg: str = args.source
-    pip_deps: set[str] = set()
-    post_install: list[tuple[str, list[str]]] = []
     with tempfile.TemporaryDirectory(prefix="paiman-") as tmp:
         work = Path(tmp)
         registry = _Registry(work)
         src = _resolve_source(src_arg, registry, work)
-        _install_from_source(
-            src, src_arg, registry, work,
-            seen=set(), pip_deps=pip_deps, post_install=post_install,
-        )
-    _pip_install(pip_deps)
-    if args.no_post_install:
-        if post_install:
-            print(
-                f"skipping {len(post_install)} post_install hook(s) "
-                f"(--no-post-install): {[n for n, _ in post_install]}"
-            )
-        return 0
-    for owner, argv in post_install:
-        bin_path = paths.usr_bin() / argv[0]
-        if not bin_path.exists():
-            raise SystemExit(
-                f"paiman: post_install for {owner!r} references missing bin "
-                f"{argv[0]!r} at {bin_path}"
-            )
-        # Exec the bin directly via its own shebang — shims route to the
-        # right interpreter (venv python for .py, /bin/sh for shell wrappers
-        # around node/etc.). Forcing everything through venv python breaks
-        # non-Python shims.
-        print(f"post_install ({owner}): {' '.join(argv)}")
-        rc = subprocess.run(
-            [str(bin_path), *argv[1:]]
-        ).returncode
-        if rc != 0:
-            print(
-                f"paiman: post_install hook for {owner!r} exited {rc} — "
-                f"install completed but the hook didn't. Re-run `{argv[0]}` "
-                f"manually when ready.",
-                file=sys.stderr,
-            )
+        _install_from_source(src, src_arg, registry, work, seen=set())
     return 0
 
 
@@ -547,14 +384,6 @@ def _iter_installed_bundles() -> list[tuple[str, Path]]:
     return out
 
 
-def _find_installed_bundle(name: str) -> Path | None:
-    """Return the on-disk bundle dir for `name`, flat or topic-foldered."""
-    for bname, bdir in _iter_installed_bundles():
-        if bname == name:
-            return bdir
-    return None
-
-
 def _bundles_depending_on(name: str) -> list[str]:
     """Return the names of installed pai bundles that list `name` in their deps."""
     out: list[str] = []
@@ -567,11 +396,30 @@ def _bundles_depending_on(name: str) -> list[str]:
                 data = yaml.safe_load(f) or {}
         except yaml.YAMLError:
             continue
-        if data.get("kind") not in ("pai", "subagent", "skill"):
+        if data.get("kind") != "pai":
             continue
         if name in (data.get("deps") or []):
             out.append(bname)
     return out
+
+
+def _find_installed_bundle(name: str) -> Path | None:
+    """Return the on-disk bundle dir for `name`, flat or topic-foldered."""
+    flat = paths.opt_paiman() / name
+    if (flat / "package.yaml").is_file():
+        return flat
+    root = paths.opt_paiman()
+    if not root.exists():
+        return None
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if (entry / "package.yaml").is_file():
+            continue  # leaf bundle, not a topic dir
+        candidate = entry / name
+        if (candidate / "package.yaml").is_file():
+            return candidate
+    return None
 
 
 def cmd_remove(args: argparse.Namespace) -> int:
@@ -594,15 +442,6 @@ def cmd_remove(args: argparse.Namespace) -> int:
         slot, _ = _activation_slot(kind, name, entrypoint, topic=topic)
         if slot.is_symlink() or slot.exists():
             slot.unlink()
-    libexec_slot = _libexec_slot(name, kind)
-    if libexec_slot.is_symlink() or libexec_slot.exists():
-        libexec_slot.unlink()
-    if kind == "driver":
-        # Mirror the install-time skill-activation: clean up the
-        # /usr/lib/skills/drivers/<name>/ symlink if we created one.
-        skill_slot = paths.usr_lib_skills() / "drivers" / name
-        if skill_slot.is_symlink() or skill_slot.exists():
-            skill_slot.unlink()
     shutil.rmtree(bundle_dir)
     _audit_log(f"remove {kind} {name}")
     print(f"removed {kind} {name}")
@@ -698,7 +537,11 @@ def _iter_registry(root: Path) -> list[tuple[str, dict, Path]]:
     flat (`<root>/<name>/package.yaml`) and kind-foldered
     (`<root>/<kind>/<name>/package.yaml`). Returns (name, manifest, path)."""
     out: list[tuple[str, dict, Path]] = []
-    seen: set[str] = set()
+    # Dedupe on (kind, name) so a single name can legitimately appear under
+    # multiple kinds (e.g. a `bin/browse` verb and a `subagents/browse`
+    # bundle that teaches PAIs to use it). Falling back to name-only when
+    # kind is missing keeps the old behavior for malformed package.yaml.
+    seen: set[tuple[str, str]] = set()
     for entry in sorted(root.iterdir()):
         if not entry.is_dir() or entry.name.startswith("."):
             continue
@@ -709,39 +552,26 @@ def _iter_registry(root: Path) -> list[tuple[str, dict, Path]]:
                     data = yaml.safe_load(f) or {}
             except yaml.YAMLError as e:
                 data = {"_error": str(e)}
-            if entry.name not in seen:
-                seen.add(entry.name)
+            key = (str(data.get("kind") or ""), entry.name)
+            if key not in seen:
+                seen.add(key)
                 out.append((entry.name, data, entry))
             continue
         for sub in sorted(entry.iterdir()):
-            if not sub.is_dir() or sub.name.startswith("."):
+            if not sub.is_dir():
                 continue
             spkg = sub / "package.yaml"
-            if spkg.is_file():
-                try:
-                    with spkg.open() as f:
-                        data = yaml.safe_load(f) or {}
-                except yaml.YAMLError as e:
-                    data = {"_error": str(e)}
-                if sub.name not in seen:
-                    seen.add(sub.name)
-                    out.append((sub.name, data, sub))
+            if not spkg.is_file():
                 continue
-            # Topic-foldered layout (e.g. skills/<topic>/<name>/).
-            for leaf in sorted(sub.iterdir()):
-                if not leaf.is_dir() or leaf.name.startswith("."):
-                    continue
-                lpkg = leaf / "package.yaml"
-                if not lpkg.is_file():
-                    continue
-                try:
-                    with lpkg.open() as f:
-                        data = yaml.safe_load(f) or {}
-                except yaml.YAMLError as e:
-                    data = {"_error": str(e)}
-                if leaf.name not in seen:
-                    seen.add(leaf.name)
-                    out.append((leaf.name, data, leaf))
+            try:
+                with spkg.open() as f:
+                    data = yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                data = {"_error": str(e)}
+            key = (str(data.get("kind") or ""), sub.name)
+            if key not in seen:
+                seen.add(key)
+                out.append((sub.name, data, sub))
     return out
 
 
@@ -752,7 +582,10 @@ def cmd_search(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="paiman-") as tmp:
         work = Path(tmp)
         registry = _Registry(work)
-        root = registry.root()
+        try:
+            root = registry.root()
+        except SystemExit as e:
+            raise e
         bundles = _iter_registry(root)
         loc = os.environ.get("PAIMAN_REGISTRY", DEFAULT_REGISTRY)
         print(f"available (registry: {loc}):")
@@ -805,11 +638,6 @@ def main(argv: list[str] | None = None) -> int:
 
     p_install = sub.add_parser("install", help="install a bundle (registry name, local path, or git URL)")
     p_install.add_argument("source", help="bundle name in the registry, local directory path, or git URL (optionally @ref)")
-    p_install.add_argument(
-        "--no-post-install",
-        action="store_true",
-        help="skip post_install hooks (use for non-interactive / CI installs)",
-    )
     p_install.set_defaults(func=cmd_install)
 
     p_remove = sub.add_parser("remove", help="remove an installed bundle")

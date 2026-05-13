@@ -9,6 +9,7 @@ bundle hands off to paiadd's interactive wizard.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from bin import paiman, paiadd
 
@@ -45,11 +46,23 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nInstalling {total} package(s)...")
     failures: list[str] = []
+    # Build a quick (kind, name) → on-disk source lookup so paiman gets
+    # an unambiguous path when a name appears under multiple kinds (e.g.
+    # bin/browse vs subagents/browse). Falls back to the bare name if the
+    # discovered source path is no longer valid (e.g. tempdir cleanup
+    # after a URL-cloned registry).
+    sources: dict[tuple[str, str], str] = {}
+    for kind, items in groups.items():
+        for it in items:
+            if it.source:
+                sources[(kind, it.name)] = it.source
     for kind in install_order:
         for name in selected.get(kind, []):
-            print(f"\n--- paiman install {name} ---")
+            src = sources.get((kind, name))
+            arg = src if src and Path(src).is_dir() else name
+            print(f"\n--- paiman install {arg} ---")
             try:
-                rc = paiman.main(["install", name])
+                rc = paiman.main(["install", arg])
             except SystemExit as e:
                 rc = e.code if isinstance(e.code, int) else 1
             except Exception as e:

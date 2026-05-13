@@ -25,6 +25,10 @@ class Item:
     name: str
     description: str
     installed: bool
+    # On-disk source path in the (possibly cloned) registry. We pass this
+    # to `paiman install` instead of the bare name so a name shared across
+    # kinds (e.g. bin/browse + subagents/browse) resolves unambiguously.
+    source: str = ""
 
 
 # Map registry-kind (from package.yaml `kind:`) to the FS slot we check
@@ -59,7 +63,7 @@ def discover() -> dict[str, list[Item]]:
         "pai": [],
         "subagent": [],
     }
-    for name, data, _path in bundles:
+    for name, data, path in bundles:
         kind = data.get("kind")
         if kind not in groups:
             continue
@@ -67,7 +71,13 @@ def discover() -> dict[str, list[Item]]:
             continue
         desc = (data.get("description") or "").strip()
         groups[kind].append(
-            Item(kind=kind, name=name, description=desc, installed=_is_installed(kind, name))
+            Item(
+                kind=kind,
+                name=name,
+                description=desc,
+                installed=_is_installed(kind, name),
+                source=str(path),
+            )
         )
     for k in groups:
         groups[k].sort(key=lambda i: i.name)
