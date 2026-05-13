@@ -209,6 +209,27 @@ class _Registry:
         return self._path
 
     def lookup(self, name: str) -> Path:
+        # Typed form `<topic>/<name>` (used by paifs-init to disambiguate
+        # when a name appears under multiple topic folders, e.g.
+        # `bin/browse` vs `subagents/browse`). Try direct first; then walk
+        # one more level so kinds that themselves topic-fold their packages
+        # (e.g. `skills/<topic>/<name>/`) still resolve.
+        if "/" in name:
+            candidate = self.root() / name
+            if (candidate / "package.yaml").is_file():
+                return candidate
+            head, _, tail = name.partition("/")
+            head_dir = self.root() / head
+            if head_dir.is_dir():
+                for child in sorted(head_dir.iterdir()):
+                    if not child.is_dir():
+                        continue
+                    nested = child / tail
+                    if (nested / "package.yaml").is_file():
+                        return nested
+            raise SystemExit(
+                f"paiman: {name!r} not found in registry {self.root()}"
+            )
         pkg_dir = self.root() / name
         if (pkg_dir / "package.yaml").is_file():
             return pkg_dir
@@ -561,17 +582,34 @@ def _iter_registry(root: Path) -> list[tuple[str, dict, Path]]:
             if not sub.is_dir():
                 continue
             spkg = sub / "package.yaml"
-            if not spkg.is_file():
+            if spkg.is_file():
+                try:
+                    with spkg.open() as f:
+                        data = yaml.safe_load(f) or {}
+                except yaml.YAMLError as e:
+                    data = {"_error": str(e)}
+                key = (str(data.get("kind") or ""), sub.name)
+                if key not in seen:
+                    seen.add(key)
+                    out.append((sub.name, data, sub))
                 continue
-            try:
-                with spkg.open() as f:
-                    data = yaml.safe_load(f) or {}
-            except yaml.YAMLError as e:
-                data = {"_error": str(e)}
-            key = (str(data.get("kind") or ""), sub.name)
-            if key not in seen:
-                seen.add(key)
-                out.append((sub.name, data, sub))
+            # Topic-nested layout (e.g. skills/<topic>/<name>/package.yaml):
+            # `sub` is a topic dir, walk one level deeper.
+            for leaf in sorted(sub.iterdir()):
+                if not leaf.is_dir():
+                    continue
+                lpkg = leaf / "package.yaml"
+                if not lpkg.is_file():
+                    continue
+                try:
+                    with lpkg.open() as f:
+                        data = yaml.safe_load(f) or {}
+                except yaml.YAMLError as e:
+                    data = {"_error": str(e)}
+                key = (str(data.get("kind") or ""), leaf.name)
+                if key not in seen:
+                    seen.add(key)
+                    out.append((leaf.name, data, leaf))
     return out
 
 
