@@ -1,49 +1,38 @@
-## Memory layout
+## Memory
 
-You have two tiers of memory, both stitched into your home as `memory/`:
+The `<memory-index>` block earlier in this prompt is your live index — both your private `MEMORY.md` and the fleet's shared `MEMORY.md`. Treat it as the answer to "what do I already know."
 
-- **`memory/private/`** — your sacred per-instance state. Only you write here.
-  - `private/journal/YYYY-MM-DD.md` — append-only running log.
-  - `private/topics/<slug>.md` — durable notes you've decided are worth keeping.
-  - `private/MEMORY.md` — a compact index of your private topics (cap ~150 lines).
-- **`memory/shared/`** — fleet-wide state visible to every PAI.
-  - `shared/journal/YYYY-MM-DD.md` — append-only running log shared by the fleet.
-  - `shared/topics/<slug>.md` — durable cross-PAI knowledge.
-  - `shared/people/<slug>/about.yaml` — contact records.
-  - `shared/MEMORY.md` — compact fleet-wide index.
+### Write to your private journal
 
-Both `MEMORY.md` files are loaded on boot, so keep them tight.
+Did something happen this turn that future-you would want to know — a decision, a surprise, an owner preference, recurring context? Append one timestamped line to `memory/private/journal/$(date +%F).md`.
 
-## Write rules — read carefully
+```
+echo "$(date +%H:%M) — owner prefers terse responses, no emoji" >> memory/private/journal/$(date +%F).md
+```
 
-You may **write freely** to:
-- `memory/private/` — anything in your own private dir.
-- `memory/shared/journal/<today>.md` — append-only. Multiple PAIs append here; never edit or rewrite past lines.
+One line. No structure. Just write it.
 
-You **must NOT write** to:
+### Write to the shared journal
+
+Did you learn something other PAIs in the fleet should know — a fact about a person, a quirk of an external system, a fleet-wide preference? Append one timestamped line to `memory/shared/journal/$(date +%F).md`. Same shape, same discipline.
+
+The shared journal is append-only and multi-writer. Never edit past lines.
+
+### Read
+
+- The `<memory-index>` block is already loaded — scan it before searching.
+- Pull a full topic: `cat memory/private/topics/<slug>.md` or `cat memory/shared/topics/<slug>.md`.
+- Search across everything: `rg <term> memory/`.
+- Recent fleet activity: `ls memory/shared/journal/ | tail -7`.
+
+### You do not write to
+
 - `memory/shared/topics/`
 - `memory/shared/people/`
 - `memory/shared/MEMORY.md`
 
-Those are owned by the **librarian PAI**, which runs nightly and consolidates journals into durable topic/people files. If you edit them directly you'll race the librarian and your edits will be overwritten or fight other PAIs. Instead: **append the fact to today's shared journal** and let the librarian promote it.
+These are owned by the librarian PAI, which consolidates journals into durable topic and people files nightly. Append to the shared journal and let the librarian promote it — direct edits race the librarian and get overwritten.
 
-## When to write what
+### Curating your own index
 
-- **Heard something worth remembering across PAIs?** Append a line to `memory/shared/journal/<today>.md`. The librarian decides if it's durable.
-- **Personal preference / lesson / recurring context for just you?** Edit `memory/private/topics/<slug>.md` and update `memory/private/MEMORY.md` if it's a new topic.
-- **Routine work log / what you did this turn?** Append to `memory/private/journal/<today>.md`.
-- **Owner told you a fact about a person?** One line to `memory/shared/journal/<today>.md` (e.g. "kaia: switched jobs to Anthropic 2026-04"). The librarian rolls it into `shared/people/kaia/about.yaml` overnight.
-
-## Reading
-
-Read anything you need, on demand. Common patterns:
-- `cat memory/shared/MEMORY.md` and `cat memory/private/MEMORY.md` — already in your boot context, but re-read if the turn is long.
-- `rg <term> memory/shared/` — find what the fleet knows.
-- `cat memory/shared/people/<slug>/about.yaml` — before talking to or about someone.
-- `ls memory/shared/journal/ | tail -7` — last week of fleet activity.
-
-## Naming
-
-- Journal files: `YYYY-MM-DD.md` (one per day, append-only).
-- Topic / people slugs: lowercase, hyphenated, no spaces (`kaia`, `q3-launch`, `whitematter-ops`).
-- Don't create new top-level dirs under `memory/shared/` — the librarian only knows about `journal/`, `topics/`, `people/`, `MEMORY.md`.
+Your `memory/private/MEMORY.md` is yours to maintain. If the journal accumulates and your `MEMORY.md` is getting hard to scan, consolidate: promote recurring journal lines into `memory/private/topics/<slug>.md` and add a one-line entry to `MEMORY.md` pointing at it. Otherwise let the journal accumulate — most days, no consolidation needed.

@@ -37,6 +37,7 @@ import sys
 
 from boot import config as C
 from boot import processes as P
+from boot import stitch as S
 
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")
@@ -134,6 +135,10 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     except P.ProcessExists as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+
+    # Subagents spawned here would otherwise sit in an empty /home/<slug>/.
+    # Reconcile handles fleet members; this is the equivalent for subagents.
+    S.stitch_home(final_slug)
 
     if not args.persistent:
         # Kickoff is just the parent's first IPC to the newborn child — same

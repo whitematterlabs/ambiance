@@ -218,6 +218,20 @@ def ensure_default_config(root: Path) -> None:
     dest.write_text(DEFAULT_CONFIG_YAML)
 
 
+SHARED_MEMORY_INDEX_HEADER = (
+    "<!-- Fleet-wide MEMORY index. Owned by the librarian PAI; fleet PAIs read but do not edit. -->\n"
+)
+
+
+def ensure_shared_memory_index(root: Path) -> None:
+    """Seed var/lib/memory/MEMORY.md so the boilerplate's claim of an index is true on disk."""
+    dest = root / "var" / "lib" / "memory" / "MEMORY.md"
+    if dest.exists():
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(SHARED_MEMORY_INDEX_HEADER)
+
+
 def _load_pyproject() -> dict:
     with PYPROJECT.open("rb") as f:
         return tomllib.load(f)
@@ -316,6 +330,7 @@ def lay_out(root: Path) -> None:
     # holds the kernel-only ones.
     ensure_symlink(root / "bin", Path("usr/bin"))
     ensure_default_config(root)
+    ensure_shared_memory_index(root)
     ensure_system_deps()
     venv_dir = ensure_venv(root)
     install_pth(venv_dir, root)

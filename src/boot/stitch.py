@@ -160,11 +160,25 @@ def _stitch_skills(
             link.symlink_to(skill_dir.resolve(), target_is_directory=True)
 
 
+_PRIVATE_MEMORY_INDEX_HEADER = (
+    "<!-- Your private MEMORY index. You write here when journal entries warrant consolidation. -->\n"
+)
+
+
 def _seed_instance(instance: Path) -> None:
     """Ensure the instance state dirs exist. Never overwrites."""
     instance.mkdir(parents=True, exist_ok=True)
-    for sub in ("inbox", "workspace", "memory/private"):
+    for sub in (
+        "inbox",
+        "workspace",
+        "memory/private",
+        "memory/private/journal",
+        "memory/private/topics",
+    ):
         (instance / sub).mkdir(parents=True, exist_ok=True)
+    index = instance / "memory" / "private" / "MEMORY.md"
+    if not index.exists():
+        index.write_text(_PRIVATE_MEMORY_INDEX_HEADER)
 
 
 def home_for(slug: str) -> Path:
@@ -309,6 +323,17 @@ def _resolve_extras(slug: str, mounted_drivers: set[str]) -> tuple[tuple[str, Pa
         bundle_extras = _parse_home_links(paths.usr_lib_pais() / package / "package.yaml")
     else:
         bundle_extras = _BUNDLELESS_SEEDS.get(slug, ())
+        if not bundle_extras:
+            # Subagents (bundleless kind:pai procs with a parent) need the
+            # communication view so they can send-message back. Read the
+            # spec directly — they aren't in /etc/config.yaml.
+            from . import processes  # local import: stitch loaded at boot
+            try:
+                spec = processes.read_spec(slug)
+            except Exception:
+                spec = {}
+            if "parent" in spec:
+                bundle_extras = (_COMMUNICATION_LINK,)
     driver_extras = _driver_home_links(mounted_drivers)
     seen: set[str] = {link for link, _ in bundle_extras}
     extras = list(bundle_extras)

@@ -464,11 +464,6 @@ def _render_my_persubs(self_pid: int) -> str:
     return "\n".join(sorted(rows))
 
 
-def read_self_notes(home: Path) -> str:
-    """Read the PAI's self-notes file. Stripped; empty string if missing."""
-    return _read_or_empty(home / "memory" / "private" / "self.md").strip()
-
-
 def _pai_line(pai: int, parent: Optional[int]) -> str:
     parent_label = str(parent) if parent is not None else "kernel"
     return (
@@ -528,16 +523,29 @@ def _boilerplate_blocks(names: Optional[list[str]]) -> str:
     return out
 
 
-def _self_block(self_notes: str) -> str:
-    # Always rendered so the PAI knows the channel exists; hint when empty.
-    if self_notes:
-        return f"<self-notes>\n{self_notes}\n</self-notes>\n\n"
+_MEMORY_INDEX_MAX_LINES = 150
+
+
+def _read_index(path: Path) -> str:
+    """Read a MEMORY.md, truncate to a defensive line cap, return body or '(empty)'."""
+    try:
+        text = path.read_text()
+    except (OSError, FileNotFoundError):
+        return "(empty)"
+    lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("<!--")]
+    body = "\n".join(lines[:_MEMORY_INDEX_MAX_LINES]).strip()
+    return body or "(empty)"
+
+
+def _memory_index_block(home: Path) -> str:
+    """Inject both MEMORY.md indexes so the PAI sees the live index at every turn."""
+    private = _read_index(home / "memory" / "private" / "MEMORY.md")
+    shared = _read_index(home / "memory" / "shared" / "MEMORY.md")
     return (
-        "<self-notes>\n"
-        "(empty) Append durable notes about yourself — preferences, "
-        "lessons, recurring context — to `memory/private/self.md`. "
-        "They will appear here on the next nudge.\n"
-        "</self-notes>\n\n"
+        "<memory-index>\n"
+        f"<private>\n{private}\n</private>\n"
+        f"<shared>\n{shared}\n</shared>\n"
+        "</memory-index>\n\n"
     )
 
 
@@ -643,16 +651,11 @@ def _resolve_listings(pai: int, home: Path) -> tuple[str, str, str]:
     return bins, skills, system_skills
 
 
-def _resolve_home_and_notes(
-    home_dir: Optional[str], self_notes: Optional[str]
-) -> tuple[Path, str]:
+def _resolve_home(home_dir: Optional[str]) -> Path:
     # home_dir is a string; callers (nudge.py) resolve it from the PAI's
     # slug — root → /root/, else /home/<slug>/. Defaults to the legacy
     # global HOME_DIR for subagent code paths that don't carry a slug yet.
-    home = Path(home_dir) if home_dir else HOME_DIR
-    if self_notes is None:
-        self_notes = read_self_notes(home)
-    return home, self_notes
+    return Path(home_dir) if home_dir else HOME_DIR
 
 
 def _default_boilerplate(pai: int, parent: Optional[int]) -> list[str]:
@@ -697,19 +700,18 @@ def build_system_prompt(
     boilerplate: Optional[list[str]] = None,
     home_dir: Optional[str] = None,
     persub: bool = False,
-    self_notes: Optional[str] = None,
 ) -> str:
     """Assemble the system prompt from three layers: custom prose (from
     the PAI's `prompt_dir`/legacy `prompt_path`), boilerplate selected by
     the PAI's config, and kernel-computed runtime blocks. The only
     role-shape branch left is fleet-vs-subagent for runtime info."""
-    home, self_notes = _resolve_home_and_notes(home_dir, self_notes)
+    home = _resolve_home(home_dir)
     if boilerplate is None:
         boilerplate = _default_boilerplate(pai, parent)
     return (
         _custom_block(prompt_dir, prompt_path)
         + _boilerplate_blocks(boilerplate)
-        + _self_block(self_notes)
+        + _memory_index_block(home)
         + _runtime_blocks(pai, parent, home, persub)
         + "~ $ "
     )

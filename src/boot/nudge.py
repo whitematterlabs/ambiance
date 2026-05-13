@@ -345,7 +345,6 @@ async def _nudge_body(
         boilerplate=pai_spec.get("boilerplate"),
         home_dir=str(home),
         persub=bool(pai_spec.get("persub")),
-        self_notes=bootstrap.read_self_notes(home),
     )
     sender = f"{from_kind}:{from_}" if from_ is not None else None
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)
