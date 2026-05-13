@@ -110,8 +110,8 @@ SCAFFOLD_TYPES = {
 
 # ---------- install / remove ----------
 
-INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai")
-PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt")
+INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai", "lib")
+PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt", "lib")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
 DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
@@ -149,6 +149,11 @@ def _activation_slot(
         return paths.usr_share_prompts() / f"{name}.md", bundle_dir / entrypoint
     if kind == "pai":
         return paths.usr_lib_pais() / name, bundle_dir
+    if kind == "lib":
+        # Python package import: /usr/lib/ is on sys.path; the slot is the
+        # package dir itself so `from <name> import ...` resolves into the
+        # bundle's `__init__.py`.
+        return paths.usr_lib() / name, bundle_dir
     raise SystemExit(f"paiman: unsupported kind {kind!r}")
 
 
@@ -305,11 +310,13 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         if not (src / entrypoint).is_file():
             raise SystemExit(f"paiman: entrypoint {entrypoint!r} not found in source")
 
-    # For pai bundles, resolve deps first so we fail fast before touching disk.
-    if kind == "pai":
+    # Resolve declared `deps:` for any bundle that has them. Drivers
+    # commonly depend on shared lib packages (e.g. tailer); pai bundles
+    # pull in their drivers/skills. Fail fast before touching disk.
+    if kind in ("pai", "driver"):
         deps = manifest.get("deps") or []
         if not isinstance(deps, list):
-            raise SystemExit("paiman: pai bundle 'deps' must be a list of names")
+            raise SystemExit(f"paiman: {kind} bundle 'deps' must be a list of names")
         for dep in deps:
             if not isinstance(dep, str):
                 raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
