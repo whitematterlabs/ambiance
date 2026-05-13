@@ -15,7 +15,7 @@ from typing import Optional
 import yaml
 
 from . import paths
-from .paths import HOME_DIR, PROC_DIR, EVENTS_DIR, ACKS_DIR
+from .paths import HOME_DIR, PAI_ROOT, PROC_DIR, EVENTS_DIR, ACKS_DIR
 
 _METRICS_DIR = HOME_DIR / "sys" / "subagents"
 
@@ -145,6 +145,16 @@ def resolve(slug: str, new_status: str) -> None:
             _write_subagent_metrics(slug, spec, new_status)
         except Exception as e:
             print(f"[kernel] metrics: failed for {slug}: {e!r}", flush=True)
+        # If this subagent owned a browse tab, mark the tab as orphan so a
+        # future subagent can claim it. Tab stays open in Chrome.
+        try:
+            tab_file = PAI_ROOT / "sys" / "drivers" / "browse" / "tabs" / f"{slug}.yaml"
+            if tab_file.exists():
+                data = yaml.safe_load(tab_file.read_text()) or {}
+                data["owner_status"] = "orphan"
+                tab_file.write_text(yaml.safe_dump(data, sort_keys=False))
+        except Exception as e:
+            print(f"[kernel] browse-tab orphan mark failed for {slug}: {e!r}", flush=True)
         shutil.rmtree(proc, ignore_errors=True)
 
 
