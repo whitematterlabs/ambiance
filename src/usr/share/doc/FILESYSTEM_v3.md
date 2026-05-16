@@ -416,6 +416,34 @@ The `package.yaml` manifest declares:
   bundle owns everything else. Targets are relative to `PAI_ROOT` and
   cannot escape it; link names cannot collide with the universals.
 
+### Driver mounting — which PAI gets which driver
+
+A PAI "mounts" a driver when the driver's own `home.links` (declared in
+`/usr/lib/drivers/<name>/package.yaml`) get stitched into that PAI's
+home. The kernel decides the mounted set per slug at stitch time
+(`mounted_drivers_for` in `src/boot/stitch.py`), and there are exactly
+three rules:
+
+1. **Fallback PAI** (`fallback: true` in `/etc/config.yaml`) — mounts
+   *every* installed driver. It is the last-resort handler for any
+   unrouted event, so it must see every surface.
+2. **Bundled PAI** — mounts the intersection of its bundle's `deps:`
+   list and the locally-installed drivers. A driver listed in `deps:`
+   that isn't installed is simply not mounted (no error).
+3. **Bundleless PAI** (e.g. `root`) — mounts no drivers.
+
+Consequences worth knowing:
+
+- `deps:` is doing double duty — it is both the paiman install list
+  *and* the driver-mount list. There is currently no way to depend on a
+  driver (so a skill can use it) without also mounting its `home.links`,
+  and no per-instance override: two instances of the same bundle always
+  mount the same driver set. Changing that means a new manifest field,
+  not a config tweak.
+- A driver's `home.link` name colliding with a bundle/seed link is a
+  hard error at stitch time — drivers cannot silently shadow
+  bundle-declared paths.
+
 **Drivers and skills are system-shared dependencies, not bundle-vendored.**
 A bundle declares what it needs; `paiman` resolves and installs the
 required drivers into `/usr/lib/drivers/<name>/` and skills into

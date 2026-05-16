@@ -24,6 +24,7 @@ from textual.widgets import Header, Input, Static, TabbedContent, TabPane
 
 from boot.nudge import apply_pending_history_action
 from boot.processes import HOME_DIR, emit_event, _iter_pai_specs, read_status
+from boot import stitch
 
 def _format_busy(slug: str, busy: Optional[tuple[str, float]]) -> str:
     if busy is None:
@@ -422,7 +423,7 @@ class TuiApp(App):
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd=str(HOME_DIR),
+                cwd=str(stitch.home_for(slug)),
                 env=env,
             )
             out, _ = await proc.communicate()
