@@ -170,6 +170,7 @@ SYMLINK_TARGETS = {p for p, _ in SYMLINKS}
 # privileged kernel/owner ops, not PAI-callable tools.
 SBIN_SCRIPTS: frozenset[str] = frozenset({
     "init",
+    "pai",
     "migrate",
     "reboot",
     "reset",
