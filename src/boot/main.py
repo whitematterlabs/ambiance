@@ -844,10 +844,18 @@ async def _supervise_driver(slug: str, coro) -> None:
     try:
         await coro
     except asyncio.CancelledError:
-        try:
-            P.resolve(slug, "cancelled")
-        except P.ProcessNotFound:
-            pass
+        # Don't clobber a replacement's "running" status. A stop+start
+        # sequence cancels this task and spawns a fresh supervise; that
+        # fresh supervise has already called _ensure_driver_proc (which
+        # wrote "running") by the time our cancellation cleanup runs here.
+        # Writing "cancelled" now would race-overwrite the new status and
+        # leave /proc looking dead while the driver is in fact live.
+        current = _driver_tasks.get(slug)
+        if current is None or current is asyncio.current_task():
+            try:
+                P.resolve(slug, "cancelled")
+            except P.ProcessNotFound:
+                pass
         raise
     except Exception as e:
         tb = traceback.format_exc()
