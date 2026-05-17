@@ -11,11 +11,23 @@ from boot import paths
 from bin import paiman
 from bin.paifs_init import KERNEL_SEED_DRIVERS, KERNEL_SEED_SKILLS
 
-# Kernel-seeded packages are installed by paifs-init and required for the
-# kernel to import cleanly. They're not user-pickable, so paisetup hides them.
+# Packages the wizard hides:
+#   - kernel seeds (installed by paifs-init, required for boot)
+#   - root-only skills (kernel authoring/diagnosing/ops — not for owner PAIs)
+_ROOT_ONLY_SKILLS: frozenset[str] = frozenset({
+    # authoring/
+    "author-driver", "author-pai-bundle", "author-plan", "author-skill",
+    "manage-subagent-bundles",
+    # diagnosing/
+    "diagnose-crash", "inspect-fleet", "reload-config", "restart-driver",
+    # operating/ (root-only subset)
+    "kernel-restart", "kernel-tools", "manage-dependencies",
+    "execute-claudecode", "execute-plan",
+})
+
 _HIDDEN: dict[str, frozenset[str]] = {
     "driver": frozenset(KERNEL_SEED_DRIVERS),
-    "skill": frozenset(KERNEL_SEED_SKILLS),
+    "skill": frozenset(KERNEL_SEED_SKILLS) | _ROOT_ONLY_SKILLS,
 }
 
 

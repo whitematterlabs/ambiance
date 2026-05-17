@@ -428,7 +428,7 @@ def expose_pai_command(root: Path) -> None:
     Tries /usr/local/bin → /opt/homebrew/bin → ~/.local/bin (created if absent).
     Only `pai` is exposed; PAI itself doesn't need a launcher once running.
     """
-    target = root / "usr" / "bin" / "pai"
+    target = root / "sbin" / "pai"
     candidates = [
         Path("/usr/local/bin"),
         Path("/opt/homebrew/bin"),
