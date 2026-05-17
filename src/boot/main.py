@@ -610,13 +610,35 @@ class _RestartRequested(BaseException):
 _restart_requested: bool = False
 
 
-async def _handle_restart() -> None:
-    """Drain in-flight nudges, then trigger a graceful self-restart."""
-    global _restart_requested
-    print("[kernel] restart: draining nudges", flush=True)
+_RESTART_DRAIN_TIMEOUT = 5.0
+
+
+async def _drain_pai_locks() -> None:
     async with AsyncExitStack() as stack:
         for lock in list(_pai_locks.values()):
             await stack.enter_async_context(lock)
+
+
+async def _handle_restart() -> None:
+    """Drain in-flight nudges with a bounded timeout, then restart.
+
+    Drain is best-effort. A runaway driver (or any source generating
+    nudges faster than they complete) can hold per-PAI locks indefinitely
+    — we must not block `reboot` on the very thing the operator is trying
+    to restart away from. After RESTART_DRAIN_TIMEOUT we proceed regardless;
+    any in-flight nudges get cancelled at process exit, which is what
+    a restart implies anyway.
+    """
+    global _restart_requested
+    print("[kernel] restart: draining nudges", flush=True)
+    try:
+        await asyncio.wait_for(_drain_pai_locks(), timeout=_RESTART_DRAIN_TIMEOUT)
+    except asyncio.TimeoutError:
+        print(
+            f"[kernel] restart: drain timed out after {_RESTART_DRAIN_TIMEOUT}s; "
+            f"restarting anyway (in-flight nudges will be cancelled)",
+            flush=True,
+        )
     print("[kernel] restart: triggering shutdown", flush=True)
     _restart_requested = True
     raise _RestartRequested()
