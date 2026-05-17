@@ -631,6 +631,22 @@ async def _handle_reload_config() -> None:
         try:
             C.reconcile_from_config()
             await _reconcile_drivers()
+            # Re-stitch every running PAI's home view so newly-installed
+            # skills/prompts surface without a reboot. Mirrors the boot-time
+            # loop in phases/reconcile.py — idempotent, heals broken links.
+            from . import stitch
+            from . import processes as _P
+            for slug in C.load_config():
+                try:
+                    stitch.stitch_home(slug)
+                except Exception as e:
+                    print(f"[kernel] reload_config: stitch {slug} failed: {e!r}", flush=True)
+            for slug, spec in _P._iter_pai_specs():
+                if spec.get("persub"):
+                    try:
+                        stitch.stitch_home(slug)
+                    except Exception as e:
+                        print(f"[kernel] reload_config: stitch persub {slug} failed: {e!r}", flush=True)
             print("[kernel] reload_config: done", flush=True)
         except Exception as e:
             tb = traceback.format_exc()

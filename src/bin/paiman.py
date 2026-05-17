@@ -50,36 +50,60 @@ from boot import paths
 # ---------- legacy scaffold (init / list / show for pai/subagent) ----------
 
 PAI_PACKAGE_YAML_TEMPLATE = """\
+# Auto-scaffolded by `paiman init {name}`. Edit fields marked CHANGE THIS.
+name: {name}
 kind: pai
+version: 0.1.0
+
+# CHANGE THIS — one-liner describing what this PAI does.
 description: ""
-prompt: usr/lib/pais/{name}/prompt.md
+
+# Default provider/model. Overridable per-instance at paiadd time.
 provider: anthropic
-# model: claude-sonnet-4-6
-#
-# wake_on: list of fnmatch globs over event `kind:` strings. The kernel
+model: claude-sonnet-4-6
+
+# Role prompt path, relative to this bundle dir.
+prompt: prompt.md
+
+# CHANGE THIS — fnmatch globs over event `kind:` strings. The kernel
 # nudges this PAI when an event's kind matches any glob. Available kinds
 # come from /usr/lib/drivers/<driver>/events.yaml plus the kernel:* namespace.
 # Examples:
 #   wake_on: ['gmail:*']            # every gmail driver event
 #   wake_on: ['imessage:new']       # one specific kind
 #   wake_on: ['gmail:*', 'cal:*']   # multiple globs
-# Omit or leave empty if this PAI is only a `fallback` (catches unrouted).
-# wake_on: []
-#
-# deps: paiman-installed primitives this PAI bundle pulls in. Resolved
-# from the registry on `paiman install`.
-# deps: []
+# Leave [] only if this PAI is a `fallback` (catches unrouted events).
+wake_on: []
+
+# paiman-installed primitives this bundle pulls in (driver / bin / skill names).
+# Listed drivers are auto-mounted into this PAI's home view
+# (mounted set = deps ∩ installed-drivers).
+deps: []
+
+# Per-PAI home view extras (beyond universal bin/inbox/workspace/memory).
+# Each entry: link: <path-under-$HOME>, target: <path-relative-to-PAI_ROOT>
+# home:
+#   links:
+#     - link: communication/email
+#       target: var/spool/communication/email
 """
 
 SUBAGENT_PACKAGE_YAML_TEMPLATE = """\
+# Auto-scaffolded by `paiman init {name} --type subagent`. Edit fields marked CHANGE THIS.
+name: {name}
 kind: subagent
+version: 0.1.0
+
+# CHANGE THIS — one-liner describing what this subagent specializes in.
 description: ""
-prompt: usr/lib/subagents/{name}/prompt.md
+
 provider: anthropic
-# model: claude-sonnet-4-6
-#
-# Subagent bundles are referenced from a parent's dependencies: entry
-# via `package: {name}`. They have no wake_on/fallback — the parent
+model: claude-sonnet-4-6
+
+prompt: prompt.md
+
+# Subagent bundles are referenced from a parent's `dependencies:` via
+# `package: {name}`. They have no wake_on / fallback — the parent
 # addresses them directly via bin/send-message, not the kernel router.
 """
 
@@ -284,9 +308,11 @@ def _audit_log(line: str) -> None:
 
 
 def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
-                         seen: set[str]) -> str:
+                         seen: set[str], kinds_out: set[str] | None = None) -> str:
     """Install one bundle from a resolved source tree. Returns the bundle name.
-    Recursive for pai bundles via their `deps:` list."""
+    Recursive for pai bundles via their `deps:` list. `kinds_out`, if given,
+    collects every kind installed during this call (including transitive deps)
+    so the caller can decide whether to emit a kernel reload event."""
     manifest = _load_manifest(src)
     name = manifest.get("name")
     kind = manifest.get("kind")
@@ -323,7 +349,7 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
             if _find_installed_bundle(dep) is not None:
                 continue  # already installed; mutable, leave it alone
             dep_src = registry.lookup(dep)
-            _install_from_source(dep_src, dep, registry, work, seen)
+            _install_from_source(dep_src, dep, registry, work, seen, kinds_out)
 
     # Clean up old flat install if migrating into a topic subdir.
     if topic:
@@ -356,6 +382,8 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
 
     _audit_log(f"install {kind} {name} from {src_arg}")
     print(f"installed {kind} {name} -> {slot}")
+    if kinds_out is not None:
+        kinds_out.add(kind)
 
     # Run install hooks. Failures are logged but do not abort — a bad
     # hook should not leave the bundle half-uninstalled. Boot hooks are
@@ -383,11 +411,27 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
 
 def cmd_install(args: argparse.Namespace) -> int:
     src_arg: str = args.source
+    installed_kinds: set[str] = set()
     with tempfile.TemporaryDirectory(prefix="paiman-") as tmp:
         work = Path(tmp)
         registry = _Registry(work)
         src = _resolve_source(src_arg, registry, work)
-        _install_from_source(src, src_arg, registry, work, seen=set())
+        _install_from_source(
+            src, src_arg, registry, work, seen=set(), kinds_out=installed_kinds
+        )
+    # Re-stitch all running PAIs' homes if anything that affects them landed.
+    # Skill/prompt installs need to surface in `memory/skills/` and prompt
+    # blocks without a reboot. Bin/lib are picked up via PATH/sys.path on the
+    # PAI's next turn — no reload needed. Driver/pai installs are followed by
+    # explicit paictl/paiadd which emit reload themselves.
+    if installed_kinds & {"skill", "prompt"}:
+        try:
+            from boot.processes import emit_event
+            emit_event({"kind": "kernel:reload_config", "source": "paiman",
+                        "action": "install", "source_arg": src_arg})
+        except Exception as e:
+            print(f"paiman: warning — could not emit kernel:reload_config: {e}",
+                  file=sys.stderr)
     return 0
 
 
