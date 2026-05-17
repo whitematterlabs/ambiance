@@ -943,7 +943,11 @@ async def run() -> None:
                 if event_task in done:
                     await _handle_event_file(event_task.result(), heap)
     except asyncio.CancelledError:
-        raise
+        # SIGINT/SIGTERM handler cancels main_task; that's the expected
+        # shutdown path, not a crash. Let `finally` run the orderly drain
+        # and return normally so entry.py exits 0 instead of logging
+        # "[kernel] fatal: uncaught in supervise.run()".
+        pass
     except _RestartRequested:
         pass  # finally runs the shutdown; entry.py execs after run() returns
     finally:
