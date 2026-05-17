@@ -122,3 +122,70 @@ def test_reconcile_spawns_and_cancels(
         M._driver_tasks.clear()
 
     asyncio.run(scenario())
+
+
+def test_reconcile_gcs_done_tasks_and_respawns_after_cancelled(
+    proc_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: after `_supervise_driver` resolves status as `cancelled`
+    (because cancellation was awaited via `_supervise_driver` itself, not
+    via `_reconcile_drivers` — e.g. when reload was itself cancelled mid-
+    flight), a fresh `paictl start` must respawn the driver. Previously
+    the stale done-task in `_driver_tasks` made `running=True` and the
+    spawn branch was skipped, and the `cancelled` status on /proc was
+    never reset."""
+
+    started: list[str] = []
+
+    def factory():
+        async def coro() -> None:
+            started.append("imessage-in")
+            await asyncio.Event().wait()
+        return coro()
+
+    monkeypatch.setattr(
+        M,
+        "_discover_driver_specs",
+        lambda: (("imessage-in", factory),),
+        raising=True,
+    )
+    M._driver_tasks.clear()
+
+    async def scenario() -> None:
+        # First reconcile spawns.
+        await M._reconcile_drivers()
+        await asyncio.sleep(0)
+        assert "imessage-in" in M._driver_tasks
+        task = M._driver_tasks["imessage-in"]
+
+        # Simulate cancellation that goes through _supervise_driver but
+        # leaves a done-task entry in _driver_tasks (e.g. reload was
+        # itself cancelled before it could pop the entry).
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+        # /proc status is now 'cancelled', _driver_tasks still has the
+        # (done) entry.
+        assert P.read_status("imessage-in") == "cancelled"
+        assert "imessage-in" in M._driver_tasks
+        assert M._driver_tasks["imessage-in"].done()
+
+        # paictl start: active=true (it was already true), reload.
+        await M._reconcile_drivers()
+        await asyncio.sleep(0)
+
+        # Must be a *new* live task, status reset to running.
+        assert "imessage-in" in M._driver_tasks
+        assert not M._driver_tasks["imessage-in"].done()
+        assert P.read_status("imessage-in") == "running"
+        assert started == ["imessage-in", "imessage-in"]
+
+        # Cleanup.
+        for t in M._driver_tasks.values():
+            t.cancel()
+        await asyncio.gather(*M._driver_tasks.values(), return_exceptions=True)
+        M._driver_tasks.clear()
+
+    asyncio.run(scenario())

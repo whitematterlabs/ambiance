@@ -623,14 +623,30 @@ async def _handle_restart() -> None:
 
 
 async def _handle_reload_config() -> None:
-    """Drain in-flight nudges, then reconcile. On error, nudge pid 1."""
+    """Reconcile drivers promptly, then drain nudges + reconcile PAIs.
+
+    Driver reconcile runs *before* draining per-PAI locks: a runaway driver
+    can be generating nudges faster than they drain (every keystroke wakes
+    PAI), so waiting on the drain to cancel the driver is a feedback loop
+    that takes seconds-to-minutes. PAI/config reconcile still drains first
+    because it mutates spec.yaml that in-flight nudges read.
+
+    Shielded against cancellation so a SIGTERM mid-reload doesn't leave the
+    driver registry inconsistent with /proc — otherwise the next boot sees
+    stale `running`/`cancelled` status that blocks respawn.
+    """
+    try:
+        await asyncio.shield(_reconcile_drivers())
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"[kernel] reload_config: driver reconcile failed: {e!r}\n{tb}", flush=True)
+
     print("[kernel] reload_config: draining nudges", flush=True)
     async with AsyncExitStack() as stack:
         for lock in list(_pai_locks.values()):
             await stack.enter_async_context(lock)
         try:
             C.reconcile_from_config()
-            await _reconcile_drivers()
             # Re-stitch every running PAI's home view so newly-installed
             # skills/prompts surface without a reboot. Mirrors the boot-time
             # loop in phases/reconcile.py — idempotent, heals broken links.
@@ -725,7 +741,9 @@ def _ensure_driver_proc(slug: str) -> None:
 
     First spawn writes `kind: driver, active: true`. On subsequent spawns
     the existing spec (including any `active:` flipped by paictl) is left
-    untouched."""
+    untouched; status is unconditionally reset to `running` so a previous
+    `cancelled`/`failed` resolution doesn't make /proc look terminal while
+    the supervise task is in fact live again."""
     proc = P.PROC_DIR / slug
     if proc.exists():
         (proc / "status").write_text("running\n")
@@ -745,12 +763,34 @@ async def _reconcile_drivers() -> None:
     `kernel:reload_config` event — never on a timer.
 
     Re-discovers /usr/lib/drivers/ each call so paiman install/remove takes
-    effect on reload without a kernel restart."""
+    effect on reload without a kernel restart.
+
+    Done-task cleanup: a driver task that exited on its own (crash, clean
+    return, or cancellation that wasn't awaited here because the reload
+    handler itself was cancelled) leaves a stale `.done()` entry in
+    `_driver_tasks`. We GC those up-front so the `active and not running`
+    branch correctly identifies the slot as free and respawns.
+    """
     specs = _discover_driver_specs()
     known = {slug for slug, _ in specs}
+
+    # GC any task whose coroutine has finished. Without this, a respawn
+    # after a crash or stale cancellation can't tell "still running" from
+    # "long dead" and silently no-ops.
+    for slug in list(_driver_tasks):
+        task = _driver_tasks[slug]
+        if task.done():
+            # Drain the exception (if any) so asyncio doesn't log it as
+            # unretrieved later.
+            try:
+                task.result()
+            except (asyncio.CancelledError, Exception):
+                pass
+            del _driver_tasks[slug]
+
     for slug, factory in specs:
         active = _driver_active(slug)
-        running = slug in _driver_tasks and not _driver_tasks[slug].done()
+        running = slug in _driver_tasks  # already filtered to live tasks above
         if active and not running:
             try:
                 task = asyncio.create_task(
@@ -772,22 +812,25 @@ async def _reconcile_drivers() -> None:
             _driver_tasks[slug] = task
             print(f"[kernel] driver started: {slug}", flush=True)
         elif not active and running:
-            _driver_tasks[slug].cancel()
+            task = _driver_tasks.pop(slug)
+            task.cancel()
+            # Drop the lock-equivalent (the dict entry) before awaiting so
+            # if *this* reconcile is itself cancelled mid-await, the next
+            # reconcile sees the slot empty and can respawn cleanly.
             try:
-                await _driver_tasks[slug]
+                await task
             except (asyncio.CancelledError, Exception):
                 pass
-            del _driver_tasks[slug]
             print(f"[kernel] driver stopped: {slug}", flush=True)
     for slug in list(_driver_tasks):
         if slug in known or slug == "proc-watcher":
             continue
-        _driver_tasks[slug].cancel()
+        task = _driver_tasks.pop(slug)
+        task.cancel()
         try:
-            await _driver_tasks[slug]
+            await task
         except (asyncio.CancelledError, Exception):
             pass
-        del _driver_tasks[slug]
         print(f"[kernel] driver removed: {slug}", flush=True)
 
 
