@@ -58,7 +58,7 @@ Events are plain files dropped into `events/`. The kernel watches this directory
 
 ```
 home/events/
-├── 1745267400-imessage-kaia.yaml
+├── 1745267400-imessage-alex.yaml
 ├── 1745267520-calendar-reminder.yaml
 └── 1745268000-subagent-done.yaml
 ```
@@ -70,8 +70,8 @@ Filename format: `{unix-timestamp}-{source}-{slug}.yaml`
 ```yaml
 source: imessage           # imessage | calendar | subagent | manual
 type: message              # message | reminder | completion | notification
-thread: kaia               # relevant thread/process slug
-summary: "kaia: are we still on for dinner?"
+thread: alex               # relevant thread/process slug
+summary: "alex: are we still on for dinner?"
 ```
 
 ### Event sources
@@ -130,7 +130,7 @@ restart: never                     # never | on-failure | always (default: never
 deadline: 2026-04-22T15:00:00      # optional; kernel auto-expires and kills subprocess
 spawned: 2026-04-22T14:00:00       # stamped by paicron
 description: "Research flights"    # optional; free text for humans
-people: [kaia]                     # optional; related people
+people: [alex]                     # optional; related people
 
 # Cron / timer service (fires on schedule)
 schedule: "0 9 * * *"              # cron expr (recurring) OR ISO datetime (one-shot)

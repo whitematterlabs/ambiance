@@ -20,9 +20,9 @@ Usage:
     addcontact NAME HANDLE [HANDLE ...] [--slug SLUG]
 
 Examples:
-    addcontact Keezy +19492997354
-    addcontact "Engin K" +19492997354 engin@example.com
-    addcontact "Engin K" +19492997354 --slug keezy
+    addcontact Alex +15555550123
+    addcontact "Alex Rivera" +15555550123 alex@example.com
+    addcontact "Alex Rivera" +15555550123 --slug alex
 
 Refuses to run if person or thread already exists at that slug — use
 resolve-contact to rename a phone-digit slug, or edit about.yaml directly
@@ -55,7 +55,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="Create a person + iMessage thread in one shot."
     )
-    ap.add_argument("name", help="Display name, e.g. 'Engin K' or 'Keezy'")
+    ap.add_argument("name", help="Display name, e.g. 'Alex Rivera' or 'Alex'")
     ap.add_argument("handles", nargs="+", help="Phone (+1...) or email handles")
     ap.add_argument("--slug", help="Override slug (default: slugify(name))")
     args = ap.parse_args()

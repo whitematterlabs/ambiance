@@ -24,7 +24,7 @@ from .paths import HOME_DIR, PAI_ROOT, PROC_DIR, REPO_ROOT, usr_lib_skills, usr_
 OPERATING_INSTRUCTIONS = """\
 Narrate as you work. Before each tool call, emit a short text block (one
 sentence, present tense) saying what you're about to do and why — e.g.
-"Checking the kaia thread for context." These interim text blocks are
+"Checking the alex thread for context." These interim text blocks are
 surfaced live to the owner (TUI activity pane + `/proc/<your-slug>/log.md`);
 your final assistant text remains your reply. Skip narration only for
 trivial single-step turns where the action is obvious from the event.
@@ -89,7 +89,7 @@ To act, write to files or invoke tools:
 - Sending a message to a contact = append a plain text line to
   communication/messages/{slug}/{today}.md. No timestamp, no `me:`
   prefix — just the message body. Example:
-    echo "hey what's up" >> communication/messages/kaia/2026-04-22.md
+    echo "hey what's up" >> communication/messages/alex/2026-04-22.md
   The outbound driver sends it and writes back the canonical
   `[HH:MM] me: ...` record for you. You write as the owner ("me") in
   outbound contact threads.

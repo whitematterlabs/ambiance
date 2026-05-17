@@ -83,8 +83,8 @@ from boot import processes as P
 
 P.emit_event({
     "kind": "imessage:new",
-    "thread": "kaia",
-    "sender": "kaia",
+    "thread": "alex",
+    "sender": "alex",
     "text": "dinner thursday?",
 })
 ```

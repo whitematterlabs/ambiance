@@ -28,3 +28,7 @@ wheels/
 
 # Abandoned IMAP/maildir driver work — kept locally for reference, not shipped.
 /deprecated/
+
+# Per-owner / per-environment files — not shipped.
+/src/etc/owner.md
+/src/usr/share/doc/built/

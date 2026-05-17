@@ -313,8 +313,8 @@ schedule: "0 9 * * *"              # cron expr (recurring) OR ISO datetime (one-
 
 # Metadata (optional)
 spawned: 2026-04-21T14:00:00       # stamped by paicron
-description: "Dinner with kaia at 8"
-people: [kaia]
+description: "Dinner with alex at 8"
+people: [alex]
 ```
 
 ### status
@@ -336,8 +336,8 @@ Event files are dropped into `home/events/` to wake the kernel. Each file is a Y
 ```yaml
 source: imessage
 kind: new_message
-thread: kaia
-path: home/communication/messages/kaia/2026-04-21.md
+thread: alex
+path: home/communication/messages/alex/2026-04-21.md
 ```
 
 ## Open Questions

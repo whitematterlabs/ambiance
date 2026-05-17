@@ -1,4 +1,4 @@
-#!/Users/arda/.pai/usr/bin/env python
+#!/usr/bin/env python3
 """whatsapp-backfill — replay WhatsApp history into communication/messages/.
 
 Queries ChatStorage.sqlite for messages on a given date (or range) and replays

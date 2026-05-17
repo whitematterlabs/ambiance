@@ -39,8 +39,8 @@ restart: never                         # never | on-failure | always
 deadline: 2026-04-22T20:00:00          # ISO datetime; kernel kills + resolves
 schedule: "0 9 * * *"                  # cron expr OR one-shot ISO datetime
 spawned: 2026-04-22T14:00:00           # stamped by paicron
-description: "Dinner with kaia at 8"   # free text
-people: [kaia]                         # related people
+description: "Dinner with alex at 8"   # free text
+people: [alex]                         # related people
 ```
 
 ## status values

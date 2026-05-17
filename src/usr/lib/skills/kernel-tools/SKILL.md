@@ -82,7 +82,7 @@ ipc --to <pid|slug> --content "..."
 
 # Emit a kernel event (broadcast through wake_on)
 ipc emit kernel:reload_config
-ipc emit imessage:new --field thread=kaia --field text="..."
+ipc emit imessage:new --field thread=alex --field text="..."
 ```
 
 ## subagent — child PAI lifecycle
