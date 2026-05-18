@@ -1,0 +1,54 @@
+# XcodeGen spec for the PAI menubar app.
+#
+# Regenerate the Xcode project after editing this file or adding new sources:
+#
+#   cd macos && xcodegen generate
+#
+# project.pbxproj IS committed (so clones build with just Xcode, no xcodegen).
+# Re-run xcodegen whenever this file changes.
+
+name: PAI
+options:
+  bundleIdPrefix: com.pai
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # No signing — MVP runs unsigned from Xcode/xcodebuild.
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+
+targets:
+  PAI:
+    type: application
+    platform: macOS
+    sources:
+      - path: PAI
+    info:
+      path: PAI/Info.plist
+      properties:
+        # Menubar-only agent — no dock icon, no main menu.
+        LSUIElement: true
+        CFBundleName: PAI
+        CFBundleDisplayName: PAI
+        CFBundleIdentifier: com.pai.menubar
+        NSHumanReadableCopyright: ""
+        # macOS 14+ scenes-based lifecycle.
+        NSPrincipalClass: NSApplication
+    settings:
+      base:
+        PRODUCT_NAME: PAI
+        PRODUCT_BUNDLE_IDENTIFIER: com.pai.menubar
+        ENABLE_HARDENED_RUNTIME: "YES"
+        # No sandbox: the app reads/writes ~/.pai/ as the owner. Sandboxing
+        # would require user-selected file access per directory — defeats
+        # the "second client of the same filesystem" model.
+        ENABLE_APP_SANDBOX: "NO"
+        GENERATE_INFOPLIST_FILE: "NO"
