@@ -179,6 +179,7 @@ SBIN_SCRIPTS: frozenset[str] = frozenset({
     "paiadd",
     "paidel",
     "paifs-init",
+    "paisetup",
 })
 
 
@@ -451,6 +452,39 @@ def expose_pai_command(root: Path) -> None:
     print(f"note: no writable bin dir found; add {target.parent} to PATH manually")
 
 
+def _config_has_only_seeds(root: Path) -> bool:
+    """True if etc/config.yaml exists and lists only the reserved seed
+    PAIs (root + pai). Used to decide whether to chain into paisetup on
+    a fresh install."""
+    import yaml as _yaml
+
+    cfg = root / "etc" / "config.yaml"
+    if not cfg.exists():
+        return False
+    try:
+        data = _yaml.safe_load(cfg.read_text()) or {}
+    except _yaml.YAMLError:
+        return False
+    pais = data.get("pais") or []
+    names = {p.get("name") for p in pais if isinstance(p, dict)}
+    return names == {"root", "pai"}
+
+
+def maybe_chain_paisetup(root: Path) -> None:
+    """On an interactive TTY against a fresh config, exec into paisetup
+    so the user gets a guided first-run. Non-TTY/scripted runs skip it."""
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return
+    if not _config_has_only_seeds(root):
+        return
+    paisetup = root / "sbin" / "paisetup"
+    if not paisetup.exists():
+        return
+    print(f"\nLaunching paisetup to configure your first PAIs…")
+    env = {**os.environ, "PAI_ROOT": str(root)}
+    os.execvpe(str(paisetup), [str(paisetup)], env)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
@@ -459,11 +493,18 @@ def main() -> int:
         default=Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai"))),
         help="FHS root (default: $PAI_ROOT or ~/.pai)",
     )
+    ap.add_argument(
+        "--no-setup",
+        action="store_true",
+        help="skip auto-chaining into paisetup on a fresh install",
+    )
     args = ap.parse_args()
     _ensure_uv()
     lay_out(args.root)
     expose_pai_command(args.root)
     print(f"FHS skeleton ready at {args.root}")
+    if not args.no_setup:
+        maybe_chain_paisetup(args.root)
     return 0
 
 
