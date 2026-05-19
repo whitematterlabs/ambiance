@@ -137,14 +137,18 @@ struct MainWindow: View {
     @ObservedObject var cloner: PAICloner
 
     var body: some View {
-        NavigationSplitView {
-            Sidebar(
-                registry: registry, procs: procs,
-                cloner: cloner, selection: $state.selection
-            )
-        } detail: {
-            detail
-                .frame(minWidth: 520, minHeight: 420)
+        VStack(spacing: 0) {
+            NavigationSplitView {
+                Sidebar(
+                    registry: registry, procs: procs,
+                    cloner: cloner, selection: $state.selection
+                )
+            } detail: {
+                detail
+                    .frame(minWidth: 520, minHeight: 420)
+            }
+            Divider()
+            StatusBar(registry: registry, selection: state.selection)
         }
         .navigationTitle(titleForSelection)
         .onAppear { ensureSelection() }

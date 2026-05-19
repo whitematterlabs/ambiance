@@ -12,15 +12,36 @@ import fnmatch
 from . import processes as P
 
 
-def route_to_pids(event_kind: str, fallback_pid: int = 1) -> list[int]:
+def route_to_pids(
+    event_kind: str,
+    fallback_pid: int = 1,
+    target_pid: int | None = None,
+) -> list[int]:
     """Every running PAI that should be nudged for `event_kind`, by pid.
 
-    Two-tier:
+    If `target_pid` is set, deliver only to that pid (when it's a running
+    kind:pai) and skip wake_on/fallback entirely. This is the channel used
+    by drivers that own per-PAI session state and need to address a
+    specific PAI rather than broadcast by kind.
+
+    Otherwise two-tier:
       1. Every PAI whose `wake_on` glob matches → nudged (fan-out).
       2. If zero PAIs matched, every PAI with `fallback: true` → nudged.
       3. If still zero, [fallback_pid] (pid 1 = kernel_manager) so the
          event always lands somewhere.
     """
+    if target_pid is not None:
+        for slug, spec in P._iter_pai_specs():
+            if spec.get("pid") != target_pid:
+                continue
+            try:
+                if P.read_status(slug) != "running":
+                    return []
+            except P.ProcessNotFound:
+                return []
+            return [int(target_pid)]
+        return []
+
     matched: list[int] = []
     fallbacks: list[int] = []
     for slug, spec in P._iter_pai_specs():

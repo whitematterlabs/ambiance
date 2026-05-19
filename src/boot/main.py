@@ -556,7 +556,12 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         source = event.get("source")
         if isinstance(source, str) and source and source != "kernel" and isinstance(kind, str) and kind:
             public_kind = f"{source}:{kind}"
-            for pid in _route_to_pids(public_kind):
+            # `target_pid`, if set by the emitting driver, bypasses wake_on
+            # and delivers only to that pid. Used by drivers that own per-PAI
+            # session state (e.g. ax) and don't want to fan out by kind.
+            tp = event.get("target_pid")
+            target_pid = tp if isinstance(tp, int) else None
+            for pid in _route_to_pids(public_kind, target_pid=target_pid):
                 _dispatch_nudge(pid, f"event: {public_kind}", context=event)
             return
 

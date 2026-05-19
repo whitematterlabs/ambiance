@@ -14,7 +14,7 @@ The target shape is locked: **single window + `NSStatusItem` (not `MenuBarExtra`
 
 The app is useless if the kernel only runs when a terminal is open.
 
-- [ ] Write `~/Library/LaunchAgents/com.pai.kernel.plist` template; ship it under `src/boot/` or `sbin/` and install via `paifs-init` (or a new `sbin/pai-install-agent`).
+- [x] Write `~/Library/LaunchAgents/com.pai.kernel.plist` template; ship it under `src/boot/` or `sbin/` and install via `paifs-init` (or a new `sbin/pai-install-agent`). → `sbin/pai-install-launchd {install,uninstall,status}`; plist template at `macos/launchd/com.pai.kernel.plist`.
 - [ ] Kernel must log to a fixed path (`/var/log/kernel.log` inside `$PAI_ROOT` already works) so the app can tail it regardless of who started the kernel.
 - [ ] `AppState` detects "kernel not running" (no `/proc/kernel/pid` or pid is dead) and offers a single button: **Start kernel** → `launchctl kickstart gui/$UID/com.pai.kernel`.
 - [ ] `sbin/reboot` keeps working — the launchd job must tolerate the in-place re-exec without launchd treating it as a crash loop (`ThrottleInterval`, `KeepAlive` semantics).

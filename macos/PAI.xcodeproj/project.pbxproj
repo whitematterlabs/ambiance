@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		017911EC784525F45D3B8579 /* DayFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C24334DA7FBB9885019A42 /* DayFile.swift */; };
+		1B2F064B043ADC66FA06A03A /* StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD071A206A28EBA9798DE3C9 /* StatusBar.swift */; };
 		1CA19E1A2FAB6E085B119D9C /* PAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */; };
 		26F838A79D85B80316EA8B9A /* FHS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 343A7347B600768299E838FE /* FHS.swift */; };
 		27FC35165F6852F29DE2B890 /* PAIRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FA2F0E59DBEE4E74C48788 /* PAIRegistry.swift */; };
@@ -33,6 +34,7 @@
 		6039086C086533FEF3139A11 /* ActivityWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindow.swift; sourceTree = "<group>"; };
 		972D6D438622F5A4DD0898B6 /* TabStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStrip.swift; sourceTree = "<group>"; };
 		9B9E2253F1D467674F24E9D3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		AD071A206A28EBA9798DE3C9 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
 		BAD2CD4C1D5B4BFAE4641B54 /* MarkdownBlocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownBlocks.swift; sourceTree = "<group>"; };
 		BFC2E636B61658A6BF1DCF7B /* ChatWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWindow.swift; sourceTree = "<group>"; };
 		C32B6D5EF99A48635EAD0279 /* PAICloner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAICloner.swift; sourceTree = "<group>"; };
@@ -87,6 +89,7 @@
 				BAD2CD4C1D5B4BFAE4641B54 /* MarkdownBlocks.swift */,
 				DB28C180D43558F148D0FC88 /* ProcsWindow.swift */,
 				437C49783C16ABCC26EC3E26 /* Sidebar.swift */,
+				AD071A206A28EBA9798DE3C9 /* StatusBar.swift */,
 				972D6D438622F5A4DD0898B6 /* TabStrip.swift */,
 			);
 			path = Views;
@@ -164,6 +167,7 @@
 				5D42E64CA357B37F764AA2D5 /* ProcRegistry.swift in Sources */,
 				2FC79050F12EA67782BEB383 /* ProcsWindow.swift in Sources */,
 				FF729026BAE19ABC56B66133 /* Sidebar.swift in Sources */,
+				1B2F064B043ADC66FA06A03A /* StatusBar.swift in Sources */,
 				7B185D434C18056EF38AD85D /* TabStrip.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

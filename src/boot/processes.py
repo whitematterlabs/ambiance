@@ -52,9 +52,16 @@ def _now_hm() -> str:
     return datetime.now().strftime("%H:%M")
 
 
-def emit_event(payload: dict) -> Path:
-    """Write a YAML event file into home/events/. Consumed by the running kernel."""
+def emit_event(payload: dict, target_pid: int | None = None) -> Path:
+    """Write a YAML event file into home/events/. Consumed by the running kernel.
+
+    If `target_pid` is given, it is stamped onto the payload and the router
+    delivers only to that pid, bypassing wake_on matching. Used by drivers
+    that own per-PAI session state (e.g. ax) and need to address a specific
+    PAI rather than fan out by event kind."""
     EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    if target_pid is not None:
+        payload = {**payload, "target_pid": int(target_pid)}
     source = str(payload.get("source", "kernel"))
     # Microseconds + source keep filenames unique and debuggable.
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")

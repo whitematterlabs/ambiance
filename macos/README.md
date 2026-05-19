@@ -83,22 +83,13 @@ cd ~/.pai && usr/bin/python -m boot run
 …or install the LaunchAgent so it starts at login and respawns on crash:
 
 ```sh
-cp macos/launchd/com.pai.kernel.plist ~/Library/LaunchAgents/
-/usr/bin/sed -i '' "s|YOUR_HOME|$HOME|g" ~/Library/LaunchAgents/com.pai.kernel.plist
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.pai.kernel.plist
-launchctl enable gui/$UID/com.pai.kernel
-launchctl kickstart -k gui/$UID/com.pai.kernel
+~/.pai/sbin/pai-install-launchd
 
 # logs
 tail -f ~/.pai/var/log/kernel.out.log ~/.pai/var/log/kernel.err.log
 ```
 
-Uninstall:
-
-```sh
-launchctl bootout gui/$UID ~/Library/LaunchAgents/com.pai.kernel.plist
-rm ~/Library/LaunchAgents/com.pai.kernel.plist
-```
+Uninstall: `~/.pai/sbin/pai-install-launchd uninstall`. Status: `~/.pai/sbin/pai-install-launchd status`.
 
 ## Verify end-to-end
 

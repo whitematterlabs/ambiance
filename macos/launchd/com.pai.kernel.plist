@@ -2,18 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  PAI kernel LaunchAgent.
-
-  Install (replace YOUR_HOME with `echo $HOME` if the literal doesn't expand):
-    cp macos/launchd/com.pai.kernel.plist ~/Library/LaunchAgents/
-    /usr/bin/sed -i '' "s|YOUR_HOME|$HOME|g" ~/Library/LaunchAgents/com.pai.kernel.plist
-    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.pai.kernel.plist
-    launchctl enable gui/$UID/com.pai.kernel
-    launchctl kickstart -k gui/$UID/com.pai.kernel
-
+  PAI kernel LaunchAgent. Install via:
+    pai-install-launchd install
   Uninstall:
-    launchctl bootout gui/$UID ~/Library/LaunchAgents/com.pai.kernel.plist
-    rm ~/Library/LaunchAgents/com.pai.kernel.plist
+    pai-install-launchd uninstall
+  Status:
+    pai-install-launchd status
+
+  YOUR_HOME placeholders are substituted at install time.
 -->
 <plist version="1.0">
 <dict>
@@ -22,10 +18,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>YOUR_HOME/.pai/usr/bin/python</string>
-        <string>-m</string>
-        <string>boot</string>
-        <string>run</string>
+        <string>YOUR_HOME/.pai/sbin/init</string>
     </array>
 
     <key>WorkingDirectory</key>
