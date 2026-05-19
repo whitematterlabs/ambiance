@@ -1,16 +1,36 @@
 # PAI macOS menubar app (MVP)
 
-A thin SwiftUI menubar shell over the PAI kernel. **No kernel changes.** It's a
+A SwiftUI/AppKit menubar shell over the PAI kernel. **No kernel changes.** It's a
 second client of the same filesystem the TUI talks to:
 
 | What | How |
 |---|---|
-| Discover PAIs | poll `~/.pai/proc/<slug>/spec.yaml` + `status` |
-| Receive | `DispatchSource` on the day-file's parent dir + 0.5s stat poll |
-| Send | append to day-file + atomic-rename a YAML into `~/.pai/run/pai/events/` |
+| Discover PAIs | poll `~/.pai/proc/<slug>/spec.yaml` + `status` (1s timer) |
+| Procs view | poll all `~/.pai/proc/<slug>/{spec.yaml,status,busy}` (1s timer) |
+| Activity log | tail `~/.pai/var/log/kernel/kernel.log` (0.5s size-poll) |
+| Receive chat | `DispatchSource` on the day-file's parent dir + 0.5s stat poll |
+| Send chat | append to day-file + atomic-rename a YAML into `~/.pai/run/pai/events/` |
 
 Both TUI and this app can be open against the same PAI simultaneously — they
 hold no locks and own no exclusive state.
+
+## Shape
+
+One persistent window. The menubar icon is an `NSStatusItem` button — single
+left-click toggles the window, right-click quits. (SwiftUI's `MenuBarExtra`
+can't do click-to-open without a popover, so the menubar is plain AppKit;
+state and the window are owned by `AppDelegate`.)
+
+The window is a `NavigationSplitView`:
+
+- **Sidebar** — *Overview* group (Activity, Processes) + *PAIs* group, each PAI
+  row carries a status dot and inline busy reason/elapsed-seconds.
+- **Detail** — swaps between `ActivityWindow` (colored live tail of
+  `kernel.log`), `ProcsWindow` (sortable table of every `/proc/<slug>/`), or
+  `ChatWindow` (per-PAI transcript with markdown rendering + tinted bubbles).
+
+Red close button hides; the next menubar click brings the window — and its
+sidebar selection — back.
 
 ## Status
 
@@ -49,8 +69,8 @@ Build & run:
 The target is configured as a menubar agent (`LSUIElement = YES`), unsigned,
 no sandbox — it reads/writes `~/.pai/` directly as the owner.
 
-A `P·N` glyph appears in the menubar (N = running PAI count) or `P·!` if
-the kernel is offline.
+The menubar shows an SF Symbol bubble — hollow when all PAIs are idle, filled
+when any PAI is busy, exclamation-bubble when the kernel is offline.
 
 ## Run the kernel
 
@@ -83,10 +103,10 @@ rm ~/Library/LaunchAgents/com.pai.kernel.plist
 ## Verify end-to-end
 
 1. Kernel running (manual or LaunchAgent).
-2. Build & run the app. Menubar shows `P·1` (or more).
-3. Click menubar icon → at least the default PAI appears in the list.
-4. Click a PAI → chat window opens. Today's transcript renders.
-5. Type a message → ⏎ or Cmd-⏎. Watch:
+2. Build & run the app. Menubar shows the bubble icon with the running count.
+3. Click menubar icon → window opens to the first PAI (or Activity if none).
+4. Sidebar shows Activity / Processes / each running PAI. Click any to switch.
+5. Type a message in a PAI's chat → ⏎ or ⌘-⏎. Watch:
    - day-file grows: `tail -f ~/.pai/home/pai/communication/messages/me/<pid>/$(date +%F).md`
    - YAML event lands then disappears: `ls -lt ~/.pai/run/pai/events/ | head`
    - PAI's reply appears in the window within seconds.

@@ -196,6 +196,7 @@ SBIN_SCRIPTS: frozenset[str] = frozenset({
     "tui",
     "paiman",
     "paiadd",
+    "paiclone",
     "paidel",
     "paifs-init",
     "paisetup",

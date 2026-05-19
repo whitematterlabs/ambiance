@@ -105,6 +105,24 @@ def _append_entry(config_path: Path, entry: dict) -> None:
     tmp.rename(config_path)
 
 
+def materialize(entry: dict[str, Any]) -> tuple[Path, Path]:
+    """Realize a fleet entry on disk. Shared by paiadd and paiclone.
+
+    Creates `/var/lib/instances/<name>/`, stitches `/home/<name>/` (or
+    `/root/` for the reserved pid-1 name), appends the entry to
+    `/etc/config.yaml`, and emits `kernel:reload_config`. The caller is
+    responsible for having validated the entry first (unique name, no
+    pre-existing instance dir).
+    """
+    name = entry["name"]
+    instance = paths.var_lib_instance(name)
+    instance.mkdir(parents=True)
+    home = stitch.stitch_home(name)
+    _append_entry(C.CONFIG_PATH, entry)
+    P.emit_event({"kind": "kernel:reload_config", "source": "paiadd", "added": name})
+    return instance, home
+
+
 def _build_entry_noninteractive(
     bundle: str, pkg: dict[str, Any], args: argparse.Namespace
 ) -> dict[str, Any]:
@@ -208,17 +226,12 @@ def cmd_add(args: argparse.Namespace) -> int:
             print("aborted.")
             return 1
 
-    name = entry["name"]
-    instance = paths.var_lib_instance(name)
-    instance.mkdir(parents=True)
-    home = stitch.stitch_home(name)
-    _append_entry(C.CONFIG_PATH, entry)
-    P.emit_event({"kind": "kernel:reload_config", "source": "paiadd", "added": name})
+    instance, home = materialize(entry)
 
     print(f"\ninstance state: {instance}")
     print(f"home:           {home}")
     print(f"config:         {C.CONFIG_PATH} (entry appended)")
-    print(f"\nNext: paictl start {name}")
+    print(f"\nNext: paictl start {entry['name']}")
     return 0
 
 

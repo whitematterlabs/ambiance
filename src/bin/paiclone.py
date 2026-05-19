@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+"""paiclone — fork an existing fleet entry as a new instance.
+
+Reads `/etc/config.yaml`, locates the entry by name, and appends a copy
+under a fresh name. The clone shares prompt/bundle/model/wake_on with
+the source; its instance state (`/var/lib/instances/<new>/`) starts
+empty. The kernel allocates a fresh pid on the next reconcile.
+
+Usage:
+
+    paiclone <source>                 auto-suffix (<source>-2, -3, …)
+    paiclone <source> --name <new>    explicit new name
+    paiclone <source> -y              skip confirm prompt
+
+A clone of `root` is *not* a second pid-1 — it's a peer with root's
+prompt and powers (no capability gates), stitched at `/home/<new>/`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from typing import Any
+
+import yaml
+
+from boot import config as C
+from boot import paths
+from bin import paiadd
+
+
+def _load_entries() -> list[dict[str, Any]]:
+    if not C.CONFIG_PATH.exists():
+        raise SystemExit(f"paiclone: {C.CONFIG_PATH} not found")
+    with C.CONFIG_PATH.open() as f:
+        data = yaml.safe_load(f) or {}
+    return [e for e in data.get("pais", []) if isinstance(e, dict)]
+
+
+def _find_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    for e in entries:
+        if e.get("name") == name:
+            return e
+    raise SystemExit(f"paiclone: no PAI named {name!r} in {C.CONFIG_PATH}")
+
+
+def _next_free_name(base: str, taken: set[str]) -> str:
+    # base-2, base-3, … — skip any already in config.
+    i = 2
+    while f"{base}-{i}" in taken:
+        i += 1
+    return f"{base}-{i}"
+
+
+def cmd_clone(args: argparse.Namespace) -> int:
+    entries = _load_entries()
+    taken = {e["name"] for e in entries if "name" in e}
+    source = _find_entry(entries, args.source)
+
+    new_name = args.name or _next_free_name(args.source, taken)
+    if "/" in new_name or new_name.startswith(".") or not new_name:
+        raise SystemExit(f"paiclone: invalid name {new_name!r}")
+    if new_name in taken:
+        raise SystemExit(f"paiclone: {new_name!r} already in {C.CONFIG_PATH}")
+    if paths.var_lib_instance(new_name).exists():
+        raise SystemExit(
+            f"paiclone: instance state already exists at {paths.var_lib_instance(new_name)}"
+        )
+
+    # Shallow copy of source; rename and drop kernel-managed fields.
+    entry: dict[str, Any] = dict(source)
+    entry["name"] = new_name
+    entry.pop("pid", None)  # let kernel allocate a fresh pid
+
+    print(f"Cloning {args.source!r} → {new_name!r}.")
+    print("Fleet entry:")
+    print(yaml.safe_dump([entry], sort_keys=False).rstrip())
+
+    if not args.yes:
+        raw = input("\nProceed? [Y/n]: ").strip().lower()
+        if raw and raw not in ("y", "yes"):
+            print("aborted.")
+            return 1
+
+    instance, home = paiadd.materialize(entry)
+    print(f"\ninstance state: {instance}")
+    print(f"home:           {home}")
+    print(f"config:         {C.CONFIG_PATH} (entry appended)")
+    print(f"\nNext: paictl start {new_name}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="paiclone", description=__doc__)
+    ap.add_argument("source", help="name of existing PAI to clone")
+    ap.add_argument("--name", help="new instance name (default: <source>-N)")
+    ap.add_argument("-y", "--yes", action="store_true", help="skip confirm prompt")
+    ap.set_defaults(func=cmd_clone)
+    args = ap.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

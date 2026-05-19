@@ -6,6 +6,7 @@ struct PAIInfo: Identifiable, Hashable {
     let slug: String
     let pid: Int
     let description: String
+    let busy: BusyState?
     var id: Int { pid }
 }
 
@@ -22,16 +23,18 @@ final class PAIRegistry: ObservableObject {
 
     private var timer: Timer?
 
-    func start() {
+    // Started from init — NOT from PAIApp, because accessing @StateObject
+    // in App.init creates a throwaway instance, and the real one (the one
+    // views observe) would never have its timer started.
+    init() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }
 
-    func stop() {
+    deinit {
         timer?.invalidate()
-        timer = nil
     }
 
     private func refresh() {
@@ -61,7 +64,8 @@ final class PAIRegistry: ObservableObject {
             guard spec["kind"] == "pai" else { continue }
             guard let pidStr = spec["pid"], let pid = Int(pidStr) else { continue }
             let desc = spec["description"] ?? slug
-            found.append(PAIInfo(slug: slug, pid: pid, description: desc))
+            let busy = readBusy(at: entry.appendingPathComponent("busy"))
+            found.append(PAIInfo(slug: slug, pid: pid, description: desc, busy: busy))
         }
         found.sort { $0.pid < $1.pid }
         if found != pais { pais = found }
