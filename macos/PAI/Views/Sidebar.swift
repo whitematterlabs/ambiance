@@ -71,26 +71,24 @@ struct Sidebar: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 4)
-                if hovered || cloning {
-                    Button {
-                        cloner.clone(source: pai.slug)
-                    } label: {
-                        if cloning {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: "plus.circle.fill")
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(.secondary)
-                        }
+                Text("#\(pai.pid)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .opacity(hovered ? 0 : 1)
+                Button {
+                    cloner.clone(source: pai.slug)
+                } label: {
+                    if cloning {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "plus.circle.fill")
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(hovered ? Color.accentColor : .secondary)
                     }
-                    .buttonStyle(.borderless)
-                    .help("Clone this PAI")
-                    .disabled(cloning)
-                } else {
-                    Text("#\(pai.pid)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
                 }
+                .buttonStyle(.borderless)
+                .help("Clone this PAI")
+                .disabled(cloning)
             }
         } icon: {
             ZStack {

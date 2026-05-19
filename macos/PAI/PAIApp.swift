@@ -63,12 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         let hosting = NSHostingController(rootView: root)
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 860, height: 560),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         win.title = "PAI"
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = .visible
+        win.styleMask.insert(.unifiedTitleAndToolbar)
         win.contentViewController = hosting
         win.isReleasedWhenClosed = false
         win.center()
@@ -179,14 +182,36 @@ struct MainWindow: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "bubble.left.and.exclamationmark.bubble.right")
-                .font(.system(size: 36))
-                .foregroundStyle(.secondary)
-            Text(registry.kernelOnline ? "Pick something from the sidebar." : "Kernel offline.")
-                .foregroundStyle(.secondary)
+        let online = registry.kernelOnline
+        return VStack(spacing: 14) {
+            Image(systemName: online
+                  ? "bubble.left.and.bubble.right"
+                  : "bubble.left.and.exclamationmark.bubble.right")
+                .font(.system(size: 52, weight: .light))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(online ? Color.accentColor : Color.secondary)
+            VStack(spacing: 4) {
+                Text(online ? "PAI" : "Kernel offline")
+                    .font(.title2.weight(.semibold))
+                Text(online
+                     ? "Pick a PAI from the sidebar, or open Activity to watch the kernel."
+                     : "Start the kernel from your terminal to bring PAIs online.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+        )
     }
 
     private var titleForSelection: String {
