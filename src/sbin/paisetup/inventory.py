@@ -9,7 +9,12 @@ from pathlib import Path
 
 from boot import paths
 from bin import paiman
-from bin.paifs_init import KERNEL_SEED_DRIVERS, KERNEL_SEED_SKILLS
+from bin.paifs_init import (
+    KERNEL_SEED_BINS,
+    KERNEL_SEED_DRIVERS,
+    KERNEL_SEED_PAIS,
+    KERNEL_SEED_SKILLS,
+)
 
 # Packages the wizard hides:
 #   - kernel seeds (installed by paifs-init, required for boot)
@@ -28,6 +33,8 @@ _ROOT_ONLY_SKILLS: frozenset[str] = frozenset({
 _HIDDEN: dict[str, frozenset[str]] = {
     "driver": frozenset(KERNEL_SEED_DRIVERS),
     "skill": frozenset(KERNEL_SEED_SKILLS) | _ROOT_ONLY_SKILLS,
+    "bin": frozenset(KERNEL_SEED_BINS),
+    "pai": frozenset(KERNEL_SEED_PAIS),
 }
 
 

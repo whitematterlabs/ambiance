@@ -117,6 +117,21 @@ KERNEL_SEED_SKILLS: tuple[str, ...] = (
     "grow-capability",
 )
 
+# Bins the kernel's memory contract refers to from the default prompts.
+# `memorize` is invoked by every PAI via the memory-usage boilerplate;
+# without it installed the contract is inert.
+KERNEL_SEED_BINS: tuple[str, ...] = (
+    "memorize",
+)
+
+# PAIs the kernel itself requires to close core loops. `librarian-pai`
+# is the sole writer to shared/private MEMORY indexes and the consumer
+# of `remember` requests; the default config below declares it as a
+# reserved fleet member so reconcile spawns it on first boot.
+KERNEL_SEED_PAIS: tuple[str, ...] = (
+    "librarian-pai",
+)
+
 # Default etc/config.yaml written on first install. Never overwritten —
 # once seeded this file is runtime state owned by the agent/user.
 DEFAULT_CONFIG_YAML = """\
@@ -155,6 +170,10 @@ pais:
     provider: deepseek
     model: deepseek-v4-pro
     fallback: true
+
+  - name: librarian-pai
+    package: librarian-pai
+    description: nightly + on-demand memory consolidator; sole writer of shared/private MEMORY
 
   # Example future entry (not seeded):
   # - name: msg-spec
@@ -412,12 +431,24 @@ def seed_kernel_essentials(root: Path) -> None:
     needed_skills = [
         name for name in KERNEL_SEED_SKILLS if not _skill_installed(name)
     ]
+    bin_dir = root / "usr" / "bin"
+    needed_bins = [
+        name for name in KERNEL_SEED_BINS
+        if not (bin_dir / name).exists() and not (bin_dir / name).is_symlink()
+    ]
+    pais_dir = root / "usr" / "lib" / "pais"
+    needed_pais = [
+        name for name in KERNEL_SEED_PAIS
+        if not (pais_dir / name / "package.yaml").exists()
+    ]
     # Use typed `<kind>/<name>` form so `subagent` resolves to the prompt
     # rather than colliding with `bin/subagent`.
     typed = (
         [f"prompts/{n}" for n in needed_prompts]
         + [f"drivers/{n}" for n in needed_drivers]
         + [f"skills/{n}" for n in needed_skills]
+        + [f"bin/{n}" for n in needed_bins]
+        + [f"pais/{n}" for n in needed_pais]
     )
     for src in typed:
         subprocess.run([str(paiman), "install", src], check=True, env=env)
@@ -467,7 +498,7 @@ def _config_has_only_seeds(root: Path) -> bool:
         return False
     pais = data.get("pais") or []
     names = {p.get("name") for p in pais if isinstance(p, dict)}
-    return names == {"root", "pai"}
+    return names == {"root", "pai", *KERNEL_SEED_PAIS}
 
 
 def maybe_chain_paisetup(root: Path) -> None:
