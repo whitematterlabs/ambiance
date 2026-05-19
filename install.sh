@@ -13,7 +13,7 @@ echo "==> uv sync"
 uv sync
 
 echo "==> paifs-init"
-uv run paifs-init "$@"
+uv run paifs-init --no-setup "$@"
 
 echo "==> paisetup"
 uv run paisetup || true
