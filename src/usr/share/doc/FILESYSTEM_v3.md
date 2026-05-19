@@ -566,6 +566,18 @@ same contact, so messages aren't private to one PAI.
 Format unchanged: `[HH:MM] sender: message text`, one line per message,
 one file per day, append-only.
 
+### Image refs
+
+Any `![alt](path)` marker — in a message file, peer message body, or
+tool stdout returned to the model — is expanded into an Anthropic
+image content block when the text is delivered to the LLM. Paths are
+tilde-expanded and resolved relative to the PAI's home (for inbound
+messages) or cwd (for tool_result); after resolution they must stay
+inside `PAI_ROOT`. Missing files, escapes, and unsupported types
+(non png/jpeg/gif/webp) pass through as literal markdown so the model
+sees what was attempted. `browse screenshot` emits this marker on its
+final stdout line, so screenshots auto-attach without a flag.
+
 Per-PAI inboxes symlink subscribed threads:
 
 ```

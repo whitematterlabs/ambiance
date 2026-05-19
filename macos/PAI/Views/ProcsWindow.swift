@@ -6,7 +6,7 @@ import SwiftUI
 struct ProcsWindow: View {
     @ObservedObject var procs: ProcRegistry
     @State private var sortOrder: [KeyPathComparator<ProcRow>] = [
-        .init(\.slug, order: .forward)
+        .init(\.treeOrder, order: .forward)
     ]
 
     var body: some View {
@@ -23,9 +23,16 @@ struct ProcsWindow: View {
                 .width(min: 90, ideal: 100)
 
                 TableColumn("slug", value: \.slug) { row in
-                    Text(row.slug).font(.body.monospaced())
+                    HStack(spacing: 0) {
+                        if !row.treePrefix.isEmpty {
+                            Text(row.treePrefix)
+                                .font(.body.monospaced())
+                                .foregroundStyle(.tertiary)
+                        }
+                        Text(row.slug).font(.body.monospaced())
+                    }
                 }
-                .width(min: 100, ideal: 160)
+                .width(min: 140, ideal: 200)
 
                 TableColumn("kind", value: \.kind) { row in
                     Text(row.kind.isEmpty ? "—" : row.kind)
@@ -60,6 +67,13 @@ struct ProcsWindow: View {
                     }
                 }
                 .width(min: 120, ideal: 200)
+
+                TableColumn("ctx", value: \.ctxTokens) { row in
+                    Text(formatCtx(row.ctxTokens))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(row.ctxTokens > 0 ? .primary : .tertiary)
+                }
+                .width(min: 50, ideal: 60)
 
                 TableColumn("when", value: \.when) { row in
                     Text(row.when)

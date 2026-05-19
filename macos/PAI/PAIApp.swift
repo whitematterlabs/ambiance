@@ -32,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let log = KernelLogTailer()
     private let state = AppState()
     private let cloner = PAICloner()
+    private let launcher = KernelLauncher()
+    private let notifier = NotifyWatcher()
 
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
@@ -41,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         installStatusItem()
         buildMainWindow()
         observeRegistryForIcon()
+        notifier.start()
     }
 
     private func installStatusItem() {
@@ -59,7 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func buildMainWindow() {
         let root = MainWindow(
-            registry: registry, procs: procs, log: log, state: state, cloner: cloner
+            registry: registry, procs: procs, log: log, state: state,
+            cloner: cloner, launcher: launcher
         )
         let hosting = NSHostingController(rootView: root)
         let win = NSWindow(
@@ -135,6 +139,7 @@ struct MainWindow: View {
     @ObservedObject var log: KernelLogTailer
     @ObservedObject var state: AppState
     @ObservedObject var cloner: PAICloner
+    @ObservedObject var launcher: KernelLauncher
 
     var body: some View {
         VStack(spacing: 0) {
@@ -148,10 +153,13 @@ struct MainWindow: View {
                     .frame(minWidth: 520, minHeight: 420)
             }
             Divider()
-            StatusBar(registry: registry, selection: state.selection)
+            StatusBar(registry: registry, launcher: launcher, selection: state.selection)
         }
         .navigationTitle(titleForSelection)
-        .onAppear { ensureSelection() }
+        .onAppear {
+            ensureSelection()
+            launcher.refreshAutostart()
+        }
         .onChange(of: registry.pais) { _, _ in ensureSelection() }
         .alert(
             "Clone failed",
@@ -162,6 +170,18 @@ struct MainWindow: View {
             presenting: cloner.lastError
         ) { _ in
             Button("OK", role: .cancel) { cloner.lastError = nil }
+        } message: { msg in
+            Text(msg)
+        }
+        .alert(
+            "Kernel launch failed",
+            isPresented: Binding(
+                get: { launcher.lastError != nil },
+                set: { if !$0 { launcher.lastError = nil } }
+            ),
+            presenting: launcher.lastError
+        ) { _ in
+            Button("OK", role: .cancel) { launcher.lastError = nil }
         } message: { msg in
             Text(msg)
         }
@@ -199,11 +219,33 @@ struct MainWindow: View {
                     .font(.title2.weight(.semibold))
                 Text(online
                      ? "Pick a PAI from the sidebar, or open Activity to watch the kernel."
-                     : "Start the kernel from your terminal to bring PAIs online.")
+                     : "No kernel running. Start it to bring PAIs online.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
+            }
+            if !online {
+                VStack(spacing: 10) {
+                    Button {
+                        launcher.start()
+                    } label: {
+                        Text("Start kernel")
+                            .frame(minWidth: 140)
+                    }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(launcher.inFlight)
+
+                    Button(launcher.autostartEnabled
+                           ? "Disable start at login"
+                           : "Enable start at login") {
+                        launcher.setAutostart(!launcher.autostartEnabled)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
+                .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

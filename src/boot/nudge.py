@@ -477,6 +477,22 @@ async def _nudge_body(
         "messages_path": f"proc/{pai_slug}/messages.jsonl",
     })
 
+    # Append-only turn audit log. Consumed by the macOS app's
+    # NotifyWatcher to post "PAI <slug> finished" notifications.
+    # Wrapped so a disk-full / permission error here cannot break the
+    # PAI's reply path.
+    try:
+        turns_log = paths_mod.var_log() / "turns.jsonl"
+        turns_log.parent.mkdir(parents=True, exist_ok=True)
+        with turns_log.open("a") as f:
+            f.write(json.dumps({
+                "ts": datetime.now().isoformat(timespec="seconds"),
+                "slug": pai_slug,
+                "turn_index": len(new_history),
+            }) + "\n")
+    except OSError as e:
+        print(f"[kernel] turns.jsonl append failed: {e!r}", flush=True)
+
     _apply_history_action(pai_slug, history_path)
 
     if reply:

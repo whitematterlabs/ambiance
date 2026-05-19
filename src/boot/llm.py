@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 from anthropic import AsyncAnthropic
@@ -21,6 +22,7 @@ from anthropic import AsyncAnthropic
 from . import tokens
 
 from . import bash_tool, shell_tool
+from .image_refs import expand_image_refs
 from .paths import HOME_DIR
 from .processes import ProcessNotFound, append_log
 
@@ -145,7 +147,8 @@ async def run_turn(
     """
     client, model, extra_body = _resolve(provider, model)
     messages: list[dict] = list(history) if history else []
-    messages.append({"role": "user", "content": user})
+    user_content = expand_image_refs(user, base_dir=HOME_DIR)
+    messages.append({"role": "user", "content": user_content})
 
     try:
         return await _loop(client, model, extra_body, system, messages, env, set_status)
@@ -264,7 +267,7 @@ async def _loop(
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": use.id,
-                    "content": rendered,
+                    "content": expand_image_refs(rendered, base_dir=Path.cwd()),
                 })
             elif use.name == shell_tool.TOOL_NAME:
                 pai_slug = (env or {}).get("PAI_SLUG") or "?"
@@ -282,7 +285,7 @@ async def _loop(
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": use.id,
-                    "content": rendered,
+                    "content": expand_image_refs(rendered, base_dir=Path.cwd()),
                 })
             else:
                 tool_results.append({

@@ -18,7 +18,6 @@ from boot.paths import PAI_ROOT
 
 LABEL = "com.pai.kernel"
 PLIST_NAME = f"{LABEL}.plist"
-TEMPLATE_REL = Path("usr/src/macos/launchd") / PLIST_NAME
 
 
 def _agents_dir() -> Path:
@@ -30,7 +29,10 @@ def _installed_plist() -> Path:
 
 
 def _template_plist() -> Path:
-    return PAI_ROOT / TEMPLATE_REL
+    # paifs-init symlinks $PAI_ROOT/usr/src → <repo>/src/. The plist lives at
+    # <repo>/macos/launchd/, one level above the symlink target.
+    repo_root = (PAI_ROOT / "usr" / "src").resolve().parent
+    return repo_root / "macos" / "launchd" / PLIST_NAME
 
 
 def _uid() -> int:

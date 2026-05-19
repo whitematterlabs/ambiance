@@ -16,7 +16,7 @@ The app is useless if the kernel only runs when a terminal is open.
 
 - [x] Write `~/Library/LaunchAgents/com.pai.kernel.plist` template; ship it under `src/boot/` or `sbin/` and install via `paifs-init` (or a new `sbin/pai-install-agent`). → `sbin/pai-install-launchd {install,uninstall,status}`; plist template at `macos/launchd/com.pai.kernel.plist`.
 - [ ] Kernel must log to a fixed path (`/var/log/kernel.log` inside `$PAI_ROOT` already works) so the app can tail it regardless of who started the kernel.
-- [ ] `AppState` detects "kernel not running" (no `/proc/kernel/pid` or pid is dead) and offers a single button: **Start kernel** → `launchctl kickstart gui/$UID/com.pai.kernel`.
+- [x] `AppState` detects "kernel not running" (no `/proc/kernel/pid` or pid is dead) and offers a single button: **Start kernel** → spawns `~/.pai/sbin/init` detached via `KernelLauncher`. Offline empty state also exposes a "Start at login" toggle wrapping `pai-install-launchd {install,uninstall}`.
 - [ ] `sbin/reboot` keeps working — the launchd job must tolerate the in-place re-exec without launchd treating it as a crash loop (`ThrottleInterval`, `KeepAlive` semantics).
 - [ ] Decide: does quitting the app stop the kernel? Default **no** — kernel outlives the UI. Quit menu item just closes the window.
 

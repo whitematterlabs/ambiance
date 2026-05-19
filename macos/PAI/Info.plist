@@ -24,6 +24,8 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>PAI posts a notification when one of your PAIs finishes a turn.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

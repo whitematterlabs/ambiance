@@ -6,11 +6,12 @@ import SwiftUI
 /// For Activity / Processes, show a fleet aggregate instead.
 struct StatusBar: View {
     @ObservedObject var registry: PAIRegistry
+    @ObservedObject var launcher: KernelLauncher
     let selection: AppSelection?
 
     var body: some View {
         HStack(spacing: 8) {
-            kernelDot
+            kernelMenu
             Text(text)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
@@ -27,11 +28,38 @@ struct StatusBar: View {
         .background(.thinMaterial)
     }
 
-    private var kernelDot: some View {
-        Circle()
-            .fill(registry.kernelOnline ? Color.green : Color.red)
-            .frame(width: 7, height: 7)
-            .help(registry.kernelOnline ? "Kernel online" : "Kernel offline")
+    private var kernelMenu: some View {
+        Menu {
+            if registry.kernelOnline {
+                Button("Stop kernel") { launcher.stop() }
+                    .disabled(launcher.inFlight)
+            } else {
+                Button("Start kernel") { launcher.start() }
+                    .disabled(launcher.inFlight)
+            }
+            Divider()
+            if launcher.autostartEnabled {
+                Button("Disable start at login") { launcher.setAutostart(false) }
+                Text("Start-at-login: ON")
+                    .font(.caption)
+            } else {
+                Button("Enable start at login") { launcher.setAutostart(true) }
+                Text("Start-at-login: OFF")
+                    .font(.caption)
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(registry.kernelOnline ? Color.green : Color.red)
+                    .frame(width: 7, height: 7)
+                Text(registry.kernelOnline ? "kernel" : "offline")
+                    .font(.caption.monospaced())
+            }
+        }
+        .menuStyle(.button)
+        .controlSize(.small)
+        .fixedSize()
+        .help(registry.kernelOnline ? "Kernel online — click for actions" : "Kernel offline — click to start")
     }
 
     private var text: String {

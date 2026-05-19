@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		017911EC784525F45D3B8579 /* DayFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C24334DA7FBB9885019A42 /* DayFile.swift */; };
+		019EAC95BDA113E2E39CD4C2 /* KernelLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA8E8899F8DE9912FC607AF /* KernelLauncher.swift */; };
 		1B2F064B043ADC66FA06A03A /* StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD071A206A28EBA9798DE3C9 /* StatusBar.swift */; };
 		1CA19E1A2FAB6E085B119D9C /* PAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */; };
 		26F838A79D85B80316EA8B9A /* FHS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 343A7347B600768299E838FE /* FHS.swift */; };
@@ -22,6 +23,7 @@
 		C04B168B151900F1EE78D66E /* PAICloner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C32B6D5EF99A48635EAD0279 /* PAICloner.swift */; };
 		DB884594DB3856ECEF2AEC11 /* ChatWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC2E636B61658A6BF1DCF7B /* ChatWindow.swift */; };
 		EFF2C3622E9EE1DBFCBD970D /* KernelLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E291E049F3295B307FC85DC4 /* KernelLog.swift */; };
+		A1B2C3D4E5F6789012345678 /* NotifyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEF12345678 /* NotifyWatcher.swift */; };
 		FF729026BAE19ABC56B66133 /* Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 437C49783C16ABCC26EC3E26 /* Sidebar.swift */; };
 /* End PBXBuildFile section */
 
@@ -40,8 +42,10 @@
 		C32B6D5EF99A48635EAD0279 /* PAICloner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAICloner.swift; sourceTree = "<group>"; };
 		D4D85F1FF2DB97979E4E697D /* ProcRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcRegistry.swift; sourceTree = "<group>"; };
 		DB28C180D43558F148D0FC88 /* ProcsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcsWindow.swift; sourceTree = "<group>"; };
+		DFA8E8899F8DE9912FC607AF /* KernelLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelLauncher.swift; sourceTree = "<group>"; };
 		E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAIApp.swift; sourceTree = "<group>"; };
 		E291E049F3295B307FC85DC4 /* KernelLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelLog.swift; sourceTree = "<group>"; };
+		1234567890ABCDEF12345678 /* NotifyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifyWatcher.swift; sourceTree = "<group>"; };
 		E676ECCEA481352A1C5E6803 /* PAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0C24334DA7FBB9885019A42 /* DayFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayFile.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -55,7 +59,9 @@
 				36EF8AE7F9A68B10A06442FC /* EventEmitter.swift */,
 				343A7347B600768299E838FE /* FHS.swift */,
 				9B9E2253F1D467674F24E9D3 /* Info.plist */,
+				DFA8E8899F8DE9912FC607AF /* KernelLauncher.swift */,
 				E291E049F3295B307FC85DC4 /* KernelLog.swift */,
+				1234567890ABCDEF12345678 /* NotifyWatcher.swift */,
 				E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */,
 				C32B6D5EF99A48635EAD0279 /* PAICloner.swift */,
 				34FA2F0E59DBEE4E74C48788 /* PAIRegistry.swift */,
@@ -159,7 +165,9 @@
 				017911EC784525F45D3B8579 /* DayFile.swift in Sources */,
 				593487ED90C8BD43EF6B69CC /* EventEmitter.swift in Sources */,
 				26F838A79D85B80316EA8B9A /* FHS.swift in Sources */,
+				019EAC95BDA113E2E39CD4C2 /* KernelLauncher.swift in Sources */,
 				EFF2C3622E9EE1DBFCBD970D /* KernelLog.swift in Sources */,
+				A1B2C3D4E5F6789012345678 /* NotifyWatcher.swift in Sources */,
 				306ABBF195E9CDC92A8529F6 /* MarkdownBlocks.swift in Sources */,
 				1CA19E1A2FAB6E085B119D9C /* PAIApp.swift in Sources */,
 				C04B168B151900F1EE78D66E /* PAICloner.swift in Sources */,

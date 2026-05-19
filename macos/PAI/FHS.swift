@@ -32,17 +32,18 @@ enum FHS {
     }
 
     static var kernelIsRunning: Bool {
-        // Heuristic: at least one /proc/<slug>/ exists with status == "running".
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: proc, includingPropertiesForKeys: nil
-        ) else { return false }
-        for entry in entries {
-            let status = entry.appendingPathComponent("status")
-            if let s = try? String(contentsOf: status, encoding: .utf8),
-               s.trimmingCharacters(in: .whitespacesAndNewlines) == "running" {
-                return true
-            }
-        }
-        return false
+        // Authoritative: read run/kernel.pid (written by `boot.entry`) and
+        // probe with kill(pid, 0). `/proc/<slug>/status` files survive
+        // crashes and lie, so checking them as a fallback gives false
+        // positives — don't.
+        let pidFile = root.appendingPathComponent("run/kernel.pid")
+        guard let raw = try? String(contentsOf: pidFile, encoding: .utf8),
+              let pid = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 0
+        else { return false }
+        // kill(pid, 0): 0 = alive, -1 + errno=ESRCH = dead, -1 + EPERM = alive
+        // but owned by another uid (counts as alive).
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
     }
 }
