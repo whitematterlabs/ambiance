@@ -136,7 +136,16 @@ async def _drain_elapsed_timers(heap: list[T.TimerEntry], now: datetime) -> None
         if nxt is None or nxt.fire_time > now:
             return
         entry = T.pop(heap)
-        await _handle_timer(entry, heap)
+        try:
+            await _handle_timer(entry, heap)
+        except Exception as exc:
+            # A broken spec must not take down the supervisor. Mark the
+            # proc failed (best-effort) and keep draining.
+            try:
+                P.append_log(entry.slug, f"kernel: timer handler failed: {exc!r}")
+                P.resolve(entry.slug, "failed")
+            except P.ProcessNotFound:
+                pass
 
 
 async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:

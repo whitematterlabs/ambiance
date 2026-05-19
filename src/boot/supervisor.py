@@ -13,10 +13,20 @@ in `_handles` — they're transient.
 from __future__ import annotations
 
 import asyncio
-import shlex
 from dataclasses import dataclass
 
 from . import processes as P
+
+
+def _spawn_args(run):
+    """Resolve a spec's `run:` to argv + shell flag.
+
+    String → routed through `sh -c` (shell semantics: pipes, loops, redirects).
+    List   → exec'd directly (no shell parent, clean argv, honest signals).
+    """
+    if isinstance(run, str):
+        return ["/bin/sh", "-c", run]
+    return list(run)
 
 
 @dataclass
@@ -86,7 +96,7 @@ async def start(slug: str, spec: dict) -> None:
     if slug in _handles:
         return  # already tracked — idempotent on repeated spec events
 
-    cmd = shlex.split(run) if isinstance(run, str) else list(run)
+    cmd = _spawn_args(run)
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -132,7 +142,7 @@ async def fire_once(slug: str, spec: dict) -> None:
     run = spec.get("run")
     if not run:
         return
-    cmd = shlex.split(run) if isinstance(run, str) else list(run)
+    cmd = _spawn_args(run)
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
