@@ -18,6 +18,17 @@ enum EventEmitter {
         try write(payload: payload, source: "menubar")
     }
 
+    /// Emit `{kind: interrupt, pai: <pid>}` — the kernel cancels any active
+    /// nudges for that PAI. Mirrors `src/sbin/tui/app.py:action_interrupt`.
+    static func interrupt(targetPid: Int) throws {
+        let payload: [(String, String)] = [
+            ("source", "menubar"),
+            ("kind", "interrupt"),
+            ("pai", String(targetPid)),
+        ]
+        try write(payload: payload, source: "menubar")
+    }
+
     private static func write(payload: [(String, String)], source: String) throws {
         try FileManager.default.createDirectory(
             at: FHS.eventsDir, withIntermediateDirectories: true

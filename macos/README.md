@@ -80,20 +80,20 @@ The app does **not** start the kernel. Either launch it manually:
 cd ~/.pai && usr/bin/python -m boot run
 ```
 
-…or install the LaunchAgent so it starts at login and respawns on crash:
+…or just hit **Start kernel** in the app (menubar icon → kernel menu, or the
+offline empty state). The app spawns `~/.pai/sbin/init` detached and tees its
+stdout/stderr into `kernel.log`:
 
 ```sh
-~/.pai/sbin/pai-install-launchd
-
-# logs
-tail -f ~/.pai/var/log/kernel.out.log ~/.pai/var/log/kernel.err.log
+tail -f ~/.pai/var/log/kernel/kernel.log
 ```
 
-Uninstall: `~/.pai/sbin/pai-install-launchd uninstall`. Status: `~/.pai/sbin/pai-install-launchd status`.
+(Background autostart via launchd was removed — the menubar Start/Stop is the
+supported path for now.)
 
 ## Verify end-to-end
 
-1. Kernel running (manual or LaunchAgent).
+1. Kernel running (manual or via the app's Start kernel button).
 2. Build & run the app. Menubar shows the bubble icon with the running count.
 3. Click menubar icon → window opens to the first PAI (or Activity if none).
 4. Sidebar shows Activity / Processes / each running PAI. Click any to switch.

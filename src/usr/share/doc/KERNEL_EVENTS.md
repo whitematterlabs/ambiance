@@ -1,88 +1,187 @@
-# Kernel-emitted events
+# Kernel events
 
-Drivers ship an `events.yaml` manifest declaring the event kinds they
-produce. The kernel itself also emits a small set of events at runtime.
-This file is the analogue of `events.yaml` for kernel-origin events.
+The kernel is event-driven. Drivers, CLI tools, and the kernel itself
+drop YAML files into the event spool; the supervisor (`boot/main.py`)
+reads them in arrival order, routes by `kind`, and either dispatches a
+nudge or handles the event in-band.
 
-Events live as YAML files under `home/events/` and route to PAIs via
-`wake_on:` globs in `/etc/config.yaml`. See `KERNEL.md` for the routing
-machinery.
+This file documents (a) where events live on disk, (b) the YAML schema
+of an event file, (c) the full kind taxonomy with emitter/consumer
+pairs, and (d) backfill behavior after kernel downtime.
 
-## Kinds
+## Where events live
 
-### `kernel:reload_config`
-
-Emitted by `paictl` (via `/sbin/reboot` or `paictl start/stop <slug>`)
-when `/etc/config.yaml` changes or a fleet member's `active:` flag is
-flipped. Tells the kernel to reconcile `/proc/<pai>/spec.yaml` against
-config and start/stop instances accordingly.
-
-```yaml
-source: kernel
-kind: kernel:reload_config
+```
+$PAI_ROOT/run/pai/events/{YYYYMMDDTHHMMSS<usec>}-{source}.yaml
 ```
 
-### `proc_resolved`
+Defined in `boot/paths.py` as `EVENTS_DIR = PAI_ROOT / "run" / "pai" / "events"`.
+This is the only spool. Earlier drafts of this doc referenced
+`home/events/` — that path was retired with the v3 FHS migration. Code
+reads `paths.EVENTS_DIR`.
 
-Emitted when a process transitions to one of `completed`, `expired`, or
-`failed` (cancellation is excluded — see `processes.NUDGE_ON_RESOLVE`).
-Routes to the resolved process's `parent` so it can react to its child
-finishing.
+Sibling spool: `$PAI_ROOT/run/pai/acks/{msg_id}.yaml`. Per-message
+delivery acks for `send-message`. Lives *outside* the event spool so
+`EventWatcher` does not consume them; senders poll the ack path
+directly. See `processes.emit_ack`.
 
-```yaml
-source: kernel
-kind: proc_resolved
-slug: <child-slug>
-status: completed | expired | failed
-parent: <parent-pid>      # present when the spec declares one
-```
+### Write protocol
 
-### `pai:<slug>:input`
+`processes.emit_event(payload, target_pid=None)` is the only sanctioned
+writer. It:
 
-Emitted at the start of every nudge, after the target PAI's slug/pid is
-resolved but before the LLM runs. Lets listeners react to *what woke*
-another PAI without changing the kernel. Carries the `reason` string
-and (when present) the originating event/context as `trigger`.
+1. Ensures the spool exists.
+2. Stamps `target_pid` onto the payload if given.
+3. Names the file `{microsecond-timestamp}-{source}.yaml`.
+4. Writes to `*.yaml.tmp` and `os.replace`s into place — one atomic
+   CREATE for watchdog, never a partial read.
 
-```yaml
-source: pai
-kind: pai:<slug>:input
-slug: <slug>
-pid: <int>
-reason: <str>
-trigger:                  # optional; the event/context that caused the nudge
-  ...
-```
+### Read protocol
 
-### `pai:<slug>:output`
+`boot/events.py:EventWatcher` runs a watchdog observer on the spool.
+On `start()` it enqueues any files already on disk (boot catch-up) and
+then watches for `on_created` / `on_moved`. `read_event(path)` parses
+the YAML and **unlinks the file** — events are consumed exactly once.
+A 5-second seen-path cache absorbs FSEvents redelivery.
 
-Emitted immediately after a nudge commits the assistant reply to
-`proc/<slug>/messages.jsonl`. Pointer-style: subscribers re-read the
-file themselves. `turn_index` is the length of the history after save,
-so the just-appended assistant turn is at line `turn_index` (1-indexed).
+## Event file schema
 
-```yaml
-source: pai
-kind: pai:<slug>:output
-slug: <slug>
-pid: <int>
-turn_index: <int>
-messages_path: proc/<slug>/messages.jsonl
-```
+Every event is a single YAML mapping. There is no enforced schema, but
+two keys are conventional:
 
-## Subscribing
+| key | purpose |
+|---|---|
+| `source` | Emitter identity. `kernel`, `pai`, `tui`, `send-message`, `reboot`, `paictl`, `paiadd`, `paidel`, `paiman`, or a driver name (`imessage`, `email`, `voice`, `ax`, `whatsapp`, `calendar`, …). |
+| `kind` | What the event *is*. Plain word (`new_message`, `interrupt`, `proc_resolved`, `cron_fired`) for kernel-known events, or `<source>:<bare>` for generic driver events (`voice:utterance`, `ax:keystroke`). |
 
-A listener PAI in `/etc/config.yaml`:
+Optional routing keys:
 
-```yaml
-- name: memory
-  wake_on:
-    - pai:main:output     # specific slug — recommended
-```
+| key | meaning |
+|---|---|
+| `target_pid` | Bypass `wake_on` matching; deliver to exactly this PAI pid. Used by drivers with per-PAI session state (e.g. `ax`) and by the boot-time backfill collapser. |
+| `parent` | Pid to escalate to. Set on `proc_resolved` from the resolving spec; used by subagent return-path routing. |
 
-### Loop hazard
+All other keys are payload, opaque to the kernel; they flow into the
+nudge as `context` and become part of the user-turn prompt.
 
-`wake_on: [pai:*:output]` will self-trigger when the listener itself
-produces a turn (its own `:output` matches the glob). Always target
-specific slugs unless you have an explicit reason to fan out across the
-whole fleet *and* a guard against re-entry.
+## Routing model
+
+For each event, `boot/main.py:_handle_event_file` dispatches in this
+order:
+
+1. **Kernel-known `kind`** — explicit branch in `_handle_event_file`
+   (see taxonomy below).
+2. **`pai:*` kinds** — match every running PAI's `wake_on` globs.
+   Listener-only; no fallback to root, to break self-trigger loops on
+   a PAI's own `:output`.
+3. **`<source>:<kind>` generic** — when an event has a non-kernel
+   `source` and a `kind`, the public kind becomes `{source}:{kind}` and
+   is fed to `routing.route_to_pids`. If `target_pid` is set it bypasses
+   `wake_on` and delivers to that pid only.
+4. **Fallback** — nudge `parent` (default pid 1) with `event: {kind}`.
+
+`routing.route_to_pids(kind)` walks every running `kind:pai` proc; a
+PAI subscribes by listing fnmatch globs under `wake_on:` in
+`/etc/config.yaml` or its spec. If nothing matches, the fleet's
+fallback PAI receives the event.
+
+## Kind taxonomy
+
+### Kernel control plane
+
+| kind | emitter | consumer | payload |
+|---|---|---|---|
+| `kernel:reload_config` | `paictl`, `paiadd`, `paidel`, `paiman` | kernel (`_handle_reload_config`) | none (side effects only) |
+| `kernel:restart` | `/sbin/reboot`, `paictl` | kernel (`_handle_restart`); entry.py execs after run() returns | none |
+| `kernel:backfill` | `boot/phases/backfill.py` | one PAI by `target_pid` (no wake_on) | `target_pid`, `count`, `by_kind`, `manifest_glob`, `window` |
+| `kernel:reload_failed` | kernel (`_handle_reload_config` on exception) | wake_on: `kernel:reload_failed` | `error`, `traceback` |
+| `interrupt` | TUI (ESC) | kernel — cancels all in-flight nudges for `pai` | `pai: <int>` |
+
+### Process lifecycle
+
+| kind | emitter | consumer | payload |
+|---|---|---|---|
+| `proc_resolved` | `processes.resolve` on `completed`/`expired`/`failed` | parent pid (if set in spec); else pid 1 only on `failed`/`expired` for self-healing | `slug`, `status`, `parent?` |
+| `cron_fired` | `boot/supervisor.py` after a cron `run:` exits (when `announce: true`) | parent pid (default 1) | `slug`, `rc`, `parent?` |
+
+### iMessage (driver: `imessage`, special-cased in kernel)
+
+| kind | emitter | consumer | payload |
+|---|---|---|---|
+| `new_message` | `drivers/imessage/inbound.py`, also TUI (`source: tui`, `thread: me`) | `imessage:new` listeners; TUI variant goes to `target_pid` or `imessage:owner` | `handle`, `text`, `chat_guid?`, `display_name?`, `received_at?`, `is_from_me?`, `chat_handles?`, `source` |
+| `messages_backlog` | imessage driver on boot catch-up | `imessage:backlog` listeners | `messages: [...]` |
+| `messages_multiple` | imessage driver on live burst | `imessage:multiple_messages` listeners | `messages: [...]` |
+| `send_failed` | imessage outbound | `imessage:send_failed` listeners | `thread`, `text`, `reason` |
+
+### Email (driver: `email/macmail`)
+
+| kind | emitter | consumer | payload |
+|---|---|---|---|
+| `new_email` | macmail inbound | `email:new` listeners | `account`, `thread_slug`, `subject`, `from`, `direction`, `path` |
+| `email_backlog` | macmail inbound (boot) | `email:backlog` listeners | `since`, `accounts`, `total` |
+| `draft_failed` | macmail outbound | `email:draft_failed` listeners | `account`, `path`, `reason` |
+
+### Inter-PAI
+
+| kind | emitter | consumer | payload |
+|---|---|---|---|
+| `pai_message` | `bin/send-message`, `bin/subagent` | `target_pid` (direct delivery) | `target_pid`, `sender_pid`, `text`, `msg_id?` |
+| `subagent:response` | `bin/subagent` | `target_pid` (parent) | `target_pid`, `sender_pid`, `text` |
+| `subagent:plan_ready` | `bin/subagent` | `target_pid` | `target_pid`, `sender_pid`, `slug`, `text?` |
+| `subagent:plan_reject` | `bin/subagent` | `target_pid` | `target_pid`, `sender_pid`, `slug`, `text?` |
+
+### PAI turn announcements
+
+Emitted by `boot/nudge.py` on every PAI turn. Listener-only — no
+fallback to root, by design (root would self-nudge on its own turn and
+loop).
+
+| kind | when | payload |
+|---|---|---|
+| `pai:<slug>:input` | before LLM runs | `slug`, `pid`, `reason`, `trigger?` |
+| `pai:<slug>:output` | after assistant reply committed to `messages.jsonl` | `slug`, `pid`, `turn_index`, `messages_path` |
+
+**Loop hazard.** `wake_on: [pai:*:output]` self-triggers — the
+listener's own turn matches the glob. Target a specific slug
+(`pai:main:output`) unless you genuinely want fleet-wide fan-out and
+have a re-entry guard.
+
+### Generic driver events
+
+Any driver emits `{source: <name>, kind: <bare>}` and the kernel
+synthesizes the public kind `<name>:<bare>` for `wake_on` matching.
+No kernel patch required. Examples currently in tree:
+
+- `voice:utterance`, `voice:wake_failed` (drivers/voice)
+- `ax:keystroke` and friends (drivers/ax, uses `target_pid`)
+- `whatsapp:new_message`, `whatsapp:send_failed` (drivers/whatsapp)
+- `calendar:item_added` (drivers/calendar)
+
+Subscribe by listing the public kind in a PAI's `wake_on:`.
+
+## Backfill after downtime
+
+When the kernel has been down long enough for upstream drivers to back
+up — overnight, days — the spool can contain hundreds of events. A
+naive catch-up would dispatch each as a separate LLM turn.
+
+`boot/phases/backfill.py` runs **before** `EventWatcher.start()` and:
+
+1. Scans `EVENTS_DIR`. If file count ≤ `THRESHOLD` (10), exits — let
+   the watcher dispatch normally.
+2. Groups events by primary target pid (first hit from
+   `routing.route_to_pids` on the synthesized public kind). iMessage
+   and email special-cases are *not* modeled; those fall through to
+   the fallback PAI, which is where they would have gone anyway.
+3. For each pid with > THRESHOLD events:
+   - Emits a single `kernel:backfill` event with `target_pid`,
+     `count`, `by_kind` histogram, `manifest_glob`, and time `window`.
+   - Moves the originals into
+     `$PAI_ROOT/var/log/events/backfill/{boot-ts}/pid-{pid}/`.
+4. Crash-safe ordering: the synthetic event is written first
+   (atomic via `emit_event`). If we die mid-archive, the leftover
+   originals join a future backfill or dispatch normally — nothing is
+   silently dropped.
+
+The receiving PAI wakes exactly once with the summary and drills into
+the archive only where it cares.

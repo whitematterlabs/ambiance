@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let cloner = PAICloner()
     private let launcher = KernelLauncher()
     private let notifier = NotifyWatcher()
+    private let events = EventsTailer()
 
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
@@ -43,7 +44,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         installStatusItem()
         buildMainWindow()
         observeRegistryForIcon()
+        notifier.onActivate = { [weak self] in self?.activateWindow() }
         notifier.start()
+        events.start()
+        promptForFullDiskAccessIfNeeded()
+    }
+
+    /// macOS has no API to *prompt* for Full Disk Access — apps detect the
+    /// missing grant and deep-link the user into System Settings. We probe a
+    /// TCC-protected path (Safari bookmarks); if the read fails, FDA is not
+    /// granted for this bundle and we surface an alert on every launch.
+    private func promptForFullDiskAccessIfNeeded() {
+        guard !hasFullDiskAccess() else { return }
+        let alert = NSAlert()
+        alert.messageText = "PAI needs Full Disk Access"
+        alert.informativeText = """
+        PAI reads and writes across your home directory (mail, calendar caches, notes, \
+        and the PAI filesystem). Grant Full Disk Access in System Settings, then \
+        relaunch PAI.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Later")
+        if alert.runModal() == .alertFirstButtonReturn {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    private func hasFullDiskAccess() -> Bool {
+        let probe = ("~/Library/Safari/Bookmarks.plist" as NSString).expandingTildeInPath
+        let fd = open(probe, O_RDONLY)
+        if fd >= 0 { close(fd); return true }
+        // ENOENT means the file just isn't there (e.g. Safari never run);
+        // that's not a TCC denial, so don't pester the user.
+        return errno == ENOENT
+    }
+
+    private func activateWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    // If macOS asks to "reopen" the app (Dock click, notification tap on
+    // some paths), surface the window instead of doing nothing.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        activateWindow()
+        return true
     }
 
     private func installStatusItem() {
@@ -63,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func buildMainWindow() {
         let root = MainWindow(
             registry: registry, procs: procs, log: log, state: state,
-            cloner: cloner, launcher: launcher
+            cloner: cloner, launcher: launcher, events: events
         )
         let hosting = NSHostingController(rootView: root)
         let win = NSWindow(
@@ -140,6 +188,7 @@ struct MainWindow: View {
     @ObservedObject var state: AppState
     @ObservedObject var cloner: PAICloner
     @ObservedObject var launcher: KernelLauncher
+    @ObservedObject var events: EventsTailer
 
     var body: some View {
         VStack(spacing: 0) {
@@ -158,7 +207,6 @@ struct MainWindow: View {
         .navigationTitle(titleForSelection)
         .onAppear {
             ensureSelection()
-            launcher.refreshAutostart()
         }
         .onChange(of: registry.pais) { _, _ in ensureSelection() }
         .alert(
@@ -196,7 +244,7 @@ struct MainWindow: View {
             ProcsWindow(procs: procs)
         case .pai(let pid):
             if let pai = registry.pais.first(where: { $0.pid == pid }) {
-                ChatWindow(pai: pai).id(pai.pid)
+                ChatWindow(pai: pai, events: events).id(pai.pid)
             } else {
                 emptyState
             }
@@ -236,14 +284,6 @@ struct MainWindow: View {
                     .controlSize(.large)
                     .buttonStyle(.borderedProminent)
                     .disabled(launcher.inFlight)
-
-                    Button(launcher.autostartEnabled
-                           ? "Disable start at login"
-                           : "Enable start at login") {
-                        launcher.setAutostart(!launcher.autostartEnabled)
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
                 }
                 .padding(.top, 4)
             }

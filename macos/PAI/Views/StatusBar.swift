@@ -37,16 +37,6 @@ struct StatusBar: View {
                 Button("Start kernel") { launcher.start() }
                     .disabled(launcher.inFlight)
             }
-            Divider()
-            if launcher.autostartEnabled {
-                Button("Disable start at login") { launcher.setAutostart(false) }
-                Text("Start-at-login: ON")
-                    .font(.caption)
-            } else {
-                Button("Enable start at login") { launcher.setAutostart(true) }
-                Text("Start-at-login: OFF")
-                    .font(.caption)
-            }
         } label: {
             HStack(spacing: 5) {
                 Circle()

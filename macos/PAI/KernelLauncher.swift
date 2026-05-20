@@ -1,29 +1,19 @@
 import Foundation
 
-/// Spawns `~/.pai/sbin/init` detached and wraps `pai-install-launchd` for the
-/// "Start at login" toggle. Modeled on `PAICloner` — shells out, surfaces
-/// errors via `lastError`, never holds onto the spawned process.
+/// Spawns `~/.pai/sbin/init` detached so the kernel outlives the app.
+/// Modeled on `PAICloner` — shells out, surfaces errors via `lastError`,
+/// never holds onto the spawned process.
 @MainActor
 final class KernelLauncher: ObservableObject {
     /// True while a Start click is mid-flight; the button uses this to
     /// debounce double-clicks (the kernel takes ~1s to register as online).
     @Published var inFlight: Bool = false
-    /// Mirrors `pai-install-launchd status` — 0 means the LaunchAgent plist
-    /// is installed. Refreshed on init and after every toggle action.
-    @Published var autostartEnabled: Bool = false
     /// Surfaced into the UI as an alert; mirrors `PAICloner.lastError`.
     @Published var lastError: String? = nil
 
     private var initURL: URL { FHS.root.appendingPathComponent("sbin/init") }
-    private var installerURL: URL {
-        FHS.root.appendingPathComponent("sbin/pai-install-launchd")
-    }
     private var kernelPidFile: URL {
         FHS.root.appendingPathComponent("run/kernel.pid")
-    }
-
-    init() {
-        refreshAutostart()
     }
 
     /// One-shot: spawn `sbin/init` with stdio detached. We do NOT wait —
@@ -39,18 +29,47 @@ final class KernelLauncher: ObservableObject {
         inFlight = true
         lastError = nil
 
+        let logURL = FHS.root.appendingPathComponent("var/log/kernel/kernel.log")
+        do {
+            try FileManager.default.createDirectory(
+                at: logURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: logURL.path) {
+                FileManager.default.createFile(atPath: logURL.path, contents: nil)
+            }
+        } catch {
+            inFlight = false
+            lastError = "failed to prepare kernel.log: \(error.localizedDescription)"
+            return
+        }
+        // Append-only handle so the kernel's stdout/stderr land in kernel.log
+        // instead of /dev/null. _install_stdout_tee in src/boot/main.py skips
+        // the tee when stdout isn't a TTY ("caller owns the log"), so this
+        // app IS that caller.
+        guard let logHandle = try? FileHandle(forWritingTo: logURL) else {
+            inFlight = false
+            lastError = "failed to open kernel.log for writing"
+            return
+        }
+        _ = try? logHandle.seekToEnd()
+
         let proc = Process()
         proc.executableURL = exe
         proc.standardInput = FileHandle.nullDevice
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
+        proc.standardOutput = logHandle
+        proc.standardError = logHandle
         do {
             try proc.run()
         } catch {
+            try? logHandle.close()
             inFlight = false
             lastError = "failed to launch kernel: \(error.localizedDescription)"
             return
         }
+        // Process retains the fd; close our copy so we don't keep an extra
+        // reference around for the lifetime of the app.
+        try? logHandle.close()
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -81,65 +100,5 @@ final class KernelLauncher: ObservableObject {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             self.inFlight = false
         }
-    }
-
-    /// Run `pai-install-launchd status`; exit code 0 means installed.
-    func refreshAutostart() {
-        let exe = installerURL
-        Task.detached(priority: .userInitiated) { [exe] in
-            let result = Self.run(exe: exe, args: ["status"])
-            await MainActor.run {
-                self.autostartEnabled = (result.status == 0)
-            }
-        }
-    }
-
-    /// Run `pai-install-launchd install` or `uninstall`; surface stderr on
-    /// failure and then re-check status so the toggle reflects truth.
-    func setAutostart(_ enabled: Bool) {
-        let exe = installerURL
-        let verb = enabled ? "install" : "uninstall"
-        guard FileManager.default.isExecutableFile(atPath: exe.path) else {
-            lastError = "pai-install-launchd not found at \(exe.path) — run `paifs-init`?"
-            refreshAutostart()
-            return
-        }
-        Task.detached(priority: .userInitiated) { [exe, verb] in
-            let result = Self.run(exe: exe, args: [verb])
-            await MainActor.run {
-                if result.status != 0 {
-                    let body = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                    self.lastError = "pai-install-launchd \(verb) exited \(result.status): \(body)"
-                }
-                self.refreshAutostart()
-            }
-        }
-    }
-
-    /// Shape mirrors `PAICloner.run` — returns exit status + captured stderr.
-    nonisolated private static func run(exe: URL, args: [String]) -> (status: Int32, stderr: String) {
-        guard FileManager.default.isExecutableFile(atPath: exe.path) else {
-            return (-1, "executable not found at \(exe.path)")
-        }
-        let proc = Process()
-        proc.executableURL = exe
-        proc.arguments = args
-        let errPipe = Pipe()
-        let outPipe = Pipe()
-        proc.standardError = errPipe
-        proc.standardOutput = outPipe
-        do {
-            try proc.run()
-        } catch {
-            return (-1, "failed to launch: \(error.localizedDescription)")
-        }
-        proc.waitUntilExit()
-        let stderr = String(
-            data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8
-        ) ?? ""
-        let stdout = String(
-            data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8
-        ) ?? ""
-        return (proc.terminationStatus, stderr.isEmpty ? stdout : stderr)
     }
 }

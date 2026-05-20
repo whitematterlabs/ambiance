@@ -1,99 +1,34 @@
 import SwiftUI
 
 /// Lightweight block-level markdown renderer. Splits a message body into
-/// blocks (header / bullet / fenced code / paragraph) and renders each
-/// with the right font + spacing. Inline syntax (bold/italic/code/link)
-/// inside non-code blocks is handed off to AttributedString(markdown:).
+/// blocks and renders each with the right font + spacing. Inline syntax
+/// (bold/italic/code/link/strikethrough) is handed off to
+/// AttributedString(markdown:).
 ///
-/// Not a full CommonMark parser — covers what chat messages actually use:
+/// Covers what LLM chat output actually uses:
 ///   # / ## / ### headers
-///   - or * bullet lists (single-level)
-///   1. 2. ordered lists (single-level)
-///   ``` fenced code blocks
+///   - / * / + bullet lists (nested via indentation)
+///   1. / 1) ordered lists (nested via indentation)
+///   - [ ] / - [x] task lists
+///   ```lang fenced code blocks (lang shown as a small tag)
+///   GFM tables with optional alignment (:--, --:, :--:)
 ///   > blockquotes
-///   --- horizontal rules
+///   --- / *** horizontal rules
 ///   regular paragraphs with inline markdown
-///
-/// For full CommonMark fidelity, swap in MarkdownUI — but this keeps the
-/// build dep-free.
 struct MarkdownBlocks: View {
     let text: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                view(for: block)
+                BlockView(block: block, inline: inline)
             }
         }
     }
 
     private var blocks: [Block] { Self.parse(text) }
 
-    @ViewBuilder
-    private func view(for block: Block) -> some View {
-        switch block {
-        case .header(let level, let body):
-            Text(inline(body))
-                .font(headerFont(level))
-                .padding(.top, level <= 2 ? 4 : 2)
-        case .paragraph(let body):
-            Text(inline(body))
-                .fixedSize(horizontal: false, vertical: true)
-        case .bullets(let items):
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("•").foregroundStyle(.secondary)
-                        Text(inline(item))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        case .ordered(let items):
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("\(idx + 1).").foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Text(inline(item))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        case .code(let body):
-            Text(body)
-                .font(.system(.body, design: .monospaced))
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.black.opacity(0.08))
-                )
-        case .quote(let body):
-            HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.secondary.opacity(0.5))
-                    .frame(width: 3)
-                Text(inline(body))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        case .rule:
-            Divider()
-        }
-    }
-
-    private func headerFont(_ level: Int) -> Font {
-        switch level {
-        case 1: return .title.weight(.semibold)
-        case 2: return .title2.weight(.semibold)
-        case 3: return .title3.weight(.semibold)
-        case 4: return .headline
-        default: return .subheadline.weight(.semibold)
-        }
-    }
-
-    private func inline(_ src: String) -> AttributedString {
+    fileprivate func inline(_ src: String) -> AttributedString {
         let opts = AttributedString.MarkdownParsingOptions(
             allowsExtendedAttributes: false,
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
@@ -105,79 +40,77 @@ struct MarkdownBlocks: View {
         return AttributedString(src)
     }
 
-    // MARK: - parser
+    // MARK: - model
 
-    enum Block: Hashable {
+    indirect enum Block: Hashable {
         case header(Int, String)
         case paragraph(String)
-        case bullets([String])
-        case ordered([String])
-        case code(String)
+        case list(ordered: Bool, items: [ListItem])
+        case code(lang: String, body: String)
         case quote(String)
         case rule
+        case table(headers: [String], alignments: [TableAlign], rows: [[String]])
     }
 
+    struct ListItem: Hashable {
+        let body: String
+        let checked: Bool?   // nil = plain item; false = unchecked task; true = checked task
+        let children: [Block]
+    }
+
+    enum TableAlign: Hashable { case leading, center, trailing }
+
+    // MARK: - parser
+
     static func parse(_ src: String) -> [Block] {
-        var out: [Block] = []
         let lines = src.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var i = 0
+        return parseBlocks(lines: lines, i: &i, minIndent: 0)
+    }
+
+    private static func parseBlocks(lines: [String], i: inout Int, minIndent: Int) -> [Block] {
+        var out: [Block] = []
         while i < lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
-            // fenced code block
+            if trimmed.isEmpty { i += 1; continue }
+
+            let indent = leadingSpaces(line)
+            if indent < minIndent { break }
+
+            // fenced code
             if trimmed.hasPrefix("```") {
+                let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                 var body: [String] = []
                 i += 1
                 while i < lines.count {
                     if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                        i += 1
-                        break
+                        i += 1; break
                     }
                     body.append(lines[i])
                     i += 1
                 }
-                out.append(.code(body.joined(separator: "\n")))
+                out.append(.code(lang: lang, body: body.joined(separator: "\n")))
                 continue
             }
 
-            // horizontal rule
-            if trimmed == "---" || trimmed == "***" {
-                out.append(.rule); i += 1; continue
-            }
+            if trimmed == "---" || trimmed == "***" { out.append(.rule); i += 1; continue }
 
-            // header
             if let (level, body) = matchHeader(trimmed) {
                 out.append(.header(level, body)); i += 1; continue
             }
 
-            // bullet list
-            if isBullet(trimmed) {
-                var items: [String] = []
-                while i < lines.count {
-                    let t = lines[i].trimmingCharacters(in: .whitespaces)
-                    guard isBullet(t) else { break }
-                    items.append(stripBullet(t))
-                    i += 1
-                }
-                out.append(.bullets(items))
+            // table: header row + separator row
+            if let (block, consumed) = matchTable(lines: lines, from: i) {
+                out.append(block); i += consumed; continue
+            }
+
+            if isBullet(trimmed) || isOrdered(trimmed) {
+                out.append(parseList(lines: lines, i: &i, listIndent: indent))
                 continue
             }
 
-            // ordered list
-            if isOrdered(trimmed) {
-                var items: [String] = []
-                while i < lines.count {
-                    let t = lines[i].trimmingCharacters(in: .whitespaces)
-                    guard isOrdered(t) else { break }
-                    items.append(stripOrdered(t))
-                    i += 1
-                }
-                out.append(.ordered(items))
-                continue
-            }
-
-            // blockquote
             if trimmed.hasPrefix("> ") || trimmed == ">" {
                 var body: [String] = []
                 while i < lines.count {
@@ -190,28 +123,125 @@ struct MarkdownBlocks: View {
                 continue
             }
 
-            // blank line — paragraph separator
-            if trimmed.isEmpty { i += 1; continue }
-
             // paragraph: collect consecutive non-blank, non-block lines
-            var para: [String] = [line]
+            var para: [String] = [trimmed]
             i += 1
             while i < lines.count {
                 let t = lines[i].trimmingCharacters(in: .whitespaces)
-                if t.isEmpty
-                    || matchHeader(t) != nil
+                if t.isEmpty { break }
+                if matchHeader(t) != nil
                     || isBullet(t) || isOrdered(t)
                     || t.hasPrefix("```")
                     || t.hasPrefix("> ") || t == ">"
-                    || t == "---" || t == "***" {
-                    break
-                }
-                para.append(lines[i])
+                    || t == "---" || t == "***" { break }
+                para.append(t)
                 i += 1
             }
             out.append(.paragraph(para.joined(separator: "\n")))
         }
         return out
+    }
+
+    private static func parseList(lines: [String], i: inout Int, listIndent: Int) -> Block {
+        let firstTrim = lines[i].trimmingCharacters(in: .whitespaces)
+        let ordered = isOrdered(firstTrim)
+        var items: [ListItem] = []
+
+        while i < lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { break }
+            let indent = leadingSpaces(line)
+            if indent != listIndent { break }
+            let isOrd = isOrdered(trimmed)
+            let isBul = isBullet(trimmed)
+            if ordered && !isOrd { break }
+            if !ordered && !isBul { break }
+
+            let stripped = ordered ? stripOrdered(trimmed) : stripBullet(trimmed)
+            let (checked, body) = parseTask(stripped)
+            i += 1
+
+            var children: [Block] = []
+            if i < lines.count {
+                let nextTrim = lines[i].trimmingCharacters(in: .whitespaces)
+                let nextIndent = leadingSpaces(lines[i])
+                if !nextTrim.isEmpty && nextIndent > listIndent {
+                    children = parseBlocks(lines: lines, i: &i, minIndent: nextIndent)
+                }
+            }
+
+            items.append(ListItem(body: body, checked: checked, children: children))
+        }
+
+        return .list(ordered: ordered, items: items)
+    }
+
+    private static func matchTable(lines: [String], from i: Int) -> (Block, Int)? {
+        guard i + 1 < lines.count else { return nil }
+        let header = lines[i].trimmingCharacters(in: .whitespaces)
+        let sep = lines[i + 1].trimmingCharacters(in: .whitespaces)
+        guard header.contains("|"), isTableSeparator(sep) else { return nil }
+
+        let headers = splitCells(header)
+        let alignCells = splitCells(sep)
+        let alignments: [TableAlign] = alignCells.map { cell in
+            let c = cell.trimmingCharacters(in: .whitespaces)
+            let left = c.hasPrefix(":")
+            let right = c.hasSuffix(":")
+            if left && right { return .center }
+            if right { return .trailing }
+            return .leading
+        }
+
+        var rows: [[String]] = []
+        var j = i + 2
+        while j < lines.count {
+            let t = lines[j].trimmingCharacters(in: .whitespaces)
+            if t.isEmpty || !t.contains("|") { break }
+            // pad/truncate to header width
+            var cells = splitCells(t)
+            while cells.count < headers.count { cells.append("") }
+            if cells.count > headers.count { cells = Array(cells.prefix(headers.count)) }
+            rows.append(cells)
+            j += 1
+        }
+
+        return (.table(headers: headers, alignments: alignments, rows: rows), j - i)
+    }
+
+    private static func isTableSeparator(_ s: String) -> Bool {
+        guard s.contains("|") else { return false }
+        let cells = splitCells(s)
+        guard !cells.isEmpty else { return false }
+        for raw in cells {
+            let t = raw.trimmingCharacters(in: .whitespaces)
+            if t.isEmpty { return false }
+            var idx = t.startIndex
+            if t[idx] == ":" { idx = t.index(after: idx) }
+            var sawDash = false
+            while idx < t.endIndex, t[idx] == "-" { sawDash = true; idx = t.index(after: idx) }
+            if idx < t.endIndex, t[idx] == ":" { idx = t.index(after: idx) }
+            if !sawDash || idx != t.endIndex { return false }
+        }
+        return true
+    }
+
+    private static func splitCells(_ s: String) -> [String] {
+        var s = s
+        if s.hasPrefix("|") { s.removeFirst() }
+        if s.hasSuffix("|") { s.removeLast() }
+        return s.split(separator: "|", omittingEmptySubsequences: false).map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+    }
+
+    private static func parseTask(_ s: String) -> (Bool?, String) {
+        if s.hasPrefix("[ ] ") { return (false, String(s.dropFirst(4))) }
+        if s.hasPrefix("[x] ") || s.hasPrefix("[X] ") { return (true, String(s.dropFirst(4))) }
+        if s == "[ ]" { return (false, "") }
+        if s == "[x]" || s == "[X]" { return (true, "") }
+        return (nil, s)
     }
 
     private static func matchHeader(_ line: String) -> (Int, String)? {
@@ -235,12 +265,10 @@ struct MarkdownBlocks: View {
     }
 
     private static func isOrdered(_ line: String) -> Bool {
-        // Match: digits, then ". " or ") "
         var sawDigit = false
         for (idx, c) in line.enumerated() {
             if c.isNumber { sawDigit = true; continue }
             if !sawDigit { return false }
-            // we're past the digits
             if c == "." || c == ")" {
                 let next = line.index(line.startIndex, offsetBy: idx + 1, limitedBy: line.endIndex)
                 if let n = next, n < line.endIndex, line[n] == " " { return true }
@@ -251,7 +279,6 @@ struct MarkdownBlocks: View {
     }
 
     private static func stripOrdered(_ line: String) -> String {
-        // Drop leading digits + ". " or ") "
         var idx = line.startIndex
         while idx < line.endIndex, line[idx].isNumber { idx = line.index(after: idx) }
         if idx < line.endIndex, line[idx] == "." || line[idx] == ")" {
@@ -259,5 +286,177 @@ struct MarkdownBlocks: View {
             if idx < line.endIndex, line[idx] == " " { idx = line.index(after: idx) }
         }
         return String(line[idx...])
+    }
+
+    private static func leadingSpaces(_ s: String) -> Int {
+        var n = 0
+        for c in s {
+            if c == " " { n += 1 }
+            else if c == "\t" { n += 4 }
+            else { break }
+        }
+        return n
+    }
+}
+
+// MARK: - block view dispatch
+
+private struct BlockView: View {
+    let block: MarkdownBlocks.Block
+    let inline: (String) -> AttributedString
+
+    @ViewBuilder
+    var body: some View {
+        switch block {
+        case .header(let level, let body):
+            Text(inline(body))
+                .font(headerFont(level))
+                .padding(.top, level <= 2 ? 4 : 2)
+        case .paragraph(let body):
+            Text(inline(body))
+                .fixedSize(horizontal: false, vertical: true)
+        case .list(let ordered, let items):
+            ListBlockView(ordered: ordered, items: items, inline: inline)
+        case .code(let lang, let body):
+            CodeBlockView(lang: lang, code: body)
+        case .quote(let body):
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.secondary.opacity(0.5))
+                    .frame(width: 3)
+                Text(inline(body))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case .rule:
+            Divider()
+        case .table(let headers, let alignments, let rows):
+            TableBlockView(headers: headers, alignments: alignments, rows: rows, inline: inline)
+        }
+    }
+
+    private func headerFont(_ level: Int) -> Font {
+        switch level {
+        case 1: return .title.weight(.semibold)
+        case 2: return .title2.weight(.semibold)
+        case 3: return .title3.weight(.semibold)
+        case 4: return .headline
+        default: return .subheadline.weight(.semibold)
+        }
+    }
+}
+
+private struct ListBlockView: View {
+    let ordered: Bool
+    let items: [MarkdownBlocks.ListItem]
+    let inline: (String) -> AttributedString
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        marker(idx: idx, item: item)
+                        Text(inline(item.body))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !item.children.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
+                                BlockView(block: child, inline: inline)
+                            }
+                        }
+                        .padding(.leading, 16)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func marker(idx: Int, item: MarkdownBlocks.ListItem) -> some View {
+        if let checked = item.checked {
+            Image(systemName: checked ? "checkmark.square.fill" : "square")
+                .foregroundStyle(checked ? Color.accentColor : Color.secondary)
+        } else if ordered {
+            Text("\(idx + 1).")
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        } else {
+            Text("•").foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct CodeBlockView: View {
+    let lang: String
+    let code: String
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Text(code)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.black.opacity(0.08))
+                )
+            if !lang.isEmpty {
+                Text(lang)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.black.opacity(0.06))
+                    )
+                    .padding(6)
+            }
+        }
+    }
+}
+
+private struct TableBlockView: View {
+    let headers: [String]
+    let alignments: [MarkdownBlocks.TableAlign]
+    let rows: [[String]]
+    let inline: (String) -> AttributedString
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+            GridRow {
+                ForEach(Array(headers.enumerated()), id: \.offset) { idx, h in
+                    Text(inline(h)).bold()
+                        .frame(maxWidth: .infinity, alignment: align(idx))
+                }
+            }
+            Divider().gridCellColumns(max(headers.count, 1))
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    ForEach(Array(row.enumerated()), id: \.offset) { idx, cell in
+                        Text(inline(cell))
+                            .frame(maxWidth: .infinity, alignment: align(idx))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.secondary.opacity(0.3))
+        )
+    }
+
+    private func align(_ idx: Int) -> Alignment {
+        guard idx < alignments.count else { return .leading }
+        switch alignments[idx] {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
     }
 }

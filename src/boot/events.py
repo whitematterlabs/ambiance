@@ -1,4 +1,4 @@
-"""Async FS watcher over home/events/.
+"""Async FS watcher over $PAI_ROOT/run/pai/events/.
 
 Events are plain YAML files dropped into the directory. The watchdog
 observer runs in a background thread and pushes new paths onto an

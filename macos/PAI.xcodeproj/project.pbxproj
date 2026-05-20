@@ -24,6 +24,8 @@
 		DB884594DB3856ECEF2AEC11 /* ChatWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC2E636B61658A6BF1DCF7B /* ChatWindow.swift */; };
 		EFF2C3622E9EE1DBFCBD970D /* KernelLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E291E049F3295B307FC85DC4 /* KernelLog.swift */; };
 		A1B2C3D4E5F6789012345678 /* NotifyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEF12345678 /* NotifyWatcher.swift */; };
+		E1E2E3E4E5E6E7E8E9EAEBEC /* EventsTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E1E2E3E4E5E6E7E8E9EAEB /* EventsTailer.swift */; };
+		E2F1F2F3F4F5F6F7F8F9FAFB /* EventStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F1F2F3F4F5F6F7F8F9FAFB /* EventStripView.swift */; };
 		FF729026BAE19ABC56B66133 /* Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 437C49783C16ABCC26EC3E26 /* Sidebar.swift */; };
 /* End PBXBuildFile section */
 
@@ -46,6 +48,8 @@
 		E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAIApp.swift; sourceTree = "<group>"; };
 		E291E049F3295B307FC85DC4 /* KernelLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelLog.swift; sourceTree = "<group>"; };
 		1234567890ABCDEF12345678 /* NotifyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifyWatcher.swift; sourceTree = "<group>"; };
+		E0E1E2E3E4E5E6E7E8E9EAEB /* EventsTailer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventsTailer.swift; sourceTree = "<group>"; };
+		F0F1F2F3F4F5F6F7F8F9FAFB /* EventStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStripView.swift; sourceTree = "<group>"; };
 		E676ECCEA481352A1C5E6803 /* PAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0C24334DA7FBB9885019A42 /* DayFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayFile.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -62,6 +66,7 @@
 				DFA8E8899F8DE9912FC607AF /* KernelLauncher.swift */,
 				E291E049F3295B307FC85DC4 /* KernelLog.swift */,
 				1234567890ABCDEF12345678 /* NotifyWatcher.swift */,
+				E0E1E2E3E4E5E6E7E8E9EAEB /* EventsTailer.swift */,
 				E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */,
 				C32B6D5EF99A48635EAD0279 /* PAICloner.swift */,
 				34FA2F0E59DBEE4E74C48788 /* PAIRegistry.swift */,
@@ -92,6 +97,7 @@
 			children = (
 				6039086C086533FEF3139A11 /* ActivityWindow.swift */,
 				BFC2E636B61658A6BF1DCF7B /* ChatWindow.swift */,
+				F0F1F2F3F4F5F6F7F8F9FAFB /* EventStripView.swift */,
 				BAD2CD4C1D5B4BFAE4641B54 /* MarkdownBlocks.swift */,
 				DB28C180D43558F148D0FC88 /* ProcsWindow.swift */,
 				437C49783C16ABCC26EC3E26 /* Sidebar.swift */,
@@ -168,6 +174,8 @@
 				019EAC95BDA113E2E39CD4C2 /* KernelLauncher.swift in Sources */,
 				EFF2C3622E9EE1DBFCBD970D /* KernelLog.swift in Sources */,
 				A1B2C3D4E5F6789012345678 /* NotifyWatcher.swift in Sources */,
+				E1E2E3E4E5E6E7E8E9EAEBEC /* EventsTailer.swift in Sources */,
+				E2F1F2F3F4F5F6F7F8F9FAFB /* EventStripView.swift in Sources */,
 				306ABBF195E9CDC92A8529F6 /* MarkdownBlocks.swift in Sources */,
 				1CA19E1A2FAB6E085B119D9C /* PAIApp.swift in Sources */,
 				C04B168B151900F1EE78D66E /* PAICloner.swift in Sources */,
@@ -235,8 +243,8 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
@@ -323,8 +331,8 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;

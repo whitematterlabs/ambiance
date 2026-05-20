@@ -25,12 +25,12 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from boot.processes import EVENTS_DIR, HOME_DIR, PROC_DIR, list_procs, read_busy, read_spec, read_status
+from boot.processes import EVENTS_DIR, HOME_DIR, PAI_ROOT, PROC_DIR, list_procs, read_busy, read_spec, read_status
 from boot.proctree import order_as_tree
 from boot.tokens import read_last_window
 
 ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
-KERNEL_LOG = HOME_DIR / "var" / "log" / "kernel" / "kernel.log"
+KERNEL_LOG = PAI_ROOT / "var" / "log" / "kernel" / "kernel.log"
 
 
 def me_thread_dir(pid: int) -> Path:
@@ -242,7 +242,7 @@ class EventSighting:
 
 
 class EventsWatcher:
-    """Emits an EventSighting for each new file in home/events/.
+    """Emits an EventSighting for each new file in $PAI_ROOT/run/pai/events/.
 
     Files may get consumed (deleted) by the kernel before we read them;
     we try to read the YAML in the watchdog thread to beat the kernel,
@@ -314,7 +314,7 @@ class _EventsHandler(FileSystemEventHandler):
 
 
 class LogTailer:
-    """In-memory tail of home/tmp/kernel.log. Emits each new line as it's appended."""
+    """In-memory tail of var/log/kernel/kernel.log. Emits each new line as it's appended."""
 
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.loop = loop
@@ -331,7 +331,7 @@ class LogTailer:
 
         # No path_filter: macOS FSEvents often reports directory-level
         # events, so filtering on the exact file path drops real writes.
-        # Instead, on any event in tmp/ we just re-check kernel.log's size.
+        # Instead, on any event in the log dir we just re-check kernel.log's size.
         handler = _Poker(self.loop, self.queue)
         handler._put_if_room = self._on_poke  # type: ignore[method-assign]
         obs = Observer()

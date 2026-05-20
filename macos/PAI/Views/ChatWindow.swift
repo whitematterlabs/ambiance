@@ -2,16 +2,51 @@ import SwiftUI
 
 struct ChatWindow: View {
     let pai: PAIInfo
+    @ObservedObject var events: EventsTailer
     @StateObject private var watcher: DayFileWatcher
+    @StateObject private var speaker = Speaker()
     @State private var draft: String = ""
     @State private var sendError: String?
+    @State private var voiceMode: Bool = false
+    @State private var lastSpokenId: Message.ID?
+    @AppStorage("eventsInspectorVisible") private var showEvents: Bool = true
 
-    init(pai: PAIInfo) {
+    init(pai: PAIInfo, events: EventsTailer) {
         self.pai = pai
+        self.events = events
         _watcher = StateObject(wrappedValue: DayFileWatcher(pid: pai.pid))
     }
 
     var body: some View {
+        chatColumn
+            .inspector(isPresented: $showEvents) {
+                EventStripView(tailer: events)
+                    .inspectorColumnWidth(min: 220, ideal: 280, max: 480)
+            }
+            .navigationTitle("\(pai.slug) #\(pai.pid)")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: toggleVoice) {
+                        Image(systemName: voiceMode ? "speaker.wave.2.fill" : "speaker.slash")
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(voiceMode ? Color.accentColor : Color.secondary)
+                    }
+                    .help(voiceMode ? "Voice mode: on (click to mute)" : "Voice mode: off (click to read replies aloud)")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showEvents.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.right")
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(showEvents ? Color.accentColor : Color.secondary)
+                    }
+                    .help(showEvents ? "Hide events" : "Show events")
+                }
+            }
+    }
+
+    private var chatColumn: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -44,9 +79,29 @@ struct ChatWindow: View {
             composer
         }
         .frame(minWidth: 520, minHeight: 380)
-        .navigationTitle("\(pai.slug) #\(pai.pid)")
         .onAppear { watcher.start() }
-        .onDisappear { watcher.stop() }
+        .onDisappear {
+            watcher.stop()
+            speaker.stop()
+        }
+        .onChange(of: watcher.messages) { _, new in
+            guard voiceMode, let last = new.last else { return }
+            if last.id == lastSpokenId { return }
+            lastSpokenId = last.id
+            if last.sender != "me" {
+                speaker.speak(last.body)
+            }
+        }
+    }
+
+    private func toggleVoice() {
+        voiceMode.toggle()
+        if voiceMode {
+            // Don't replay history when toggling on — baseline at current tail.
+            lastSpokenId = watcher.messages.last?.id
+        } else {
+            speaker.stop()
+        }
     }
 
     private var composer: some View {
@@ -67,6 +122,15 @@ struct ChatWindow: View {
                             .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 0.5)
                     )
                     .onSubmit(send)
+                Button(action: interrupt) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 22))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape, modifiers: [])
+                .help("Interrupt PAI (Esc)")
                 Button(action: send) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 24))
@@ -134,5 +198,74 @@ struct ChatWindow: View {
         } catch {
             sendError = "send failed: \(error.localizedDescription)"
         }
+    }
+
+    private func interrupt() {
+        speaker.stop()
+        do {
+            try EventEmitter.interrupt(targetPid: pai.pid)
+            sendError = nil
+        } catch {
+            sendError = "interrupt failed: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Reads text aloud via `/usr/bin/say`. One utterance at a time — a new
+/// `speak` kills the in-flight process so the latest reply takes over
+/// instead of queueing behind stale output. `stop()` is used by the
+/// interrupt button and on toggle-off.
+@MainActor
+final class Speaker: ObservableObject {
+    private var current: Process?
+
+    func speak(_ text: String) {
+        let cleaned = Self.strip(text)
+        guard !cleaned.isEmpty else { return }
+        stop()
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        p.arguments = [cleaned]
+        do {
+            try p.run()
+            current = p
+            p.terminationHandler = { [weak self] proc in
+                Task { @MainActor in
+                    if self?.current === proc { self?.current = nil }
+                }
+            }
+        } catch {
+            current = nil
+        }
+    }
+
+    func stop() {
+        if let p = current, p.isRunning {
+            p.terminate()
+        }
+        current = nil
+    }
+
+    /// `say` reads punctuation literally and stumbles on code/URLs.
+    /// Strip fenced code, inline code, and markdown link syntax.
+    private static func strip(_ text: String) -> String {
+        var s = text
+        // Fenced code blocks.
+        s = s.replacingOccurrences(
+            of: #"```[\s\S]*?```"#, with: " ", options: .regularExpression
+        )
+        // Inline code.
+        s = s.replacingOccurrences(
+            of: #"`[^`]*`"#, with: " ", options: .regularExpression
+        )
+        // Markdown links [label](url) -> label.
+        s = s.replacingOccurrences(
+            of: #"\[([^\]]+)\]\([^)]*\)"#, with: "$1", options: .regularExpression
+        )
+        // Heading / list markers at line start.
+        s = s.replacingOccurrences(
+            of: #"(?m)^\s*[#>\-\*]+\s*"#, with: "", options: .regularExpression
+        )
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

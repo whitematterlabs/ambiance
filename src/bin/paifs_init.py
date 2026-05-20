@@ -200,7 +200,6 @@ SBIN_SCRIPTS: frozenset[str] = frozenset({
     "paidel",
     "paifs-init",
     "paisetup",
-    "pai-install-launchd",
 })
 
 

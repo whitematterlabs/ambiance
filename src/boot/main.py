@@ -1,6 +1,6 @@
 """The kernel loop — tickless, event + timer driven.
 
-Sleeps on whichever fires first: an FS event in home/events/ or the next
+Sleeps on whichever fires first: an FS event in $PAI_ROOT/run/pai/events/ or the next
 pending timer. When the heap is empty and no events are pending, blocks
 indefinitely on the watcher.
 """
@@ -598,15 +598,24 @@ class _Tee:
 
 
 def _install_stdout_tee() -> None:
-    # If stdout is already redirected (e.g. by the pai.py supervisor writing
-    # directly to kernel.log), the caller owns the log — don't double-write.
-    try:
-        if not sys.stdout.isatty():
-            return
-    except (AttributeError, ValueError):
-        return
-    log_path = P.HOME_DIR / "var" / "log" / "kernel" / "kernel.log"
+    # The kernel always tees stdout/stderr into kernel.log — this is the
+    # always-on daemon's only log, so it must work regardless of how the
+    # kernel was started (TTY shell, backgrounded, PAI.app, …).
+    #
+    # The one case to avoid is double-writing: a caller (e.g. PAI.app's
+    # KernelLauncher) may have already pointed our stdout *straight at*
+    # kernel.log. Tee-ing there would duplicate every line. Detect it by
+    # comparing inodes and bail if stdout already IS the log file.
+    log_path = paths.var_log() / "kernel" / "kernel.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        cur = os.fstat(sys.stdout.fileno())
+        if log_path.exists():
+            tgt = log_path.stat()
+            if cur.st_dev == tgt.st_dev and cur.st_ino == tgt.st_ino:
+                return
+    except (AttributeError, ValueError, OSError):
+        pass
     f = log_path.open("a", buffering=1, encoding="utf-8")
     sys.stdout = _Tee(sys.stdout, f)
     sys.stderr = _Tee(sys.stderr, f)

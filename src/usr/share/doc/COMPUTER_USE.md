@@ -1,58 +1,123 @@
 # COMPUTER_USE
 
-## Status — what shipped, what's still aspirational
-
-This file started as a design exploration (sections below). Some of it is now
-real and lives in the `browse` subagent (`/usr/lib/subagents/browse/`); the
-rest is still open. Quick map:
-
-**Shipped** (use the `browse` subagent — see its `prompt.md`):
-- [browser-use](https://github.com/browser-use/browser-use) as the agent
-  loop, with Playwright purely as a CDP client transport. Accessibility-
-  tree-first with VLM fallback baked into the library.
-- **One execution mode: CDP attach to the owner's real Chrome.** No
-  bundled Chromium, no separate profile. `entry.py` takes over the
-  owner's running Chrome (quits it first, SQLite-corruption guard) and
-  relaunches it against `~/Library/Application Support/Google/Chrome`
-  with `--remote-debugging-port=9222`. WAFs see a returning logged-in
-  user, not a bot.
-- One result file per spawn at `/proc/$PAI_SLUG/result.md`. Exit code
-  `2` + `WAF_BLOCKED: <host>` marker when even the real Chrome gets
-  walled — parents should not retry.
-
-**Auth model in practice (replaces the "hands the browser to the human"
-sketch below):** PAI doesn't hold passwords. It uses the owner's real
-Chrome profile, so whatever the owner is signed into is what browse can
-act on. No separate sign-in step.
-
-**Still open:**
-- Generalized "pause and hand the browser to the human mid-task" flow. Today
-  it's pre-seeded sign-in, not interactive handoff.
-- Per-domain action log under `home/communication/browser/{domain}/`. Today
-  the only artifact is `result.md`.
-- Sandboxing / per-domain allowlists / POST-confirmation prompts. None.
-- Long-running browser daemon model. Today each spawn either reuses an
-  existing CDP Chrome (port 9222 alive) or launches one; there's no
-  supervisor managing tabs across spawns.
-
-The rest of this doc is the original brainstorm — kept as design rationale.
-
----
+> **Status: split spec.** Part 1 describes the `browse` capability as it
+> exists in the codebase today. Part 2 is the original design brainstorm
+> kept as a roadmap — none of it ships yet. Path authority for anything
+> on disk is `FILESYSTEM_v3.md`.
 
 ## The bet
 
-Instead of writing N custom integrations (Gmail driver, Calendar driver, Linear driver, Notion driver, ...), give PAI **one** general capability: a browser it can drive. Anything a human can do through a webpage, PAI can do too.
+Instead of writing N service drivers (Gmail, Calendar, Linear, Notion,
+…), give PAI **one** general capability: a browser it can drive.
+Anything a human can do through a webpage, PAI can do too. Web search,
+form submission, dashboards, SaaS tools — all reachable through the
+same primitive.
 
-Why this is the right shape:
-- Auth is delegated to the human at first contact, then the session cookie carries forward. No OAuth dance per service.
-- Web search, form submission, dashboards, SaaS tools, government portals — all reachable through the same primitive.
-- Aligns with PAI's "filesystem + plain text" ethos: pages collapse to text, actions are append-only events.
+---
 
-## The hard part
+# Part 1 — Shipped today
 
-A browser is a graphical thing. PAI thinks in text. We need a layer that turns "the current page" into a **textual traversal surface** — an enumerated, labeled, navigable description of what's actionable right now.
+## Shape
 
-Target representation (sketch):
+`browse` ships as **two pairegistry packages**, installed into the
+running FHS the same way every other userspace bundle is:
+
+- **`bin/browse`** (`~/Projects/pairegistry/bin/browse/`, installed to
+  `/usr/lib/bins/browse/` and shimmed on `$PATH` as `browse`). Thin CDP
+  verbs against the owner's real Chrome — one CDP WebSocket per
+  invocation, one action, exit.
+- **`subagent/browse`** (`~/Projects/pairegistry/subagents/browse/`,
+  installed to `/usr/lib/subagents/browse/`). A subagent bundle whose
+  `prompt.md` teaches a model to drive the `browse` verbs across
+  multiple bash turns.
+
+A parent PAI invokes it the standard subagent way:
+
+```
+subagent spawn --bundle browse --message "<task>"
+```
+
+The kernel forks a `/proc/<slug>/` for the subagent, kicks off its
+prompt, and the subagent's own bash shell is the agent loop — there is
+no nested LLM. When done, the subagent writes
+`/proc/<slug>/result.md` and calls `subagent kill --slug $PAI_SLUG`,
+which the parent reads.
+
+## Execution model
+
+**One mode: CDP attach to the owner's real Chrome.** No bundled
+Chromium, no separate profile. Chrome launches lazily on the owner's
+real `~/Library/Application Support/Google/Chrome` profile with
+`--remote-debugging-port=9222`. WAFs see a returning logged-in human,
+not a bot.
+
+## Verbs
+
+The `browse` bin exposes a flat verb set; each call is a single CDP
+command:
+
+```
+browse goto <url>
+browse text [--max-chars N]
+browse dom                                  # numbered interactive elements
+browse click <idx>
+browse type <idx> "<text>" [--submit]
+browse press <key>
+browse scroll [down|up|N]
+browse screenshot [path]
+browse url
+browse title
+browse wait <selector|text> [--timeout S]
+browse tabs
+browse claim <tab_id>
+browse close
+```
+
+Indices come from the most recent `browse dom` and are invalidated by
+the next nav/click.
+
+## Tabs and handoff between spawns
+
+Each browse subagent owns one tab. When the subagent exits, the
+kernel marks its tab as orphaned in
+`/sys/drivers/browse/tabs/<slug>.yaml`
+(see `boot/processes.py`). On the next browse spawn, `bin/subagent.py`
+prefixes the kickoff message with an `AVAILABLE TABS` block listing
+claimable orphans. The new subagent can `browse claim <tab_id>` to
+inherit context (cookies, scroll position, prior page) or ignore the
+list and open a fresh tab.
+
+This is the only cross-spawn state today. Tab metadata lives under
+`/sys/drivers/browse/`; the per-spawn artifact is the subagent's
+`/proc/<slug>/result.md`.
+
+## Auth model
+
+PAI does not hold passwords. It drives the owner's real Chrome
+profile, so whatever the owner is signed into is what browse can act
+on. No OAuth dance, no cookie import, no separate sign-in step.
+
+## Result contract
+
+One file per spawn: `/proc/<slug>/result.md`. Markdown, ≤500 lines,
+includes the final URL, the answer, and any key verbatim quotes. On a
+hard block (login wall, captcha, dark site) the subagent still writes
+`result.md` describing the failure and exits — the parent reads
+closure either way and does not retry.
+
+---
+
+# Part 2 — Open / deferred
+
+Everything below is design rationale and roadmap, **not** shipping
+behavior. Where the brainstorm conflicted with what shipped, Part 1
+wins.
+
+## Page → text representation
+
+The shipped path is `browse dom` (numbered, accessibility-leaning
+snapshot of interactive elements) plus `browse text` for prose. The
+original sketch had a richer, page-structured text surface:
 
 ```
 URL: https://foo.com
@@ -60,78 +125,65 @@ TITLE: Foo — Sign in
 
 CHECKBOXES:
   [X] Remember me                 #remember
-  [ ] Subscribe to newsletter     #newsletter
-
 INPUTS:
   email    (empty)                #email
-  password (empty)                #password
-
 BUTTONS:
   [ Log in ]                      #submit
-  [ Sign up ]                     /signup
-  [ Continue with Google ]        oauth:google
-
 LINKS:
   Forgot password?                /reset
 ```
 
-PAI then issues actions like `click #submit`, `fill #email = "..."`, `goto /signup`. The layer round-trips: action → real browser event → new page → re-rendered text surface.
+Open whether to grow `browse dom` into this shape or keep it minimal.
 
-## Wishful-thinking premise
+## Approach options for the action surface
 
-> A browser ultimately turns user actions into HTTP requests + JS execution. So there must be a way to enumerate the action surface of a page as text.
+- **A. DOM + accessibility tree.** What the shipped `browse dom` is
+  closest to. Deterministic, fast, no model in the loop.
+- **B. VLM on screenshots.** Anthropic computer-use style. Slow,
+  expensive, works on anything visible.
+- **C. Hybrid.** Accessibility default, VLM fallback when the a11y
+  tree is empty or an action fails to change the page.
+- **D. Record-and-replay per site.** First run records a script;
+  subsequent visits replay. Complement to A/B/C, not a replacement.
 
-Mostly true, with caveats:
+## Mid-task human handoff
 
-- **Static actions** (anchor hrefs, form actions, declared event handlers) are enumerable from the DOM directly. Easy.
-- **Dynamic actions** (JS-attached `onclick`, React/Vue synthetic handlers, delegated listeners on `document`) are *not* enumerable by reading HTML. The handler exists only as a function reference inside the JS runtime. You cannot statically list "all possible POSTs this page can make."
-- **Conditional UI** (modals that mount on click, infinite scroll, tooltips) means the action surface at time T is a subset of the surface at time T+1. Enumeration is a moving target.
+Generalized "pause and hand the browser to the human mid-task" flow
+("I need you to log in to foo.com — taking control now", human logs
+in, PAI resumes) is **not** shipped. Today auth is pre-seeded by
+virtue of using the owner's profile.
 
-So pure reverse-engineering of the HTTP surface doesn't work. We need a hybrid.
+## Per-domain action log
 
-## Approach options (still undecided)
+The brainstorm called for an append-only event log at
+`<pai-home>/communication/browser/<domain>/YYYY-MM-DD.md` in the same
+format as messages, so browsing becomes just another conversation. Not
+implemented. The only artifact today is per-spawn `result.md`.
 
-### A. DOM scrape + accessibility tree
-Use a real headless browser (Chromium via CDP). After every navigation, walk the **accessibility tree** (not raw DOM) — that's what screen readers use, and it already labels things by role (button, checkbox, link, textbox) with their accessible names. Stable, semantic, ignores presentational divs.
+## Sandboxing
 
-- Pros: deterministic, fast, no model in the loop, uses browser-native semantics.
-- Cons: misses sites with bad a11y; dynamic widgets (custom dropdowns built from `<div>`s) may show up as junk.
+No per-domain allowlists, no POST-confirmation prompts, no jailing. A
+general browser driven by an LLM is a large blast radius and this slot
+is open.
 
-### B. Vision-language model on screenshots
-Screenshot the page, ask a VLM "list all interactive elements with bounding boxes and labels." Anthropic's computer-use API is literally this.
+## Long-running browser daemon
 
-- Pros: works on anything a human can see; doesn't care about DOM hygiene.
-- Cons: slow, expensive per step, non-deterministic, hard to test.
+Today each spawn either reuses an existing CDP Chrome (port 9222
+alive) or launches one. There is no supervisor managing tabs, sessions,
+or concurrent spawns across the fleet. Tab handoff via the orphan
+mechanism is the minimal version of this; a real daemon is deferred.
 
-### C. Hybrid (likely winner)
-Accessibility tree as the default cheap path. Fall back to VLM when the a11y tree is empty/garbage or when an action fails ("I clicked #submit and nothing changed → take a screenshot and re-plan").
+## Failure recovery
 
-### D. Record-and-replay per site
-First time PAI uses a site, a human (or VLM) walks through the flow and PAI saves a script. Subsequent visits replay the script. Re-record on breakage.
-
-- Pros: fast and reliable in steady state.
-- Cons: doesn't generalize; brittle to redesigns. Probably a complement to A/B/C, not a replacement.
-
-## Auth model (original sketch — see Status block at top for what shipped)
-
-- PAI never holds raw passwords. When a site needs login, PAI **pauses and hands the browser window to the human** ("I need you to log in to foo.com — taking control of the browser now"). User logs in, PAI resumes with the session cookie.
-- Per-domain cookie jars stored under `home/workspace/browser/cookies/{domain}/`.
-- Re-auth is a normal pause-and-handoff event; not an error.
-
-> What actually shipped is simpler: browse takes over the owner's real
-> Chrome (real Default profile) over CDP. Whatever the owner is signed
-> into is what browse can use. No separate profile, no cookie import,
-> no interactive mid-task handoff yet.
-
-## Open questions
-
-1. **Browser runtime.** Playwright vs CDP-direct vs Chrome via DevTools Protocol over a long-lived process? PAI's bash tool is a literal TTY (per memory), so a long-running browser daemon controlled via a CLI fits naturally.
-2. **State boundary.** Does the page-text representation live in PAI's context window every step, or in a file under `home/` that PAI reads on demand? Probably the latter, with a short summary in context.
-3. **Action log.** Every click/fill/goto should append to `home/communication/browser/{domain}/YYYY-MM-DD.md` in the same format as messages — so browsing is just another conversation.
-4. **Concurrency.** One browser, many tabs? Many browsers? When PAI is doing background work and the user grabs the browser to log in, what happens?
-5. **Failure recovery.** If an action's expected outcome doesn't materialize (clicked submit, still on same URL, no new text), what's the retry/replan loop?
-6. **Sandboxing.** A general-purpose browser controlled by an LLM is a large blast radius. Per-domain allowlists? Confirmation prompts before POSTs to unfamiliar origins?
+If an action's expected outcome doesn't materialize (clicked submit,
+still on same URL, no new text), there is no kernel-level retry/replan
+loop. The subagent's own bash turns are the only retry surface. WAF
+hard-blocks exit with `result.md` and no retry, by design.
 
 ## Next concrete step
 
-Prototype the page→text layer in isolation. Pick 5 representative sites (a static blog, Gmail, a SaaS dashboard, a government form, a search engine), run Playwright + accessibility-tree extraction on each, eyeball the output. If 3/5 are usable as-is, approach A is viable and we build from there. If most are garbage, jump to the hybrid.
+Pick 5 representative sites (static blog, Gmail, a SaaS dashboard, a
+government form, a search engine), run the current `browse dom` /
+`browse text` against each, and eyeball where the a11y-leaning surface
+breaks. If 3/5 are usable as-is, the shipped approach extends
+naturally. If most are garbage, prototype the hybrid (C).

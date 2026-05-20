@@ -53,7 +53,7 @@ def _now_hm() -> str:
 
 
 def emit_event(payload: dict, target_pid: int | None = None) -> Path:
-    """Write a YAML event file into home/events/. Consumed by the running kernel.
+    """Write a YAML event file into $PAI_ROOT/run/pai/events/. Consumed by the running kernel.
 
     If `target_pid` is given, it is stamped onto the payload and the router
     delivers only to that pid, bypassing wake_on matching. Used by drivers
@@ -187,7 +187,7 @@ def _write_subagent_metrics(slug: str, spec: dict, exit_status: str) -> None:
             pass
 
     invocations = 0
-    log_path = HOME_DIR / "tmp" / "kernel.log"
+    log_path = PAI_ROOT / "var" / "log" / "kernel" / "kernel.log"
     if log_path.exists():
         prefix = f"[pai:{slug}] $ "
         try:

@@ -3,7 +3,7 @@ import UserNotifications
 
 /// Tails `~/.pai/var/log/turns.jsonl` (written by `src/boot/nudge.py` after
 /// every PAI turn) and posts a `UNUserNotificationCenter` notification per
-/// new line. Title is `"PAI <slug> finished"`, body is empty.
+/// new line. Title is `"<slug> is done!"`, body is empty.
 ///
 /// Backlog suppression: on launch we seek to EOF, so missed turns while the
 /// app was closed do not fire a notification storm. The file is still useful
@@ -12,14 +12,20 @@ import UserNotifications
 /// Uses the same 0.5s polling pattern as `KernelLogTailer` — good enough
 /// at this rate and avoids dragging in FSEvents plumbing.
 @MainActor
-final class NotifyWatcher {
+final class NotifyWatcher: NSObject, UNUserNotificationCenterDelegate {
     private let path: URL = FHS.root
         .appendingPathComponent("var/log/turns.jsonl")
     private var offset: UInt64 = 0
     private var timer: Timer?
     private var fileAppeared = false
 
+    /// Called when the user taps a banner. AppDelegate sets this so we can
+    /// route to the existing window instead of macOS launching a fresh
+    /// process for an LSUIElement app.
+    var onActivate: (() -> Void)?
+
     func start() {
+        UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound]
         ) { _, _ in }
@@ -79,7 +85,7 @@ final class NotifyWatcher {
         }
         let turnIndex = obj["turn_index"] as? Int ?? 0
         let content = UNMutableNotificationContent()
-        content.title = "PAI \(slug) finished"
+        content.title = "\(slug) is done!"
         // Body intentionally empty.
         let request = UNNotificationRequest(
             identifier: "pai-finished-\(slug)-\(turnIndex)",
@@ -87,5 +93,27 @@ final class NotifyWatcher {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request) { _ in }
+    }
+
+    // Show banner even while the app is foregrounded.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    // Banner tap → bring the running window forward. Without this handler,
+    // LaunchServices may spawn a second instance for LSUIElement apps.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor in
+            self.onActivate?()
+            completionHandler()
+        }
     }
 }
