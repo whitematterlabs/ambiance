@@ -56,7 +56,7 @@ def test_init_rejects_invalid_names(fhs_root: Path, bad: str) -> None:
 
 def test_install_skill(fhs_root: Path) -> None:
     assert paiman.main(["install", str(FIXTURES / "testskill")]) == 0
-    bundle = fhs_root / "opt" / "paiman" / "testskill"
+    bundle = fhs_root / "opt" / "paiman" / "skill" / "testskill"
     slot = fhs_root / "usr" / "lib" / "skills" / "testskill"
     assert bundle.is_dir()
     assert (bundle / "SKILL.md").is_file()
@@ -80,7 +80,7 @@ def test_install_bin(fhs_root: Path) -> None:
     assert slot.stat().st_mode & 0o111
     shim = slot.read_text()
     assert shim.startswith("#!/bin/sh")
-    bundle_entry = fhs_root / "opt" / "paiman" / "testbin" / "bin" / "testbin.py"
+    bundle_entry = fhs_root / "opt" / "paiman" / "bin" / "testbin" / "bin" / "testbin.py"
     assert str(bundle_entry) in shim
     assert bundle_entry.is_file()
 
@@ -130,7 +130,7 @@ def test_no_reload_suppresses_emit(
 
 def test_reinstall_overwrites(fhs_root: Path, tmp_path: Path) -> None:
     paiman.main(["install", str(FIXTURES / "testskill")])
-    bundle = fhs_root / "opt" / "paiman" / "testskill"
+    bundle = fhs_root / "opt" / "paiman" / "skill" / "testskill"
     # User-edits-in-place: drop a stray file, then reinstall.
     (bundle / "stray.txt").write_text("edit")
     paiman.main(["install", str(FIXTURES / "testskill")])
@@ -141,7 +141,7 @@ def test_reinstall_overwrites(fhs_root: Path, tmp_path: Path) -> None:
 def test_remove(fhs_root: Path) -> None:
     paiman.main(["install", str(FIXTURES / "testskill")])
     assert paiman.main(["remove", "testskill"]) == 0
-    assert not (fhs_root / "opt" / "paiman" / "testskill").exists()
+    assert not (fhs_root / "opt" / "paiman" / "skill" / "testskill").exists()
     assert not (fhs_root / "usr" / "lib" / "skills" / "testskill").exists()
 
 
@@ -195,7 +195,7 @@ def test_show_installed(fhs_root: Path, capsys: pytest.CaptureFixture) -> None:
 
 def test_install_bare_name_resolves_via_registry(fhs_root: Path) -> None:
     assert paiman.main(["install", "testskill1"]) == 0
-    assert (fhs_root / "opt" / "paiman" / "testskill1").is_dir()
+    assert (fhs_root / "opt" / "paiman" / "skill" / "testskill1").is_dir()
     assert (fhs_root / "usr" / "lib" / "skills" / "testskill1").is_symlink()
 
 
@@ -219,7 +219,7 @@ def test_install_pai_pulls_deps_from_registry(fhs_root: Path) -> None:
 def test_install_pai_skips_existing_deps(fhs_root: Path) -> None:
     paiman.main(["install", "testskill1"])
     # User edits the installed skill.
-    skill_dir = fhs_root / "opt" / "paiman" / "testskill1"
+    skill_dir = fhs_root / "opt" / "paiman" / "skill" / "testskill1"
     (skill_dir / "user-edit.md").write_text("hand-tweaked")
     paiman.main(["install", str(FIXTURES / "testpai")])
     # Edit must survive — paiman skipped reinstalling the existing dep.
@@ -261,21 +261,21 @@ def test_remove_refuses_when_pai_depends(fhs_root: Path) -> None:
     with pytest.raises(SystemExit, match="required by pai bundle"):
         paiman.main(["remove", "testskill1"])
     # Still installed.
-    assert (fhs_root / "opt" / "paiman" / "testskill1").is_dir()
+    assert (fhs_root / "opt" / "paiman" / "skill" / "testskill1").is_dir()
 
 
 def test_remove_force_overrides_dep_check(fhs_root: Path) -> None:
     paiman.main(["install", str(FIXTURES / "testpai")])
     assert paiman.main(["remove", "--force", "testskill1"]) == 0
-    assert not (fhs_root / "opt" / "paiman" / "testskill1").exists()
+    assert not (fhs_root / "opt" / "paiman" / "skill" / "testskill1").exists()
 
 
 def test_remove_pai_does_not_remove_deps(fhs_root: Path) -> None:
     paiman.main(["install", str(FIXTURES / "testpai")])
     paiman.main(["remove", "testpai"])
     # Pai gone; primitives stay.
-    assert not (fhs_root / "opt" / "paiman" / "testpai").exists()
-    assert (fhs_root / "opt" / "paiman" / "testskill1").is_dir()
+    assert not (fhs_root / "opt" / "paiman" / "pai" / "testpai").exists()
+    assert (fhs_root / "opt" / "paiman" / "skill" / "testskill1").is_dir()
 
 
 def test_list_installed(fhs_root: Path, capsys: pytest.CaptureFixture) -> None:

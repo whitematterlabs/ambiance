@@ -148,6 +148,19 @@ def _validate_name(name: str) -> None:
         raise SystemExit(f"paiman: invalid name {name!r}")
 
 
+def _opt_rel(kind: str, name: str, topic: str | None) -> str:
+    """Staging path under /opt/paiman/ for a bundle. Skills group by topic
+    (`<topic>/<name>`); every other kind groups by kind (`<kind>/<name>`).
+    Kind-grouping lets two different-kind bundles share a name without
+    clobbering each other's staging dir — e.g. the `ax` driver and the `ax`
+    bin client coexist at `driver/ax` and `bin/ax`. The scanners
+    (`_find_installed_bundle`, `_iter_installed_bundles`, boot hooks) already
+    walk one level deep, so this needs no reader changes."""
+    if topic:
+        return f"{topic}/{name}"
+    return f"{kind}/{name}"
+
+
 def _activation_slot(
     kind: str,
     name: str,
@@ -155,7 +168,7 @@ def _activation_slot(
     topic: str | None = None,
 ) -> tuple[Path, Path]:
     """Return (slot_path, symlink_target) for the activation symlink."""
-    rel = f"{topic}/{name}" if topic else name
+    rel = _opt_rel(kind, name, topic)
     bundle_dir = paths.opt_paiman() / rel
     if kind == "bin":
         if not entrypoint:
@@ -330,9 +343,14 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
             f"paiman: kind {kind!r} not installable "
             f"(known: {', '.join(INSTALLABLE_KINDS)})"
         )
-    if name in seen:
+    # Key cycle detection on the resolved source path, not the bundle name.
+    # Sibling bundles of different kinds may legitimately share a name
+    # (e.g. the `ax` driver depends on the `ax` bin client); only a true
+    # cycle revisits the same source tree.
+    src_key = str(src.resolve())
+    if src_key in seen:
         raise SystemExit(f"paiman: dependency cycle detected at {name!r}")
-    seen.add(name)
+    seen.add(src_key)
 
     if kind in ("bin", "prompt"):
         if not entrypoint:
@@ -368,8 +386,8 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         elif old_link.is_dir():
             shutil.rmtree(old_link)
 
-    # Copy to /opt/paiman/[<topic>/]<name>/ (overwrite).
-    dest = paths.opt_paiman() / (f"{topic}/{name}" if topic else name)
+    # Copy to /opt/paiman/<topic-or-kind>/<name>/ (overwrite).
+    dest = paths.opt_paiman() / _opt_rel(kind, name, topic)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() or dest.is_symlink():
         shutil.rmtree(dest)
