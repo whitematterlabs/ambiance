@@ -8,6 +8,15 @@ first run, and provisions a self-contained Python venv at
 usr/lib/venv/ with runtime
 deps + console-script shims at usr/bin/ — so the FHS root is runnable
 without reaching back into the repo's own .venv.
+
+Two modes:
+  - **dev** (default): symlinks `REPO_ROOT/src/*` into the FHS and builds a
+    `uv` venv. Edits in the repo are live; assumes a checkout + `uv`.
+  - **bundle** (`--bundle-mode --seed <dir>`): used by PAI.app on first run.
+    There is no checkout and no `uv` — the embedded interpreter already has the
+    package, and content slots are *copied* from the bundled `<seed>` dir rather
+    than symlinked at a repo. Writes a `var/lib/.provisioned` schema marker so
+    the app can cheaply detect first-run and re-provision on a version bump.
 """
 
 from __future__ import annotations
@@ -185,6 +194,25 @@ pais:
 # symlink wins; ensure_symlink will remove an existing empty dir.
 SYMLINK_TARGETS = {p for p, _ in SYMLINKS}
 
+# Bundle-mode provisioning schema. Bumped when the on-disk layout this script
+# produces changes in a way that warrants re-provisioning an existing root.
+# Written to var/lib/.provisioned; PAI.app re-provisions when its current
+# schema exceeds the marker's.
+PROVISION_SCHEMA = 1
+
+# Content slots bundle mode COPIES (not symlinks) out of the bundled seed dir.
+# Each entry is (link_path_under_root, seed_relative_path). The app ships
+# `src/etc/` -> Resources/seed/etc and `src/usr/share/doc/` -> Resources/seed/doc
+# (see macos/bundle-runtime.sh); these mappings mirror the content entries in
+# SYMLINKS above, sourced from the seed instead of the repo.
+BUNDLE_SEED_CONTENT: tuple[tuple[str, str], ...] = (
+    ("usr/share/doc", "doc"),
+    ("etc/owner.md", "etc/owner.md"),
+    ("etc/boilerplate/owner.md", "etc/owner.md"),
+    ("etc/boilerplate/memory-usage.md", "etc/boilerplate/memory-usage.md"),
+    ("etc/boilerplate/capability-escalation.md", "etc/boilerplate/capability-escalation.md"),
+)
+
 # Scripts that get installed into /sbin/ instead of /usr/bin/. These are
 # privileged kernel/owner ops, not PAI-callable tools.
 SBIN_SCRIPTS: frozenset[str] = frozenset({
@@ -300,20 +328,44 @@ def install_pth(venv_dir: Path, root: Path) -> None:
     )
 
 
-def install_bin_shims(venv_dir: Path, root: Path) -> None:
-    """Generate shim files for each [project.scripts] entry.
+def _console_scripts(venv_dir: Path | None) -> dict[str, str]:
+    """Map console-script name -> 'module:attr'.
+
+    Dev mode (venv_dir set) reads pyproject.toml — the repo is on disk. Bundle
+    mode (venv_dir None) has no pyproject in the app, so it reads the installed
+    `pai` dist's entry points from the running interpreter's metadata."""
+    if venv_dir is not None:
+        return _load_pyproject().get("project", {}).get("scripts", {})
+    from importlib.metadata import entry_points
+
+    out: dict[str, str] = {}
+    for ep in entry_points(group="console_scripts"):
+        dist = getattr(ep, "dist", None)
+        name = getattr(dist, "name", None)
+        if name and name.replace("_", "-").lower() == "pai":
+            out[ep.name] = ep.value
+    return out
+
+
+def install_bin_shims(venv_dir: Path | None, root: Path, *, python: Path | None = None) -> None:
+    """Generate shim files for each console-script entry.
 
     Splits by privilege: SBIN_SCRIPTS go to sbin/, the rest to usr/bin/.
-    Each shim shebangs the FHS venv's python and import-calls the target.
-    Idempotent — overwritten on every run so the bin set tracks pyproject."""
+    Each shim shebangs `python` (the FHS venv python in dev mode, the embedded
+    interpreter in bundle mode) and import-calls the target. Idempotent —
+    overwritten on every run so the bin set tracks the package's entry points.
+
+    Dev mode passes `venv_dir` (scripts read from pyproject, python is the
+    venv's). Bundle mode passes `venv_dir=None` + an explicit `python` (scripts
+    read from installed metadata)."""
     bin_dir = root / "usr" / "bin"
     sbin_dir = root / "sbin"
     for d in (bin_dir, sbin_dir):
         if d.is_symlink():
             d.unlink()
         d.mkdir(parents=True, exist_ok=True)
-    py = venv_dir / "bin" / "python"
-    scripts = _load_pyproject().get("project", {}).get("scripts", {})
+    py = python if python is not None else venv_dir / "bin" / "python"
+    scripts = _console_scripts(venv_dir)
     for name, target in scripts.items():
         module, _, attr = target.partition(":")
         dest_dir = sbin_dir if name in SBIN_SCRIPTS else bin_dir
@@ -379,24 +431,73 @@ def repoint_shims(root: Path, python_exe: Path) -> int:
     return changed
 
 
-def lay_out(root: Path) -> None:
+def copy_seed_content(root: Path, seed: Path) -> None:
+    """Copy the seed content slots into the FHS (bundle mode).
+
+    Dev mode symlinks these at the live repo (see SYMLINKS); a shipped app has
+    no repo, so it copies the equivalents out of the bundled `<seed>` dir.
+    Overwrites on every run so the on-disk copy tracks the shipped seed."""
+    for link_rel, seed_rel in BUNDLE_SEED_CONTENT:
+        src = seed / seed_rel
+        if not src.exists():
+            sys.exit(f"paifs-init: seed content missing: {src}")
+        dest = root / link_rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.is_symlink():
+            dest.unlink()
+        if src.is_dir():
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(src, dest)
+        else:
+            if dest.exists():
+                dest.unlink()
+            shutil.copy2(src, dest)
+
+
+def write_provisioned_marker(root: Path) -> None:
+    """Stamp var/lib/.provisioned with the schema version (bundle mode).
+
+    Lets PAI.app cheaply detect an unprovisioned root (no marker) and
+    re-provision when its bundled schema exceeds the marker's."""
+    dest = root / "var" / "lib" / ".provisioned"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"{PROVISION_SCHEMA}\n")
+
+
+def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for rel in SKELETON:
         if rel in SYMLINK_TARGETS:
             continue
         ensure_dir(root / rel)
-    for rel, target in SYMLINKS:
-        ensure_symlink(root / rel, target)
+    if bundle_mode:
+        if seed is None:
+            sys.exit("paifs-init: --bundle-mode requires --seed <dir>")
+        # Code symlinks are skipped (code is in the bundle); content slots are
+        # copied from the seed instead of symlinked at a repo checkout.
+        copy_seed_content(root, seed)
+    else:
+        for rel, target in SYMLINKS:
+            ensure_symlink(root / rel, target)
     # /bin → usr/bin (relative). One bin for PAI-callable tools; /sbin
     # holds the kernel-only ones.
     ensure_symlink(root / "bin", Path("usr/bin"))
     ensure_default_config(root)
     ensure_shared_memory_index(root)
-    ensure_system_deps()
-    venv_dir = ensure_venv(root)
-    install_pth(venv_dir, root)
-    install_bin_shims(venv_dir, root)
-    seed_kernel_essentials(root)
+    if bundle_mode:
+        # No dev venv: the embedded interpreter already has the package, and the
+        # `drivers` namespace resolves via PYTHONPATH=usr/lib (set by
+        # KernelLauncher). System binaries come from the bundle (PATH), not brew.
+        install_bin_shims(None, root, python=Path(sys.executable))
+        seed_kernel_essentials(root)
+        write_provisioned_marker(root)
+    else:
+        ensure_system_deps()
+        venv_dir = ensure_venv(root)
+        install_pth(venv_dir, root)
+        install_bin_shims(venv_dir, root)
+        seed_kernel_essentials(root)
 
 
 # System-level binaries the kernel itself shells out to. Drivers may add
@@ -570,6 +671,19 @@ def main() -> int:
         help="skip auto-chaining into paisetup on a fresh install",
     )
     ap.add_argument(
+        "--bundle-mode",
+        action="store_true",
+        help="provision from a shipped app (no repo, no uv): copy seed content "
+             "instead of symlinking the repo, shim at the embedded interpreter, "
+             "and stamp the .provisioned marker. Requires --seed.",
+    )
+    ap.add_argument(
+        "--seed",
+        type=Path,
+        default=None,
+        help="bundled seed dir for --bundle-mode (Resources/seed; holds etc/ and doc/)",
+    )
+    ap.add_argument(
         "--repoint-shims",
         action="store_true",
         help="rewrite existing tool-shim shebangs to --python and exit "
@@ -587,6 +701,12 @@ def main() -> int:
         py = args.python or Path(sys.executable)
         n = repoint_shims(args.root, py)
         print(f"repointed {n} shim(s) at {py}")
+        return 0
+    if args.bundle_mode:
+        # GUI launch: no uv, no TTY. Lay out, seed, mark — that's all the app
+        # needs. No expose_pai_command / paisetup chaining (no shell, no TTY).
+        lay_out(args.root, bundle_mode=True, seed=args.seed)
+        print(f"FHS skeleton ready at {args.root} (bundle mode)")
         return 0
     _ensure_uv()
     lay_out(args.root)

@@ -123,11 +123,23 @@ final class KernelLauncher: ObservableObject {
         // `paths.prepend_pai_path()` and bash_tool/shell_tool. Belt and
         // suspenders: the kernel re-applies this, but the very first process
         // (and any pre-loop spawn) gets a sane PATH from us.
-        let paiPath = [
+        var pathParts = [
             FHS.root.appendingPathComponent("usr/lib/venv/bin").path,
             FHS.root.appendingPathComponent("usr/bin").path,
             FHS.root.appendingPathComponent("sbin").path,
-        ].joined(separator: ":")
+        ]
+        // Bundled system binaries (tmux, CoreLocationCLI) live inside the app,
+        // not on a Finder-launched app's empty PATH. Prepend runtime/bin so the
+        // kernel and its children resolve them; the kernel's own
+        // prepend_pai_path preserves this (it appends the inherited PATH). Dev
+        // builds (no bundle) just skip it.
+        if let res = Bundle.main.resourceURL {
+            let runtimeBin = res.appendingPathComponent("runtime/bin").path
+            if FileManager.default.fileExists(atPath: runtimeBin) {
+                pathParts.insert(runtimeBin, at: 0)
+            }
+        }
+        let paiPath = pathParts.joined(separator: ":")
         if let existing = env["PATH"], !existing.isEmpty {
             env["PATH"] = paiPath + ":" + existing
         } else {

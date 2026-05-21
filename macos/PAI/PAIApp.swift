@@ -35,12 +35,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let launcher = KernelLauncher()
     private let notifier = NotifyWatcher()
     private let events = EventsTailer()
+    private let provisioner = Provisioner()
+    private let loginItem = LoginItem()
 
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
+    private var setupWindow: NSWindow?
     private var iconSubscription: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Shipped build, first run (or schema bump): provision ~/.pai behind a
+        // setup window before bringing up the real surfaces. Dev builds (no
+        // bundled runtime) report needsProvisioning == false and skip straight
+        // to the normal app.
+        if provisioner.needsProvisioning {
+            runFirstRunProvisioning()
+        } else {
+            startNormalSurfaces()
+        }
+    }
+
+    /// Stand up the menubar item, main window, watchers, and FDA prompt. Called
+    /// directly on a provisioned root, or after first-run provisioning succeeds.
+    private func startNormalSurfaces() {
         installStatusItem()
         buildMainWindow()
         observeRegistryForIcon()
@@ -48,6 +65,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         notifier.start()
         events.start()
         promptForFullDiskAccessIfNeeded()
+    }
+
+    /// Show the setup window and kick off provisioning. On success we tear the
+    /// setup window down and continue into `startNormalSurfaces()`; on failure
+    /// the window stays up with a Retry button.
+    private func runFirstRunProvisioning() {
+        let view = SetupWindow(provisioner: provisioner) { [weak self] in
+            self?.startProvisioning()
+        }
+        let hosting = NSHostingController(rootView: view)
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 400),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "PAI Setup"
+        win.titlebarAppearsTransparent = true
+        win.isReleasedWhenClosed = false
+        win.contentViewController = hosting
+        win.center()
+        setupWindow = win
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        startProvisioning()
+    }
+
+    private func startProvisioning() {
+        Task { @MainActor in
+            await provisioner.provision()
+            guard provisioner.lastError == nil else { return }  // Retry stays available.
+            setupWindow?.orderOut(nil)
+            setupWindow = nil
+            startNormalSurfaces()
+            activateWindow()
+        }
     }
 
     /// macOS has no API to *prompt* for Full Disk Access — apps detect the
@@ -83,6 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func activateWindow() {
+        // Nil while the first-run setup window is up; nothing to bring forward.
+        guard let window else { return }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
@@ -117,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func buildMainWindow() {
         let root = MainWindow(
             registry: registry, procs: procs, log: log, state: state,
-            cloner: cloner, launcher: launcher, events: events
+            cloner: cloner, launcher: launcher, events: events, loginItem: loginItem
         )
         let hosting = NSHostingController(rootView: root)
         let win = NSWindow(
@@ -195,6 +250,7 @@ struct MainWindow: View {
     @ObservedObject var cloner: PAICloner
     @ObservedObject var launcher: KernelLauncher
     @ObservedObject var events: EventsTailer
+    @ObservedObject var loginItem: LoginItem
 
     var body: some View {
         VStack(spacing: 0) {
@@ -208,7 +264,7 @@ struct MainWindow: View {
                     .frame(minWidth: 520, minHeight: 420)
             }
             Divider()
-            StatusBar(registry: registry, launcher: launcher, selection: state.selection)
+            StatusBar(registry: registry, launcher: launcher, loginItem: loginItem, selection: state.selection)
         }
         .navigationTitle(titleForSelection)
         .onAppear {

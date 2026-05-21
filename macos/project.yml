@@ -30,6 +30,12 @@ settings:
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_REQUIRED: "YES"
     CODE_SIGNING_ALLOWED: "YES"
+    # Developer ID flip (the day an Apple Developer account lands): set the two
+    # below and pass SIGN_ID="Developer ID Application: … (TEAMID)" to
+    # macos/bundle-runtime.sh (optionally with --notarize). Left commented so
+    # ad-hoc builds stay the default.
+    # DEVELOPMENT_TEAM: ABCDE12345
+    # CODE_SIGN_IDENTITY: "Developer ID Application"
 
 targets:
   PAI:
@@ -47,6 +53,10 @@ targets:
         CFBundleName: PAI
         CFBundleDisplayName: PAI
         CFBundleIdentifier: com.pai.menubar
+        # Asset-catalog app icon. Needed explicitly because GENERATE_INFOPLIST_FILE
+        # is NO, so Xcode won't inject CFBundleIconName for us. LSUIElement means
+        # no Dock icon, but Finder/.dmg/notifications still use it.
+        CFBundleIconName: AppIcon
         NSHumanReadableCopyright: ""
         NSUserNotificationsUsageDescription: "PAI posts a notification when one of your PAIs finishes a turn."
         # macOS 14+ scenes-based lifecycle.
@@ -56,6 +66,7 @@ targets:
         PRODUCT_NAME: PAI
         PRODUCT_BUNDLE_IDENTIFIER: com.pai.menubar
         CODE_SIGN_ENTITLEMENTS: PAI/PAI.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: "YES"
         # No sandbox: the app reads/writes ~/.pai/ as the owner. Sandboxing
         # would require user-selected file access per directory — defeats

@@ -8,6 +8,8 @@
 	<string>PAI</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.pai.menubar</string>
 	<key>CFBundleInfoDictionaryVersion</key>

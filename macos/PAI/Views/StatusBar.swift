@@ -7,6 +7,7 @@ import SwiftUI
 struct StatusBar: View {
     @ObservedObject var registry: PAIRegistry
     @ObservedObject var launcher: KernelLauncher
+    @ObservedObject var loginItem: LoginItem
     let selection: AppSelection?
 
     var body: some View {
@@ -37,6 +38,11 @@ struct StatusBar: View {
                 Button("Start kernel") { launcher.start() }
                     .disabled(launcher.inFlight)
             }
+            Divider()
+            Toggle("Launch PAI at login", isOn: Binding(
+                get: { loginItem.isEnabled },
+                set: { loginItem.setEnabled($0) }
+            ))
         } label: {
             HStack(spacing: 5) {
                 Circle()
