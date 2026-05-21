@@ -45,7 +45,7 @@ import pyte
 
 from . import stitch
 from ._shell_common import ShellResult, rewrite_fhs_paths
-from .paths import PAI_ROOT
+from .paths import PAI_ROOT, pai_path_prefix
 from .processes import HOME_DIR
 
 TOOL_NAME = "shell"
@@ -661,13 +661,8 @@ async def run(
     cwd = stitch.home_for(raw_slug) if raw_slug else HOME_DIR
     cwd.mkdir(parents=True, exist_ok=True)
 
-    pai_path_prefix = os.pathsep.join([
-        str(PAI_ROOT / "usr" / "lib" / "venv" / "bin"),
-        str(PAI_ROOT / "usr" / "bin"),
-        str(PAI_ROOT / "sbin"),
-    ])
     base_env = {**os.environ}
-    base_env["PATH"] = pai_path_prefix + os.pathsep + base_env.get("PATH", "")
+    base_env["PATH"] = pai_path_prefix() + os.pathsep + base_env.get("PATH", "")
     base_env["TERM"] = "xterm-256color"
     proc_env = {**base_env, **env} if env else base_env
 

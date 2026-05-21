@@ -34,10 +34,14 @@ sidebar selection — back.
 
 ## Status
 
-**MVP, dev builds only.** No code signing, no notarization, no Sparkle, no
-native notifications, no Location/Contacts entitlements re-homed. The
-TUI is unchanged and remains the daily driver. See the "Graduating from TTY
-to .app" section in the repo root `CLAUDE.md` for the framing.
+**Self-contained, ad-hoc signed.** `./build.sh` produces a single PAI.app that
+embeds the Python runtime + all deps + the kernel and owns the kernel as a
+child. Still deferred: Developer ID signing, notarization, Sparkle, and re-homed
+Location/Contacts/Calendar entitlements (the day a permission-bearing feature
+lands, flip `CODE_SIGN_IDENTITY`/`DEVELOPMENT_TEAM` and re-enable the hardened
+runtime — see `bundle-runtime.sh`). The TUI is unchanged and remains the daily
+driver. See the "Graduating from TTY to .app" section in the repo root
+`CLAUDE.md` for the framing.
 
 ## Build
 
@@ -62,34 +66,42 @@ cd macos && xcodegen generate
 
 Build & run:
 
-- **GUI:** open `macos/PAI.xcodeproj` in Xcode, ⌘R.
-- **CLI:** `cd macos && xcodebuild -project PAI.xcodeproj -scheme PAI -configuration Debug build`
-  then launch the `.app` from `build/Build/Products/Debug/PAI.app`.
+- **Consolidated app (recommended):** `cd macos && ./build.sh` builds the app
+  *and* embeds a self-contained Python runtime (interpreter + all deps + the
+  kernel) into `Contents/Resources/runtime/`, then ad-hoc re-signs the bundle.
+  Result: `macos/build/PAI.app` — a single app that contains the kernel and
+  owns it. `bundle-runtime.sh` does the embedding step alone against an existing
+  build.
+- **App only (dev, no embedded runtime):** open `macos/PAI.xcodeproj` in Xcode
+  and ⌘R, or `xcodebuild ... -configuration Debug build`. With no bundled
+  runtime, the app falls back to launching the kernel from the FHS
+  (`~/.pai/sbin/init`) — fast iteration on Swift without re-embedding Python.
 
-The target is configured as a menubar agent (`LSUIElement = YES`), unsigned,
-no sandbox — it reads/writes `~/.pai/` directly as the owner.
+The target is a menubar agent (`LSUIElement = YES`), ad-hoc signed, no sandbox —
+it reads/writes `~/.pai/` directly as the owner.
 
 The menubar shows an SF Symbol bubble — hollow when all PAIs are idle, filled
 when any PAI is busy, exclamation-bubble when the kernel is offline.
 
-## Run the kernel
+## The app owns the kernel
 
-The app does **not** start the kernel. Either launch it manually:
-
-```sh
-cd ~/.pai && usr/bin/python -m boot run
-```
-
-…or just hit **Start kernel** in the app (menubar icon → kernel menu, or the
-offline empty state). The app spawns `~/.pai/sbin/init` detached and tees its
-stdout/stderr into `kernel.log`:
+Hit **Start kernel** (menubar icon → kernel menu, or the offline empty state).
+`KernelLauncher` runs the kernel as a **child the app owns** — not a detached
+daemon. In a consolidated build it runs the *embedded* interpreter
+(`Contents/Resources/runtime/python`); otherwise it falls back to
+`~/.pai/sbin/init`. Either way it passes `PAI_ROOT` and `PYTHONPATH=<root>/usr/lib`
+(so the on-disk `drivers` namespace package resolves) and tees stdout/stderr
+into `kernel.log`:
 
 ```sh
 tail -f ~/.pai/var/log/kernel/kernel.log
 ```
 
-(Background autostart via launchd was removed — the menubar Start/Stop is the
-supported path for now.)
+Quitting PAI SIGTERMs the kernel (`applicationWillTerminate` →
+`terminateKernelSync`) so its PAIs shut down cleanly — the kernel does **not**
+outlive the app. You can still run a kernel by hand for dev
+(`cd ~/.pai && usr/bin/python -m boot run`); background autostart via launchd
+was removed.
 
 ## Verify end-to-end
 

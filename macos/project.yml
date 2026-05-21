@@ -19,11 +19,17 @@ settings:
     SWIFT_VERSION: "5.10"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # No signing — MVP runs unsigned from Xcode/xcodebuild.
-    CODE_SIGN_STYLE: Automatic
+    # Ad-hoc signing ("-"): the app embeds a Python runtime + the kernel, so
+    # it must be signed (with entitlements) for the hardened runtime to load
+    # those libs. Developer ID is deferred — flip CODE_SIGN_IDENTITY +
+    # DEVELOPMENT_TEAM the day a permission-bearing feature lands. The
+    # authoritative inside-out re-sign happens in macos/bundle-runtime.sh
+    # after the runtime is embedded; these settings keep a plain Xcode build
+    # self-consistent. See memory pai-app-consolidation.
+    CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
-    CODE_SIGNING_REQUIRED: "NO"
-    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "YES"
+    CODE_SIGNING_ALLOWED: "YES"
 
 targets:
   PAI:
@@ -36,16 +42,20 @@ targets:
       properties:
         # Menubar-only agent — no dock icon, no main menu.
         LSUIElement: true
+        # The app OWNS the kernel, so only one instance may run.
+        LSMultipleInstancesProhibited: true
         CFBundleName: PAI
         CFBundleDisplayName: PAI
         CFBundleIdentifier: com.pai.menubar
         NSHumanReadableCopyright: ""
+        NSUserNotificationsUsageDescription: "PAI posts a notification when one of your PAIs finishes a turn."
         # macOS 14+ scenes-based lifecycle.
         NSPrincipalClass: NSApplication
     settings:
       base:
         PRODUCT_NAME: PAI
         PRODUCT_BUNDLE_IDENTIFIER: com.pai.menubar
+        CODE_SIGN_ENTITLEMENTS: PAI/PAI.entitlements
         ENABLE_HARDENED_RUNTIME: "YES"
         # No sandbox: the app reads/writes ~/.pai/ as the owner. Sandboxing
         # would require user-selected file access per directory — defeats

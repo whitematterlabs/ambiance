@@ -38,6 +38,34 @@ EVENTS_DIR: Path = PAI_ROOT / "run" / "pai" / "events"
 ACKS_DIR: Path = PAI_ROOT / "run" / "pai" / "acks"
 
 
+# PATH wiring — the PAI bin dirs the kernel and every subprocess it spawns
+# need on PATH (paictl, send-message, CoreLocationCLI, the FHS python, …).
+def pai_path_prefix() -> str:
+    """The PAI bin dirs joined for prepending to PATH, in priority order:
+    venv/bin (FHS python + console scripts), usr/bin (PAI-callable tool
+    shims), sbin (owner/kernel tools). bash_tool / shell_tool mirror this
+    when building a tool subprocess env."""
+    return os.pathsep.join([
+        str(PAI_ROOT / "usr" / "lib" / "venv" / "bin"),
+        str(PAI_ROOT / "usr" / "bin"),
+        str(PAI_ROOT / "sbin"),
+    ])
+
+
+def prepend_pai_path() -> None:
+    """Idempotently prepend the PAI bin dirs to os.environ['PATH'].
+
+    A Finder-launched .app inherits no shell PATH, so the kernel — and every
+    child it spawns (supervisor services, boot hooks, the per-turn header
+    helpers) — would otherwise not find the PAI tools. Called once at kernel
+    boot; children inherit the result through os.environ."""
+    prefix = pai_path_prefix()
+    current = os.environ.get("PATH", "")
+    if current == prefix or current.startswith(prefix + os.pathsep):
+        return  # already prepended (e.g. a re-exec inheriting our env)
+    os.environ["PATH"] = prefix + (os.pathsep + current if current else "")
+
+
 # v3 FHS helpers — wired up incrementally by later phases.
 def etc() -> Path:
     return PAI_ROOT / "etc"

@@ -87,6 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    // The app OWNS the kernel: when PAI quits, the kernel quits with it. We
+    // SIGTERM and block briefly so its PAIs shut down cleanly before we exit.
+    func applicationWillTerminate(_ notification: Notification) {
+        launcher.terminateKernelSync()
+    }
+
     // If macOS asks to "reopen" the app (Dock click, notification tap on
     // some paths), surface the window instead of doing nothing.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {

@@ -87,6 +87,10 @@ def _release_pid_lock() -> None:
 
 
 def boot() -> int:
+    # Before anything spawns a child: ensure the PAI bin dirs are on PATH. A
+    # Finder-launched .app gives us no shell PATH, so without this the kernel's
+    # subprocesses (services, hooks, header helpers) can't find PAI tools.
+    paths.prepend_pai_path()
     if not _acquire_pid_lock():
         return 1
     try:

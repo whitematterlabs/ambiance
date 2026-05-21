@@ -340,6 +340,45 @@ def install_bin_shims(venv_dir: Path, root: Path) -> None:
     py_shim.chmod(0o755)
 
 
+def repoint_shims(root: Path, python_exe: Path) -> int:
+    """Rewrite every tool-shim shebang under usr/bin + sbin to `python_exe`
+    (and the usr/bin/python exec-shim's target). Returns the count changed.
+
+    Shims are generated at provision time pointing at whatever python ran
+    paifs-init — the dev venv. A standalone PAI.app must NOT depend on that
+    venv, so on launch it re-points the shims at its embedded interpreter.
+    Deliberately bundle-safe: touches only existing shim files, so it needs
+    no uv, no venv, and no pyproject.toml (none of which a shipped app has).
+    Idempotent — skips shims already pointing at `python_exe`."""
+    py = str(python_exe)
+    changed = 0
+    for d in (root / "usr" / "bin", root / "sbin"):
+        if not d.is_dir():
+            continue
+        for shim in d.iterdir():
+            if shim.is_symlink() or not shim.is_file():
+                continue
+            try:
+                text = shim.read_text()
+            except (OSError, UnicodeDecodeError):
+                continue
+            lines = text.split("\n")
+            if not lines or not lines[0].startswith("#!"):
+                continue
+            if shim.name == "python" and lines[0] == "#!/bin/sh":
+                # The exec-shim that exposes the interpreter at usr/bin/python.
+                new = f'#!/bin/sh\nexec "{py}" "$@"\n'
+            else:
+                # A console-script shim: `#!<py>` + import/call body.
+                new = f"#!{py}\n" + "\n".join(lines[1:])
+            if new == text:
+                continue
+            shim.write_text(new)
+            shim.chmod(0o755)
+            changed += 1
+    return changed
+
+
 def lay_out(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for rel in SKELETON:
@@ -530,7 +569,25 @@ def main() -> int:
         action="store_true",
         help="skip auto-chaining into paisetup on a fresh install",
     )
+    ap.add_argument(
+        "--repoint-shims",
+        action="store_true",
+        help="rewrite existing tool-shim shebangs to --python and exit "
+             "(no provisioning). PAI.app uses this on launch to bind the "
+             "shims to its embedded interpreter, off the dev venv.",
+    )
+    ap.add_argument(
+        "--python",
+        type=Path,
+        default=None,
+        help="interpreter for --repoint-shims (default: the one running this)",
+    )
     args = ap.parse_args()
+    if args.repoint_shims:
+        py = args.python or Path(sys.executable)
+        n = repoint_shims(args.root, py)
+        print(f"repointed {n} shim(s) at {py}")
+        return 0
     _ensure_uv()
     lay_out(args.root)
     expose_pai_command(args.root)

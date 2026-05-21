@@ -17,7 +17,7 @@ from typing import Optional
 
 from . import stitch
 from ._shell_common import ShellResult, rewrite_fhs_paths
-from .paths import PAI_ROOT
+from .paths import PAI_ROOT, pai_path_prefix
 from .processes import HOME_DIR
 
 
@@ -88,13 +88,8 @@ def _build_env(extra: Optional[dict]) -> dict:
     Deliberately starts from `os.environ`, not from any state mutated by
     a persistent PTY session — the tool is fully isolated by design.
     """
-    pai_path_prefix = os.pathsep.join([
-        str(PAI_ROOT / "usr" / "lib" / "venv" / "bin"),
-        str(PAI_ROOT / "usr" / "bin"),
-        str(PAI_ROOT / "sbin"),
-    ])
     base_env = {**os.environ}
-    base_env["PATH"] = pai_path_prefix + os.pathsep + base_env.get("PATH", "")
+    base_env["PATH"] = pai_path_prefix() + os.pathsep + base_env.get("PATH", "")
     base_env["TERM"] = "dumb"
     base_env.pop("PS1", None)
     if extra:

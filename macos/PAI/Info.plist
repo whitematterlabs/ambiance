@@ -20,15 +20,15 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>LSUIElement</key>
-	<true/>
 	<key>LSMultipleInstancesProhibited</key>
+	<true/>
+	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>PAI posts a notification when one of your PAIs finishes a turn.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>PAI posts a notification when one of your PAIs finishes a turn.</string>
 </dict>
 </plist>
