@@ -150,14 +150,22 @@ def _validate_name(name: str) -> None:
 
 def _opt_rel(kind: str, name: str, topic: str | None) -> str:
     """Staging path under /opt/paiman/ for a bundle. Skills group by topic
-    (`<topic>/<name>`); every other kind groups by kind (`<kind>/<name>`).
+    (`<topic>/<name>`); most other kinds group by kind (`<kind>/<name>`).
     Kind-grouping lets two different-kind bundles share a name without
     clobbering each other's staging dir — e.g. the `ax` driver and the `ax`
     bin client coexist at `driver/ax` and `bin/ax`. The scanners
     (`_find_installed_bundle`, `_iter_installed_bundles`, boot hooks) already
-    walk one level deep, so this needs no reader changes."""
+    walk one level deep, so this needs no reader changes.
+
+    Exception: `prompt` bundles stay flat at `opt/paiman/<name>`. Unlike
+    every other kind, a prompt's *bundle dir* (not just its activation slot)
+    is referenced externally — `config.yaml` points `prompt_dir` at
+    `opt/paiman/<name>` so bootstrap can glob its `*.md`. Grouping it by kind
+    would silently empty the PAI's role prompt."""
     if topic:
         return f"{topic}/{name}"
+    if kind == "prompt":
+        return name
     return f"{kind}/{name}"
 
 

@@ -69,6 +69,10 @@ def test_install_prompt(fhs_root: Path) -> None:
     slot = fhs_root / "usr" / "share" / "prompts" / "testprompt.md"
     assert slot.is_symlink()
     assert slot.read_text().startswith("# testprompt")
+    # Prompts must stay flat at opt/paiman/<name> (NOT opt/paiman/prompt/<name>):
+    # config.yaml `prompt_dir` points at the bundle dir to glob its *.md, so
+    # kind-grouping here would silently empty a PAI's role prompt.
+    assert (fhs_root / "opt" / "paiman" / "testprompt").is_dir()
 
 
 def test_install_bin(fhs_root: Path) -> None:
