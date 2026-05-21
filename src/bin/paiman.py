@@ -435,11 +435,11 @@ def cmd_install(args: argparse.Namespace) -> int:
     # blocks without a reboot. Bin/lib are picked up via PATH/sys.path on the
     # PAI's next turn — no reload needed. Driver/pai installs are followed by
     # explicit paictl/paiadd which emit reload themselves.
-    if installed_kinds & {"skill", "prompt"}:
+    if installed_kinds & {"skill", "prompt"} and not getattr(args, "no_reload", False):
         try:
-            from boot.processes import emit_event
-            emit_event({"kind": "kernel:reload_config", "source": "paiman",
-                        "action": "install", "source_arg": src_arg})
+            from boot import processes as _processes
+            _processes.emit_event({"kind": "kernel:reload_config", "source": "paiman",
+                                   "action": "install", "source_arg": src_arg})
         except Exception as e:
             print(f"paiman: warning — could not emit kernel:reload_config: {e}",
                   file=sys.stderr)
@@ -738,6 +738,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p_install = sub.add_parser("install", help="install a bundle (registry name, local path, or git URL)")
     p_install.add_argument("source", help="bundle name in the registry, local directory path, or git URL (optionally @ref)")
+    p_install.add_argument(
+        "--no-reload",
+        action="store_true",
+        help="skip the post-install kernel:reload_config emit; for batch "
+        "callers (paisetup) that emit a single reload after the whole batch "
+        "instead of one reconcile storm per package",
+    )
     p_install.set_defaults(func=cmd_install)
 
     p_remove = sub.add_parser("remove", help="remove an installed bundle")

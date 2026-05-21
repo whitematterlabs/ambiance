@@ -134,10 +134,20 @@ final class CapabilityCatalog: ObservableObject {
             log += "\n--- installing \(item.name) ---\n"
             // Install by typed ref so a cross-kind name collision (e.g.
             // bin/browse vs subagents/browse) resolves to the right package.
-            let status = await PythonRuntime.stream(["-u", "-m", "bin.paiman", "install", item.ref]) {
+            // --no-reload: each install would otherwise emit its own
+            // kernel:reload_config, and one full reconcile per package
+            // serializes into a storm. Suppress here; reload once below.
+            let status = await PythonRuntime.stream(["-u", "-m", "bin.paiman", "install", "--no-reload", item.ref]) {
                 [weak self] chunk in Task { @MainActor in self?.log += chunk }
             }
             if status != 0 { failures.append(item.name) }
+        }
+        // One reconcile for the whole batch: re-stitch homes for new
+        // skills/prompts and re-discover newly installed drivers, no reboot.
+        if picks.count > failures.count {
+            _ = await PythonRuntime.stream(["-u", "-m", "bin.paictl", "reload"]) {
+                [weak self] chunk in Task { @MainActor in self?.log += chunk }
+            }
         }
         installing = false
         writeMarker()

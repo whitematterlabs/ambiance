@@ -99,7 +99,11 @@ def main(argv: list[str] | None = None) -> int:
             arg = src if src and Path(src).is_dir() else name
             print(f"\n--- paiman install {arg} ---")
             try:
-                rc = paiman.main(["install", arg])
+                # --no-reload: each install would otherwise emit its own
+                # kernel:reload_config, and a full reconcile (drain every PAI
+                # lock + re-stitch all homes) per package serializes into a
+                # storm. Suppress here; emit one reload after the batch below.
+                rc = paiman.main(["install", "--no-reload", arg])
             except SystemExit as e:
                 rc = e.code if isinstance(e.code, int) else 1
             except Exception as e:
@@ -107,6 +111,21 @@ def main(argv: list[str] | None = None) -> int:
                 rc = 1
             if rc != 0:
                 failures.append(name)
+
+    installed_any = total - len(failures) > 0
+    if installed_any:
+        # One reconcile for the whole batch: re-stitches homes so newly
+        # installed skills/prompts surface, and re-discovers drivers so they
+        # start, all without a kernel reboot. paiadd (below) emits its own
+        # reload, but instances may be configured even when no packages land,
+        # so emit unconditionally here when anything installed.
+        try:
+            from boot import processes as _processes
+            _processes.emit_event({"kind": "kernel:reload_config",
+                                   "source": "paisetup", "action": "install"})
+        except Exception as e:
+            print(f"paisetup: warning — could not emit kernel:reload_config: {e}",
+                  file=sys.stderr)
 
     pai_bundles = selected.get("pai", [])
     configured: list[str] = []

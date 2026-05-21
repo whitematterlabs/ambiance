@@ -102,6 +102,32 @@ def test_install_subagent(fhs_root: Path) -> None:
     assert (slot / "prompt.md").is_file()
 
 
+def test_skill_install_emits_reload(
+    fhs_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A skill install reconciles running PAIs by emitting one reload event."""
+    from boot import processes as Pr
+
+    calls: list[dict] = []
+    monkeypatch.setattr(Pr, "emit_event", lambda payload, *a, **k: calls.append(payload))
+    assert paiman.main(["install", str(FIXTURES / "testskill")]) == 0
+    assert len(calls) == 1
+    assert calls[0]["kind"] == "kernel:reload_config"
+
+
+def test_no_reload_suppresses_emit(
+    fhs_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--no-reload` lets a batch caller (paisetup) install N packages and
+    emit a single reload at the end instead of one storm per package."""
+    from boot import processes as Pr
+
+    calls: list[dict] = []
+    monkeypatch.setattr(Pr, "emit_event", lambda payload, *a, **k: calls.append(payload))
+    assert paiman.main(["install", "--no-reload", str(FIXTURES / "testskill")]) == 0
+    assert calls == []
+
+
 def test_reinstall_overwrites(fhs_root: Path, tmp_path: Path) -> None:
     paiman.main(["install", str(FIXTURES / "testskill")])
     bundle = fhs_root / "opt" / "paiman" / "testskill"
