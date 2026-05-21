@@ -39,6 +39,10 @@ struct StatusBar: View {
                     .disabled(launcher.inFlight)
             }
             Divider()
+            Button("Add capabilities…") {
+                NotificationCenter.default.post(name: .openCapabilities, object: nil)
+            }
+            Divider()
             Toggle("Launch PAI at login", isOn: Binding(
                 get: { loginItem.isEnabled },
                 set: { loginItem.setEnabled($0) }

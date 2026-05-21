@@ -92,6 +92,16 @@ def test_install_driver(fhs_root: Path) -> None:
     assert (slot / "events.yaml").is_file()
 
 
+def test_install_subagent(fhs_root: Path) -> None:
+    # Persistent subagents resolve from /usr/lib/subagents/<name>/ (see
+    # src/bin/subagent.py); paiman installs them with the same symlink model
+    # as drivers/pais.
+    assert paiman.main(["install", str(FIXTURES / "testsubagent")]) == 0
+    slot = fhs_root / "usr" / "lib" / "subagents" / "testsubagent"
+    assert slot.is_symlink()
+    assert (slot / "prompt.md").is_file()
+
+
 def test_reinstall_overwrites(fhs_root: Path, tmp_path: Path) -> None:
     paiman.main(["install", str(FIXTURES / "testskill")])
     bundle = fhs_root / "opt" / "paiman" / "testskill"
@@ -190,35 +200,20 @@ def test_install_pai_skips_existing_deps(fhs_root: Path) -> None:
     assert (skill_dir / "user-edit.md").is_file()
 
 
-def test_install_pai_dep_missing_from_registry_falls_through_to_pip(
-    fhs_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_install_pai_dep_missing_from_registry_errors(
+    fhs_root: Path, tmp_path: Path
 ) -> None:
-    """Names not found in the registry are treated as PyPI packages and
-    handed to the kernel venv's pip. The bundle install itself still
-    completes; pip is invoked once at the end with the accumulated set."""
-    calls: list[list[str]] = []
-
-    def fake_run(cmd, check):  # type: ignore[no-untyped-def]
-        calls.append(cmd)
-        class _R:
-            returncode = 0
-        return _R()
-
-    monkeypatch.setattr(paiman.subprocess, "run", fake_run)
-    # Provision the kernel venv python so _pip_install doesn't bail.
-    # fhs_root fixture already provisioned a stub venv python.
-
+    """A pai bundle dep that isn't a registry package is a hard error. paiman
+    no longer falls through to pip — registry deps must resolve to bundles, and
+    Python deps belong in the kernel venv provisioned by paifs-init, not in an
+    ad-hoc per-install pip call."""
     pkg = tmp_path / "needs-pip"
     pkg.mkdir()
     (pkg / "package.yaml").write_text(
         "name: needspip\nkind: pai\ndeps: [some-pypi-pkg]\n"
     )
-    assert paiman.main(["install", str(pkg)]) == 0
-    assert (fhs_root / "opt" / "paiman" / "needspip").is_dir()
-    # pip was invoked exactly once with the unresolved dep.
-    assert len(calls) == 1
-    assert "some-pypi-pkg" in calls[0]
-    assert "install" in calls[0]
+    with pytest.raises(SystemExit, match="not found in registry"):
+        paiman.main(["install", str(pkg)])
 
 
 def test_install_pai_rejects_non_string_dep(

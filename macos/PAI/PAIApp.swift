@@ -37,13 +37,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let events = EventsTailer()
     private let provisioner = Provisioner()
     private let loginItem = LoginItem()
+    private let capabilities = CapabilityCatalog()
 
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private var setupWindow: NSWindow?
+    private var capabilitiesWindow: NSWindow?
     private var iconSubscription: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The status-bar "Add capabilities…" item can fire any time post-launch.
+        NotificationCenter.default.addObserver(
+            forName: .openCapabilities, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.openCapabilities() }
+        }
         // Shipped build, first run (or schema bump): provision ~/.pai behind a
         // setup window before bringing up the real surfaces. Dev builds (no
         // bundled runtime) report needsProvisioning == false and skip straight
@@ -51,7 +59,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if provisioner.needsProvisioning {
             runFirstRunProvisioning()
         } else {
+            // Plain launch of an already-set-up root: come up to the menubar
+            // without popping the window (matches the original behavior).
+            continueAfterProvisioning(activate: false)
+        }
+    }
+
+    /// Once the root is provisioned (confirmed or freshly laid out), run the
+    /// one-time capability picker if it hasn't run yet, then start the app.
+    /// `activate` brings the window forward when we just finished a first-run
+    /// step; a plain cold launch leaves it in the menubar. Dev builds (no
+    /// bundled runtime) report needsSetup == false and skip the picker.
+    private func continueAfterProvisioning(activate: Bool) {
+        if capabilities.needsSetup {
+            runCapabilitySetup(firstRun: true)
+        } else {
             startNormalSurfaces()
+            if activate { activateWindow() }
         }
     }
 
@@ -98,9 +122,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard provisioner.lastError == nil else { return }  // Retry stays available.
             setupWindow?.orderOut(nil)
             setupWindow = nil
-            startNormalSurfaces()
-            activateWindow()
+            // Freshly provisioned → run the first-run capability picker (then
+            // the app), or go straight in if it somehow already ran.
+            continueAfterProvisioning(activate: true)
         }
+    }
+
+    /// First-run capability picker (after provisioning) or an on-demand reopen
+    /// from the menu. On first run we have no close button — the user concludes
+    /// with Install or Skip; `onDone` then brings up the app. A menu reopen is
+    /// closable and just dismisses.
+    private func runCapabilitySetup(firstRun: Bool) {
+        let view = SetupCapabilitiesView(catalog: capabilities, firstRun: firstRun) { [weak self] in
+            guard let self else { return }
+            self.capabilitiesWindow?.orderOut(nil)
+            self.capabilitiesWindow = nil
+            if firstRun {
+                self.startNormalSurfaces()
+                self.activateWindow()
+            }
+        }
+        let hosting = NSHostingController(rootView: view)
+        var style: NSWindow.StyleMask = [.titled, .fullSizeContentView]
+        if !firstRun { style.insert(.closable) }
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 560),
+            styleMask: style, backing: .buffered, defer: false
+        )
+        win.title = "PAI Capabilities"
+        win.titlebarAppearsTransparent = true
+        win.isReleasedWhenClosed = false
+        win.contentViewController = hosting
+        win.center()
+        win.delegate = self
+        capabilitiesWindow = win
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+    }
+
+    /// Status-bar "Add capabilities…". Reuse an open window if present;
+    /// otherwise reload fresh installed-state and show the picker.
+    private func openCapabilities() {
+        if let win = capabilitiesWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            win.makeKeyAndOrderFront(nil)
+            return
+        }
+        capabilities.prepareForReopen()
+        runCapabilitySetup(firstRun: false)
     }
 
     /// macOS has no API to *prompt* for Full Disk Access — apps detect the
@@ -234,8 +303,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     // Red close button hides the window instead of destroying it, so the
-    // next menubar click brings the same window (and selection) back.
+    // next menubar click brings the same window (and selection) back. The
+    // capability window is the exception: it genuinely closes (and clears its
+    // reference) so a later reopen builds a fresh one.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if sender == capabilitiesWindow {
+            capabilitiesWindow = nil
+            return true
+        }
         sender.orderOut(nil)
         return false
     }

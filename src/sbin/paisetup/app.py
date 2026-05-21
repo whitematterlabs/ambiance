@@ -21,7 +21,44 @@ def _tty_available() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _emit_catalog_json() -> int:
+    """Emit the owner-facing capability catalog as one JSON line on stdout.
+
+    Backs PAI.app's first-run capability picker — the GUI twin of the curses
+    checklist. PAI bundles are intentionally excluded: configuring an instance
+    is paiadd's job, and paiadd is PAI's own tool, not owner-facing. The git
+    clone in discover() writes progress to stderr, so stdout stays clean JSON."""
+    import json
+
+    try:
+        groups = discover()
+    except SystemExit as e:
+        print(json.dumps({"error": str(e)}))
+        return 1
+    payload = {
+        "schema": 1,
+        "auto_checked": sorted(picker.AUTO_CHECKED),
+        "groups": {
+            kind: [
+                {
+                    "name": it.name,
+                    "description": it.description,
+                    "installed": it.installed,
+                    "ref": it.ref or it.name,
+                }
+                for it in groups.get(kind, [])
+            ]
+            for kind in ("driver", "skill", "subagent")
+        },
+    }
+    print(json.dumps(payload))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if "--json" in args:
+        return _emit_catalog_json()
     if not _tty_available():
         print("paisetup: non-interactive shell — skipping. Run `paisetup` later to add packages.")
         return 0

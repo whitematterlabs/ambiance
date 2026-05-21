@@ -48,6 +48,11 @@ class Item:
     # to `paiman install` instead of the bare name so a name shared across
     # kinds (e.g. bin/browse + subagents/browse) resolves unambiguously.
     source: str = ""
+    # Registry-relative typed ref, e.g. "subagents/browse". Survives tempdir
+    # cleanup (pure path string) so a URL-cloned registry can still install
+    # the exact package by `paiman install <ref>` even when names collide
+    # across kinds. See _Registry.lookup's typed `<topic>/<name>` form.
+    ref: str = ""
 
 
 # Map registry-kind (from package.yaml `kind:`) to the FS slot we check
@@ -89,6 +94,10 @@ def discover() -> dict[str, list[Item]]:
         if name in _HIDDEN.get(kind, frozenset()):
             continue
         desc = (data.get("description") or "").strip()
+        try:
+            ref = str(path.relative_to(root))
+        except ValueError:
+            ref = name
         groups[kind].append(
             Item(
                 kind=kind,
@@ -96,6 +105,7 @@ def discover() -> dict[str, list[Item]]:
                 description=desc,
                 installed=_is_installed(kind, name),
                 source=str(path),
+                ref=ref,
             )
         )
     for k in groups:

@@ -134,7 +134,7 @@ SCAFFOLD_TYPES = {
 
 # ---------- install / remove ----------
 
-INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai", "lib")
+INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai", "lib", "subagent")
 PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt", "lib")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
@@ -173,6 +173,10 @@ def _activation_slot(
         return paths.usr_share_prompts() / f"{name}.md", bundle_dir / entrypoint
     if kind == "pai":
         return paths.usr_lib_pais() / name, bundle_dir
+    if kind == "subagent":
+        # Persistent subagents resolve from /usr/lib/subagents/<name>/ (see
+        # src/bin/subagent.py). Same bundle-dir symlink model as pai/driver.
+        return paths.usr_lib_subagents() / name, bundle_dir
     if kind == "lib":
         # Python package import: /usr/lib/ is on sys.path; the slot is the
         # package dir itself so `from <name> import ...` resolves into the
@@ -373,12 +377,19 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
 
     # Activate.
     slot, target = _activation_slot(kind, name, entrypoint, topic=topic)
-    _atomic_symlink(target, slot)
     if kind == "bin":
-        try:
-            target.chmod(target.stat().st_mode | 0o111)
-        except OSError:
-            pass
+        # Write a shell shim that execs the entrypoint via the interpreter
+        # paiman itself runs under: the kernel venv python in dev, the embedded
+        # python in a bundled PAI.app. A bare symlink would fall back to the
+        # bin's own shebang (`#!/usr/bin/env python`), which can't portably
+        # reference either interpreter and breaks when no `python` is on PATH.
+        slot.parent.mkdir(parents=True, exist_ok=True)
+        if slot.is_symlink() or slot.exists():
+            slot.unlink()
+        slot.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{target}" "$@"\n')
+        slot.chmod(0o755)
+    else:
+        _atomic_symlink(target, slot)
 
     _audit_log(f"install {kind} {name} from {src_arg}")
     print(f"installed {kind} {name} -> {slot}")
