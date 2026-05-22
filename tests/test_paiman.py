@@ -228,6 +228,20 @@ def test_lookup_bare_name_collision_prefers_driver_over_bin(
     assert resolved.lookup("ax") == (reg / "drivers" / "ax").resolve()
 
 
+def test_lookup_typed_ref_resolves_nested_skill(tmp_path: Path) -> None:
+    # Skills are kind- *and* topic-foldered: skills/<topic>/<name>. A bare name
+    # can't resolve that depth, so paisetup installs them by typed ref. The
+    # ref's direct form (root/<ref>) must resolve.
+    reg = tmp_path / "reg"
+    _write_pkg(reg / "skills" / "operating" / "drive-macos-ui",
+               name="drive-macos-ui", kind="skill", topic="operating",
+               entrypoint="SKILL.md")
+    resolved = paiman._Registry(tmp_path / "work")
+    resolved._path = reg.resolve()
+    assert resolved.lookup("skills/operating/drive-macos-ui") == \
+        (reg / "skills" / "operating" / "drive-macos-ui").resolve()
+
+
 # ---------- pai install with deps ----------
 
 def test_install_pai_pulls_deps_from_registry(fhs_root: Path) -> None:

@@ -14,11 +14,30 @@ from pathlib import Path
 from bin import paiman, paiadd
 
 from . import picker
-from .inventory import discover
+from .inventory import Item, discover
 
 
 def _tty_available() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _install_arg(it: Item) -> str:
+    """Pick the argument to hand `paiman install` for a discovered item.
+
+    Prefer the on-disk source path when it's still live — that's the case for a
+    local registry (PAIMAN_REGISTRY=<dir>), and it disambiguates names shared
+    across kinds (e.g. bin/browse vs subagents/browse). For a URL-cloned
+    registry the source path points into a TemporaryDirectory that discover()
+    has already deleted, so fall back to the typed registry ref
+    (`skills/<topic>/<name>`), which paiman.lookup resolves directly. The bare
+    name is a last resort: paiman's bare-name lookup only resolves one-level
+    kinds like drivers/<name>, never topic-nested skills.
+    """
+    if it.source and Path(it.source).is_dir():
+        return it.source
+    if it.ref:
+        return it.ref
+    return it.name
 
 
 def _emit_catalog_json() -> int:
@@ -83,20 +102,17 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nInstalling {total} package(s)...")
     failures: list[str] = []
-    # Build a quick (kind, name) → on-disk source lookup so paiman gets
-    # an unambiguous path when a name appears under multiple kinds (e.g.
-    # bin/browse vs subagents/browse). Falls back to the bare name if the
-    # discovered source path is no longer valid (e.g. tempdir cleanup
-    # after a URL-cloned registry).
-    sources: dict[tuple[str, str], str] = {}
+    # The picker hands back bare names; map each (kind, name) back to its
+    # discovered Item so _install_arg can recover an argument paiman can
+    # actually resolve (live source path, else typed ref — see _install_arg).
+    items_by_key: dict[tuple[str, str], Item] = {}
     for kind, items in groups.items():
         for it in items:
-            if it.source:
-                sources[(kind, it.name)] = it.source
+            items_by_key[(kind, it.name)] = it
     for kind in install_order:
         for name in selected.get(kind, []):
-            src = sources.get((kind, name))
-            arg = src if src and Path(src).is_dir() else name
+            it = items_by_key.get((kind, name))
+            arg = _install_arg(it) if it is not None else name
             print(f"\n--- paiman install {arg} ---")
             try:
                 # --no-reload: each install would otherwise emit its own
