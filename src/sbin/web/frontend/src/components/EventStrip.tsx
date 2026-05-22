@@ -10,6 +10,7 @@ export function EventStrip({ events }: { events: EventSighting[] }) {
 
   return (
     <div className="event-strip scroll" ref={ref}>
+      {events.length === 0 && <div className="feed-empty">no events yet</div>}
       {events.map((ev, i) => {
         // label = kind if already prefixed with "source:", else "source:kind".
         const label = ev.kind.startsWith(`${ev.source}:`)

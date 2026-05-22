@@ -1,22 +1,32 @@
 :root {
-  --bg: #0d1117;
+  /* Surfaces — a tighter, more deliberate ramp from deepest to lightest. */
+  --bg: #0c1014;
   --surface: #11161d;
-  --panel: #1b222c;
-  --panel-2: #232c38;
-  --border: #2a3340;
-  --text: #d6deeb;
-  --muted: #7a8699;
-  --dim: #5b6678;
-  --accent: #6cb6ff;
+  --panel: #161c25;
+  --panel-2: #212a36;
+  --border: #283140;
+  --border-soft: #1d2530;
 
+  /* Text — three readable steps. */
+  --text: #d6deeb;
+  --muted: #8893a5;
+  --dim: #5b6678;
+
+  /* Accent + speaker palette. */
+  --accent: #6cb6ff;
   --green: #7ee787;
   --magenta: #d2a8ff;
   --cyan: #56d4dd;
   --yellow: #e3b341;
   --red: #ff7b72;
 
+  --radius: 6px;
+  --header-h: 32px;
+  --label-h: 24px;
+
   font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 13px;
+  line-height: 1.45;
 }
 
 * {
@@ -31,6 +41,7 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
 }
 
 .app {
@@ -43,14 +54,16 @@ body {
 .header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 30px;
-  padding: 0 12px;
+  gap: 14px;
+  height: var(--header-h);
+  padding: 0 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 .header .title {
   font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--text);
 }
 .header .spacer {
@@ -60,10 +73,11 @@ body {
   background: var(--panel-2);
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 8px;
+  border-radius: var(--radius);
+  padding: 3px 9px;
   cursor: pointer;
   font: inherit;
+  transition: color 0.12s ease, border-color 0.12s ease;
 }
 .provider-chip:hover {
   color: var(--text);
@@ -71,6 +85,9 @@ body {
 }
 .conn {
   font-size: 11px;
+  letter-spacing: 0.03em;
+  display: inline-flex;
+  align-items: center;
 }
 .conn.on {
   color: var(--green);
@@ -81,6 +98,7 @@ body {
 .clock {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  font-size: 12px;
 }
 
 /* --- main split --- */
@@ -100,63 +118,78 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-width: 320px;
+  min-width: 340px;
   background: var(--surface);
 }
 
 /* --- tabs --- */
 .tabs {
   display: flex;
-  gap: 2px;
-  padding: 4px 6px 0;
+  gap: 3px;
+  padding: 5px 8px 0;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  flex: 0 0 auto;
 }
 .tabs.empty {
-  padding: 8px 12px;
+  padding: 9px 14px;
   color: var(--dim);
   font-style: italic;
 }
 .tab {
+  position: relative;
   background: transparent;
   color: var(--muted);
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 5px 5px 0 0;
-  padding: 5px 12px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 5px 13px;
   cursor: pointer;
   font: inherit;
   white-space: nowrap;
+  transition: color 0.12s ease, background 0.12s ease;
 }
 .tab:hover {
   color: var(--text);
+  background: var(--panel-2);
 }
 .tab.active {
   background: var(--surface);
   color: var(--text);
   border-color: var(--border);
 }
+/* Accent underline that bridges the tab into the active pane. */
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
 .tab-pid {
   color: var(--dim);
 }
 .tab-fallback {
   color: var(--yellow);
-  margin-left: 4px;
+  margin-left: 5px;
 }
 
 /* --- chat pane --- */
 .chat-pane {
   flex: 1;
   overflow-y: auto;
-  padding: 10px 14px;
+  padding: 14px 16px;
   background: var(--surface);
 }
 .msg {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .msg-head {
   font-weight: 600;
+  margin-bottom: 3px;
 }
 .msg-ts {
   color: var(--dim);
@@ -175,46 +208,69 @@ body {
   color: var(--cyan);
 }
 .msg-body {
-  margin-top: 2px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
-.msg-body :first-child {
+.msg-body > :first-child {
   margin-top: 0;
 }
-.msg-body :last-child {
+.msg-body > :last-child {
   margin-bottom: 0;
+}
+.msg-body h1,
+.msg-body h2,
+.msg-body h3 {
+  font-size: 1.05em;
+  margin: 0.8em 0 0.4em;
+}
+.msg-body p {
+  margin: 0.5em 0;
+}
+.msg-body ul,
+.msg-body ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.msg-body li {
+  margin: 0.15em 0;
 }
 .msg-body pre {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: var(--radius);
+  padding: 9px 11px;
   overflow-x: auto;
+  margin: 0.5em 0;
 }
 .msg-body code {
   background: var(--panel-2);
   border-radius: 3px;
-  padding: 1px 4px;
+  padding: 1px 5px;
+  font-size: 0.92em;
 }
 .msg-body pre code {
   background: none;
   padding: 0;
+  font-size: 0.92em;
 }
 .msg-body a {
   color: var(--accent);
 }
 .msg-body table {
   border-collapse: collapse;
+  margin: 0.5em 0;
 }
 .msg-body th,
 .msg-body td {
   border: 1px solid var(--border);
-  padding: 3px 8px;
+  padding: 3px 9px;
+}
+.msg-body th {
+  background: var(--panel);
 }
 .msg-tool {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--cyan);
-  opacity: 0.75;
+  opacity: 0.7;
   font-style: italic;
 }
 
@@ -223,6 +279,7 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 12px;
+  line-height: 1.4;
 }
 .shell-cmd {
   color: var(--yellow);
@@ -241,37 +298,51 @@ body {
 
 /* --- status bar + input --- */
 .status-bar {
-  height: 22px;
-  line-height: 22px;
-  padding: 0 12px;
+  height: 24px;
+  line-height: 24px;
+  padding: 0 14px;
   background: var(--panel);
   color: var(--muted);
   border-top: 1px solid var(--border);
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 0 0 auto;
 }
 .input-row {
-  padding: 8px;
+  padding: 9px 10px;
   background: var(--surface);
   border-top: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 .msg-input {
   width: 100%;
   background: var(--bg);
   color: var(--text);
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 11px;
   font: inherit;
   outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.msg-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(108, 182, 255, 0.35);
 }
 .input-row.shell .msg-input {
   border-color: var(--yellow);
   color: var(--yellow);
 }
+.input-row.shell .msg-input:focus {
+  box-shadow: 0 0 0 1px rgba(227, 179, 65, 0.35);
+}
+.msg-input::placeholder {
+  color: var(--dim);
+}
 .msg-input:disabled {
-  border-color: var(--border);
+  border-color: var(--border-soft);
   color: var(--dim);
 }
 
@@ -282,6 +353,9 @@ body {
   min-height: 0;
   border-bottom: 1px solid var(--border);
 }
+.panel:last-child {
+  border-bottom: none;
+}
 .panel.grow1 {
   flex: 1;
 }
@@ -289,20 +363,33 @@ body {
   flex: 2;
 }
 .panel-label {
-  padding: 3px 10px;
+  display: flex;
+  align-items: center;
+  height: var(--label-h);
+  padding: 0 12px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 11px;
-  text-transform: lowercase;
-  border-bottom: 1px solid var(--border);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-soft);
+  flex: 0 0 auto;
 }
 .scroll {
   overflow-y: auto;
 }
 
+/* empty states for the feed panels */
+.feed-empty {
+  padding: 8px 12px;
+  color: var(--dim);
+  font-style: italic;
+  font-size: 12px;
+}
+
 /* proc list */
 .proc-list {
-  max-height: 220px;
+  max-height: 240px;
   overflow: auto;
 }
 .proc-list table {
@@ -313,22 +400,32 @@ body {
 .proc-list th {
   position: sticky;
   top: 0;
+  z-index: 1;
   text-align: left;
   color: var(--dim);
   font-weight: 500;
-  padding: 3px 8px;
-  background: var(--surface);
+  letter-spacing: 0.03em;
+  padding: 5px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
 }
 .proc-list td {
-  padding: 2px 8px;
-  border-top: 1px solid var(--border);
+  padding: 4px 10px;
+  border-top: 1px solid var(--border-soft);
   white-space: nowrap;
 }
-.proc-list tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.02);
+.proc-list tbody tr {
+  transition: background 0.1s ease;
+}
+.proc-list tbody tr:hover {
+  background: rgba(255, 255, 255, 0.035);
 }
 .proc-list tr.busy {
-  background: rgba(227, 179, 65, 0.08);
+  background: rgba(227, 179, 65, 0.09);
+  box-shadow: inset 2px 0 0 var(--yellow);
+}
+.proc-list tr.busy:hover {
+  background: rgba(227, 179, 65, 0.14);
 }
 .proc-list .slug {
   color: var(--text);
@@ -361,9 +458,9 @@ body {
 .log-tail {
   flex: 1;
   min-height: 60px;
-  padding: 4px 10px;
+  padding: 6px 12px;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 .act-line,
 .event-line,
@@ -429,21 +526,21 @@ body {
 .palette-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.55);
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 12vh;
+  padding-top: 14vh;
   z-index: 100;
 }
 .palette {
-  width: 520px;
+  width: 540px;
   max-width: 90vw;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 }
 .palette-input {
   width: 100%;
@@ -451,33 +548,46 @@ body {
   color: var(--text);
   border: none;
   border-bottom: 1px solid var(--border);
-  padding: 12px 14px;
+  padding: 13px 16px;
   font: inherit;
   outline: none;
+}
+.palette-input::placeholder {
+  color: var(--dim);
+}
+.palette-list {
+  padding: 5px;
 }
 .palette-item {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   width: 100%;
   background: transparent;
   border: none;
+  border-radius: var(--radius);
   color: var(--text);
-  padding: 9px 14px;
+  padding: 9px 11px;
   cursor: pointer;
   font: inherit;
   text-align: left;
+  transition: background 0.1s ease;
 }
 .palette-item:hover {
   background: var(--panel-2);
 }
 .palette-help {
   color: var(--dim);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .palette-empty {
-  padding: 12px 14px;
+  padding: 13px 16px;
   color: var(--dim);
 }
 
+/* scrollbars */
 ::-webkit-scrollbar {
   width: 9px;
   height: 9px;
@@ -485,7 +595,18 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--panel-2);
   border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-2) transparent;
 }

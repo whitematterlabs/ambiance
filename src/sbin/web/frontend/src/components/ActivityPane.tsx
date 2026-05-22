@@ -10,6 +10,7 @@ export function ActivityPane({ entries }: { entries: ActivityEntry[] }) {
 
   return (
     <div className="activity-pane scroll" ref={ref}>
+      {entries.length === 0 && <div className="feed-empty">no activity yet</div>}
       {entries.map((e, i) => (
         <div key={i} className={`act-line ${e.cls}`}>
           {e.text}

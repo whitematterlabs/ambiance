@@ -16,6 +16,7 @@ export function LogTail({ lines }: { lines: string[] }) {
 
   return (
     <div className="log-tail scroll" ref={ref}>
+      {lines.length === 0 && <div className="feed-empty">waiting for kernel.log…</div>}
       {lines.map((l, i) => (
         <div key={i} className={`log-line ${lineClass(l)}`}>
           {l}
