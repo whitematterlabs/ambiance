@@ -40,8 +40,12 @@ def cmd_start(args: argparse.Namespace) -> int:
         stdin=subprocess.DEVNULL,
     )
     try:
-        from sbin.tui import main as tui_main
-        tui_main()
+        if args.web:
+            from sbin.web.server import run as web_run
+            web_run(port=args.port, open_browser=not args.no_open)
+        else:
+            from sbin.tui import main as tui_main
+            tui_main()
     finally:
         if kernel.poll() is None:
             # Signal the kernel's whole process group, not just the leader —
@@ -72,11 +76,27 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="pai", description="PAI user entrypoint")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    start = sub.add_parser("start", help="start kernel and TUI together")
+    start = sub.add_parser("start", help="start kernel and an owner surface together")
     start.add_argument(
         "--headless",
         action="store_true",
-        help="run only the kernel (no TUI); equivalent to `init`",
+        help="run only the kernel (no UI); equivalent to `init`",
+    )
+    start.add_argument(
+        "--web",
+        action="store_true",
+        help="run the web surface instead of the terminal TUI",
+    )
+    start.add_argument(
+        "--port",
+        type=int,
+        default=8787,
+        help="web surface port (with --web; default 8787)",
+    )
+    start.add_argument(
+        "--no-open",
+        action="store_true",
+        help="don't auto-open a browser (with --web)",
     )
     start.set_defaults(func=cmd_start)
 

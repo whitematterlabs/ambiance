@@ -1,0 +1,449 @@
+"""Watcher hub for the PAI web surface.
+
+Mirrors the TUI's filesystem watchers (`src/sbin/tui/state.py`) but threading-
+based (no asyncio loop) so it can fan out to many SSE clients from inside a
+stdlib HTTP server. It is **read + react only**: it never mutates kernel state.
+The only writes the web surface performs live in `actions.py`, and they are the
+exact same two writes the TUI makes (a me-thread day-file line + an event file).
+
+Pure parsing/format helpers are imported from `sbin.tui.state` so the on-disk
+message format has a single source of truth across both surfaces.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from pathlib import Path
+from typing import Callable, Optional
+
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+from boot.processes import (
+    EVENTS_DIR,
+    PROC_DIR,
+    list_procs,
+    read_busy,
+    read_spec,
+    read_status,
+)
+from boot.proctree import order_as_tree
+
+from sbin.tui.state import (
+    KERNEL_LOG,
+    ME_ROOT,
+    _MSG_HEADER,
+    _infer_type,
+    _read_ctx_tokens,
+    _read_sighting,
+    me_thread_dir,
+    today_file,
+)
+
+
+# --- message format (matches widgets._style_message split) -----------------
+
+
+def parse_thread(text: str) -> list[dict]:
+    """Split a day-file into structured messages.
+
+    Each message starts with `^[HH:MM] sender:`; following lines (until the
+    next header) belong to the same body. Returns dicts the client renders.
+    """
+    raw_messages: list[str] = []
+    current: list[str] = []
+    for ln in text.splitlines():
+        if _MSG_HEADER.match(ln):
+            if current:
+                raw_messages.append("\n".join(current).rstrip())
+            current = [ln]
+        elif current:
+            current.append(ln)
+    if current:
+        raw_messages.append("\n".join(current).rstrip())
+
+    out: list[dict] = []
+    for msg in raw_messages:
+        if not msg:
+            continue
+        out.append(_split_message(msg))
+    return out
+
+
+def _split_message(msg: str) -> dict:
+    first_nl = msg.find("\n")
+    head = msg if first_nl < 0 else msg[:first_nl]
+    try:
+        rb = head.index("] ")
+        colon = head.index(":", rb)
+    except ValueError:
+        return {"ts": "", "sender": "", "body": msg, "raw": True}
+    sender = head[rb + 2 : colon].strip()
+    ts = head[1:rb]
+    after_colon = head[colon + 1 :]
+    first_body = after_colon[1:] if after_colon.startswith(" ") else after_colon
+    rest = "" if first_nl < 0 else msg[first_nl:]
+    body = first_body + rest
+    return {"ts": ts, "sender": sender, "body": body, "raw": False}
+
+
+def read_thread(pid: int) -> list[dict]:
+    path = today_file(pid)
+    if not path.exists():
+        return []
+    return parse_thread(path.read_text(encoding="utf-8", errors="replace"))
+
+
+# --- proc rows (matches state.ProcWatcher.next) ----------------------------
+
+
+def _short_when(when: str) -> str:
+    if not when:
+        return ""
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(when).strftime("%m-%d %H:%M")
+    except ValueError:
+        return when
+
+
+def read_proc_rows() -> list[dict]:
+    specs: list[dict] = []
+    for slug in list_procs(status_filter="running"):
+        try:
+            spec = read_spec(slug)
+            status = read_status(slug)
+        except Exception:
+            continue
+        specs.append({**spec, "_slug": slug, "_status": status})
+
+    rows: list[dict] = []
+    for spec, prefix in order_as_tree(specs):
+        slug = spec["_slug"]
+        when = str(spec.get("deadline") or spec.get("schedule") or "")
+        parent = spec.get("parent")
+        pid_val = spec.get("pid")
+        busy = read_busy(slug)
+        rows.append(
+            {
+                "slug": slug,
+                "pid": str(pid_val) if isinstance(pid_val, int) else "",
+                "type": _infer_type(spec),
+                "parent": str(parent) if parent is not None else "",
+                "when": when,
+                "when_short": _short_when(when),
+                "description": str(spec.get("description", "")),
+                "status": spec["_status"],
+                "tree_prefix": prefix,
+                "busy": {"reason": busy[0], "started_at": busy[1]} if busy else None,
+                "ctx_tokens": _read_ctx_tokens(slug),
+            }
+        )
+    return rows
+
+
+def read_fleet() -> list[dict]:
+    """Running kind:pai procs, with fallback flagged. Drives the tabs."""
+    fleet: list[dict] = []
+    for slug in list_procs(status_filter="running"):
+        try:
+            spec = read_spec(slug)
+        except Exception:
+            continue
+        if spec.get("kind") != "pai":
+            continue
+        pid = spec.get("pid")
+        if not isinstance(pid, int):
+            continue
+        fleet.append(
+            {
+                "pid": pid,
+                "slug": slug,
+                "fallback": spec.get("fallback") is True,
+                "title": f"{slug} #{pid}",
+            }
+        )
+    fleet.sort(key=lambda f: f["pid"])
+    return fleet
+
+
+# --- watchdog plumbing -----------------------------------------------------
+
+
+class _Poke(FileSystemEventHandler):
+    """Calls `cb(path)` on any FS event (optionally filtered)."""
+
+    def __init__(self, cb: Callable[[str], None]):
+        self._cb = cb
+
+    def on_any_event(self, event) -> None:  # type: ignore[override]
+        self._cb(getattr(event, "dest_path", None) or event.src_path)
+
+
+class _Debounced:
+    """A worker thread that runs `fn` shortly after `poke()`, coalescing bursts."""
+
+    def __init__(self, fn: Callable[[], None], debounce: float = 0.06):
+        self._fn = fn
+        self._debounce = debounce
+        self._ev = threading.Event()
+        self._stop = False
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def poke(self) -> None:
+        self._ev.set()
+
+    def _loop(self) -> None:
+        while not self._stop:
+            self._ev.wait()
+            if self._stop:
+                return
+            time.sleep(self._debounce)
+            self._ev.clear()
+            try:
+                self._fn()
+            except Exception:  # never let a watcher thread die
+                import traceback
+
+                traceback.print_exc()
+
+    def stop(self) -> None:
+        self._stop = True
+        self._ev.set()
+
+
+# --- the hub ---------------------------------------------------------------
+
+
+class Hub:
+    """Owns the observers and fans state out to subscribers as dict messages.
+
+    Subscribers receive: hello (once), procs, fleet, thread, event, log, provider.
+    """
+
+    def __init__(self):
+        self._subs: set["Subscriber"] = set()
+        self._lock = threading.Lock()
+        self._observers: list[Observer] = []
+        self._workers: list[_Debounced] = []
+        self._fleet_pids: list[int] = []
+        self._threads: dict[int, list[dict]] = {}
+        self._procs: list[dict] = []
+        self._fleet: list[dict] = []
+        self._log_offset = 0
+
+    # -- subscriptions --
+    def add(self, sub: "Subscriber") -> None:
+        with self._lock:
+            self._subs.add(sub)
+
+    def remove(self, sub: "Subscriber") -> None:
+        with self._lock:
+            self._subs.discard(sub)
+
+    def _broadcast(self, msg: dict) -> None:
+        with self._lock:
+            subs = list(self._subs)
+        for s in subs:
+            s.send(msg)
+
+    def snapshot(self, provider: str) -> dict:
+        """Full initial state for a freshly connected client."""
+        with self._lock:
+            return {
+                "type": "hello",
+                "provider": provider,
+                "fleet": list(self._fleet),
+                "procs": list(self._procs),
+                "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
+            }
+
+    # -- lifecycle --
+    def start(self) -> None:
+        # Compute initial state synchronously.
+        self._recompute_procs(broadcast=False)
+        for pid in self._fleet_pids:
+            self._threads[pid] = read_thread(pid)
+
+        # Tail starts at EOF (only new lines), like the TUI.
+        KERNEL_LOG.parent.mkdir(parents=True, exist_ok=True)
+        if not KERNEL_LOG.exists():
+            KERNEL_LOG.touch()
+        self._log_offset = KERNEL_LOG.stat().st_size
+
+        proc_worker = _Debounced(lambda: self._recompute_procs(broadcast=True))
+        me_worker = _Debounced(self._recompute_threads)
+        proc_worker.start()
+        me_worker.start()
+        self._workers += [proc_worker, me_worker]
+
+        self._watch(PROC_DIR, lambda _p: proc_worker.poke(), recursive=True)
+
+        ME_ROOT.mkdir(parents=True, exist_ok=True)
+        self._watch(ME_ROOT.resolve(), lambda _p: me_worker.poke(), recursive=True)
+
+        EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+        self._watch_events()
+        self._watch_log()
+
+    def _watch(self, path: Path, cb, recursive: bool) -> None:
+        obs = Observer()
+        obs.schedule(_Poke(cb), str(path), recursive=recursive)
+        obs.start()
+        self._observers.append(obs)
+
+    def stop(self) -> None:
+        for w in self._workers:
+            w.stop()
+        for obs in self._observers:
+            obs.stop()
+        for obs in self._observers:
+            obs.join(timeout=2)
+
+    # -- recompute handlers --
+    def _recompute_procs(self, broadcast: bool) -> None:
+        rows = read_proc_rows()
+        fleet = read_fleet()
+        new_pids = [f["pid"] for f in fleet]
+        self._procs = rows
+        self._fleet = fleet
+
+        # Reconcile per-PAI thread snapshots against the running fleet.
+        added = [p for p in new_pids if p not in self._fleet_pids]
+        removed = [p for p in self._fleet_pids if p not in new_pids]
+        self._fleet_pids = new_pids
+        for pid in removed:
+            self._threads.pop(pid, None)
+        for pid in added:
+            self._threads[pid] = read_thread(pid)
+
+        if broadcast:
+            self._broadcast({"type": "procs", "rows": rows})
+            if added or removed:
+                self._broadcast({"type": "fleet", "fleet": fleet})
+                for pid in added:
+                    self._broadcast(
+                        {"type": "thread", "pid": pid, "messages": self._threads[pid]}
+                    )
+
+    def _recompute_threads(self) -> None:
+        for pid in list(self._fleet_pids):
+            msgs = read_thread(pid)
+            if msgs != self._threads.get(pid):
+                self._threads[pid] = msgs
+                self._broadcast({"type": "thread", "pid": pid, "messages": msgs})
+
+    # -- events --
+    def _watch_events(self) -> None:
+        def on_path(raw: str) -> None:
+            p = Path(raw)
+            if p.suffix != ".yaml" or p.name.startswith("."):
+                return
+            sight = _read_sighting(p)  # read now, beat the kernel's unlink
+            payload = sight.payload
+            if payload.get("_gone"):
+                suffix = sight.filename.rsplit("-", 1)[-1]
+                source = suffix.removesuffix(".yaml") or "?"
+                kind = "(consumed)"
+                consumed = True
+            else:
+                source = str(payload.get("source", "?"))
+                kind = str(payload.get("kind", "?"))
+                consumed = False
+            target = (
+                payload.get("thread")
+                or payload.get("handle")
+                or payload.get("slug")
+                or ""
+            )
+            self._broadcast(
+                {
+                    "type": "event",
+                    "at": sight.at.strftime("%H:%M:%S"),
+                    "source": source,
+                    "kind": kind,
+                    "target": str(target),
+                    "consumed": consumed,
+                }
+            )
+
+        # Only created/moved files are new events; on_any would double-fire.
+        class _EvHandler(FileSystemEventHandler):
+            def on_created(self, event):
+                if not event.is_directory:
+                    on_path(event.src_path)
+
+            def on_moved(self, event):
+                if not event.is_directory and getattr(event, "dest_path", None):
+                    on_path(event.dest_path)
+
+        obs = Observer()
+        obs.schedule(_EvHandler(), str(EVENTS_DIR), recursive=False)
+        obs.start()
+        self._observers.append(obs)
+
+    # -- kernel.log tail --
+    def _watch_log(self) -> None:
+        def read_new() -> None:
+            try:
+                size = KERNEL_LOG.stat().st_size
+            except FileNotFoundError:
+                return
+            if size < self._log_offset:
+                self._log_offset = 0  # truncated/rotated
+            if size == self._log_offset:
+                return
+            try:
+                with KERNEL_LOG.open("rb") as f:
+                    f.seek(self._log_offset)
+                    chunk = f.read(size - self._log_offset)
+                self._log_offset = size
+            except FileNotFoundError:
+                return
+            for line in chunk.decode("utf-8", errors="replace").splitlines():
+                if line:
+                    self._broadcast({"type": "log", "line": line})
+
+        worker = _Debounced(read_new, debounce=0.02)
+        worker.start()
+        self._workers.append(worker)
+        self._watch(KERNEL_LOG.parent, lambda _p: worker.poke(), recursive=False)
+
+        # Safety-net poll (FSEvents coalesces bursts), same as the TUI.
+        def poll():
+            while True:
+                time.sleep(0.5)
+                worker.poke()
+
+        threading.Thread(target=poll, daemon=True).start()
+
+
+class Subscriber:
+    """A bounded mailbox for one SSE connection."""
+
+    def __init__(self, maxsize: int = 1000):
+        import queue
+
+        self._q: "queue.Queue[Optional[dict]]" = queue.Queue(maxsize=maxsize)
+
+    def send(self, msg: dict) -> None:
+        try:
+            self._q.put_nowait(msg)
+        except Exception:
+            pass  # slow client: drop rather than block the broadcaster
+
+    def get(self, timeout: float):
+        import queue
+
+        try:
+            return self._q.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def close(self) -> None:
+        self._q.put_nowait(None)

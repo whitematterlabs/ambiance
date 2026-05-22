@@ -1,0 +1,50 @@
+export interface FleetMember {
+  pid: number;
+  slug: string;
+  fallback: boolean;
+  title: string;
+}
+
+export interface ProcRow {
+  slug: string;
+  pid: string;
+  type: string;
+  parent: string;
+  when: string;
+  when_short: string;
+  description: string;
+  status: string;
+  tree_prefix: string;
+  busy: { reason: string; started_at: number } | null;
+  ctx_tokens: number;
+}
+
+export interface ThreadMessage {
+  ts: string;
+  sender: string;
+  body: string;
+  raw: boolean;
+}
+
+export interface EventSighting {
+  at: string;
+  source: string;
+  kind: string;
+  target: string;
+  consumed: boolean;
+}
+
+// A transient shell entry shown in the chat pane (never persisted to a thread).
+export interface ShellEntry {
+  kind: "cmd" | "out" | "err" | "exit" | "note";
+  text: string;
+}
+
+export type ServerMessage =
+  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; threads: Record<string, ThreadMessage[]> }
+  | { type: "procs"; rows: ProcRow[] }
+  | { type: "fleet"; fleet: FleetMember[] }
+  | { type: "thread"; pid: number; messages: ThreadMessage[] }
+  | { type: "event"; at: string; source: string; kind: string; target: string; consumed: boolean }
+  | { type: "log"; line: string }
+  | { type: "provider"; provider: string };

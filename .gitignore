@@ -38,3 +38,4 @@ wheels/
 /macos/PAI.xcodeproj/project.xcworkspace/xcuserdata/
 /macos/build/
 /macos/DerivedData/
+.gstack/
