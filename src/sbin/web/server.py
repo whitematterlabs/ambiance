@@ -18,10 +18,15 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from boot.paths import usr_libexec
+
 from . import actions
 from .hub import Hub, Subscriber
 
-FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+# The React frontend is a non-Python sidecar: its source + node_modules + build
+# live in the FHS sidecar slot (usr/libexec/web/), not next to this Python.
+# paifs-init symlinks usr/libexec/web at the live repo for dev.
+FRONTEND_DIST = usr_libexec() / "web" / "dist"
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",

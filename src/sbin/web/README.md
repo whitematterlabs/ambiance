@@ -1,4 +1,4 @@
-# PAI web surface (`paiweb`)
+# PAI web surface
 
 A browser operator console for PAI, matching the Textual TUI feature-for-feature.
 See [CAPABILITIES.md](./CAPABILITIES.md) for the parity checklist.
@@ -9,29 +9,32 @@ See [CAPABILITIES.md](./CAPABILITIES.md) for the parity checklist.
 TUI / GUI / other owner surface  <->  kernel  <->  LLM
 ```
 
-`paiweb` is an **owner surface**, exactly like the TUI. It *attaches* to a
+The web surface is an **owner surface**, exactly like the TUI. It *attaches* to a
 running kernel: it reads the on-disk FHS state (`/proc`, me-thread day-files,
 `run/pai/events/`, `kernel.log`) and performs only the same two writes the TUI
 makes — append a line to a me-thread day-file, and drop an event file. It never
 spawns, drives, or owns the kernel or its runtime.
 
-- **Backend** (`server.py`, `hub.py`, `actions.py`) — stdlib HTTP + Server-Sent
-  Events. No third-party web framework. Reuses `boot.*` and the TUI's pure
-  parsing helpers (`sbin.tui.state`) so the message format has one source of
-  truth. FS changes are picked up via `watchdog` (event-driven, tickless —
-  no polling of the kernel), and fanned out to every browser over one SSE stream.
-- **Frontend** (`frontend/`) — React + TypeScript + Vite (pnpm). Markdown via
-  `react-markdown`.
+- **Backend** (`src/sbin/web/`: `server.py`, `hub.py`, `actions.py`) — stdlib
+  HTTP + Server-Sent Events. No third-party web framework. Reuses `boot.*` and
+  the TUI's pure parsing helpers (`sbin.tui.state`) so the message format has one
+  source of truth. FS changes are picked up via `watchdog` (event-driven, tickless
+  — no polling of the kernel), and fanned out to every browser over one SSE stream.
+- **Frontend** (`src/usr/libexec/web/`) — React + TypeScript + Vite (pnpm),
+  markdown via `react-markdown`. It's a **non-Python sidecar**, so it lives in the
+  FHS sidecar slot (`usr/libexec/web/`) with its own `node_modules/` + `dist/`,
+  not next to the Python backend. paifs-init symlinks `usr/libexec/web` at the
+  live repo; the server serves the built `dist/` from there.
 
 The browser→kernel direction is plain `POST /api/*`; the kernel→browser
 direction is one long-lived `GET /api/stream` SSE feed.
 
 ## Run
 
-One-time frontend build:
+One-time frontend build (also done by `install.sh`):
 
 ```bash
-cd src/sbin/web/frontend
+cd src/usr/libexec/web
 pnpm install
 pnpm build
 ```
@@ -51,13 +54,13 @@ surface on its own — it never boots or owns the kernel:
 python -m sbin.web               # --host / --port / --open
 ```
 
-The surface serves the built `frontend/dist/` and the API from the same origin.
+The surface serves the built `usr/libexec/web/dist/` and the API from the same origin.
 
 ## Dev (hot reload)
 
 ```bash
-python -m sbin.web                       # API on :8787
-cd src/sbin/web/frontend && pnpm dev     # UI on :5173, proxies /api → :8787
+python -m sbin.web                         # API on :8787
+cd src/usr/libexec/web && pnpm dev         # UI on :5173, proxies /api → :8787
 ```
 
 ## API

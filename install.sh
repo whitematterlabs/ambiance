@@ -14,14 +14,14 @@ uv sync
 
 echo "==> web frontend (pnpm)"
 if command -v pnpm >/dev/null 2>&1; then
-  if ( cd src/sbin/web/frontend && pnpm install && pnpm build ); then
+  if ( cd src/usr/libexec/web && pnpm install && pnpm build ); then
     echo "    web surface built — launch with: pai start --web"
   else
     echo "    warning: web frontend build failed; 'pai start --web' unavailable." >&2
   fi
 else
   echo "    skipped: pnpm not found (https://pnpm.io)." >&2
-  echo "    run 'pnpm install && pnpm build' in src/sbin/web/frontend to enable 'pai start --web'." >&2
+  echo "    run 'pnpm install && pnpm build' in src/usr/libexec/web to enable 'pai start --web'." >&2
 fi
 
 echo "==> paifs-init"

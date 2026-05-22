@@ -94,6 +94,8 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("boot", REPO_ROOT / "src" / "boot"),
     ("usr/src", REPO_ROOT / "src"),
     ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
+    # Web surface frontend — a non-Python sidecar (built into its own dist/).
+    ("usr/libexec/web", REPO_ROOT / "src" / "usr" / "libexec" / "web"),
     ("etc/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
     ("etc/boilerplate/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
     ("etc/boilerplate/memory-usage.md", REPO_ROOT / "src" / "etc" / "boilerplate" / "memory-usage.md"),
