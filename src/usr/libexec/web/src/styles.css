@@ -69,20 +69,6 @@ body {
 .header .spacer {
   flex: 1;
 }
-.provider-chip {
-  background: var(--panel-2);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 3px 9px;
-  cursor: pointer;
-  font: inherit;
-  transition: color 0.12s ease, border-color 0.12s ease;
-}
-.provider-chip:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
 .conn {
   font-size: 11px;
   letter-spacing: 0.03em;

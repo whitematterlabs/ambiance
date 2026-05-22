@@ -205,11 +205,7 @@ export function App() {
 
   return (
     <div className="app">
-      <Header
-        provider={provider}
-        connected={connected}
-        onPalette={() => setPaletteOpen(true)}
-      />
+      <Header connected={connected} />
       <div className="main">
         <div className="chat-col">
           <FleetTabs fleet={fleet} activePid={activePid} onSelect={setActivePid} />
