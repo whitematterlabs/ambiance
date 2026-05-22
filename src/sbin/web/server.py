@@ -18,15 +18,31 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from boot.paths import usr_libexec
+from boot.paths import REPO_ROOT, usr_libexec
 
 from . import actions
 from .hub import Hub, Subscriber
 
-# The React frontend is a non-Python sidecar: its source + node_modules + build
-# live in the FHS sidecar slot (usr/libexec/web/), not next to this Python.
-# paifs-init symlinks usr/libexec/web at the live repo for dev.
-FRONTEND_DIST = usr_libexec() / "web" / "dist"
+
+def _frontend_dist() -> Path:
+    """Where the built React frontend lives.
+
+    The web surface *attaches* to the kernel from outside; it does not live in
+    the kernel's runtime root (~/.pai). So it resolves its own assets: from the
+    repo's libexec sidecar slot in dev, or from an embedded slot if a shipped
+    app populated `usr/libexec/web/`. Nothing is injected into ~/.pai.
+    """
+    candidates = (
+        REPO_ROOT / "src" / "usr" / "libexec" / "web" / "dist",  # dev: read from repo
+        usr_libexec() / "web" / "dist",                          # shipped: embedded slot
+    )
+    for cand in candidates:
+        if (cand / "index.html").is_file():
+            return cand
+    return candidates[0]
+
+
+FRONTEND_DIST = _frontend_dist()
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",

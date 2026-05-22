@@ -21,10 +21,14 @@ spawns, drives, or owns the kernel or its runtime.
   source of truth. FS changes are picked up via `watchdog` (event-driven, tickless
   — no polling of the kernel), and fanned out to every browser over one SSE stream.
 - **Frontend** (`src/usr/libexec/web/`) — React + TypeScript + Vite (pnpm),
-  markdown via `react-markdown`. It's a **non-Python sidecar**, so it lives in the
-  FHS sidecar slot (`usr/libexec/web/`) with its own `node_modules/` + `dist/`,
-  not next to the Python backend. paifs-init symlinks `usr/libexec/web` at the
-  live repo; the server serves the built `dist/` from there.
+  markdown via `react-markdown`. It's a **non-Python sidecar**, so it sits in a
+  `libexec/` slot with its own `node_modules/` + `dist/`, not next to the Python
+  backend.
+
+Because the surface only *attaches* to the kernel, it does **not** install
+itself into the kernel runtime (`~/.pai`). The server resolves the built
+frontend from the repo (`src/usr/libexec/web/dist/`), or from an embedded
+`usr/libexec/web/dist/` if a shipped app populates one. `~/.pai` stays untouched.
 
 The browser→kernel direction is plain `POST /api/*`; the kernel→browser
 direction is one long-lived `GET /api/stream` SSE feed.
@@ -54,7 +58,8 @@ surface on its own — it never boots or owns the kernel:
 python -m sbin.web               # --host / --port / --open
 ```
 
-The surface serves the built `usr/libexec/web/dist/` and the API from the same origin.
+The surface serves the built frontend (`src/usr/libexec/web/dist/`) and the API
+from the same origin — read straight from the repo, nothing copied into `~/.pai`.
 
 ## Dev (hot reload)
 
