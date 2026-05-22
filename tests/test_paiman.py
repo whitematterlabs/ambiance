@@ -208,6 +208,26 @@ def test_install_bare_name_unknown_fails(fhs_root: Path) -> None:
         paiman.main(["install", "no-such-package"])
 
 
+def _write_pkg(d: Path, **fields: object) -> None:
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "package.yaml").write_text(yaml.safe_dump(fields))
+
+
+def test_lookup_bare_name_collision_prefers_driver_over_bin(
+    tmp_path: Path,
+) -> None:
+    # bin/ax and drivers/ax both exist. A bare `ax` must resolve to the driver
+    # (the umbrella that pulls bin/ax and builds the sidecar), not bin/ax which
+    # wins on alphabetical order alone.
+    reg = tmp_path / "reg"
+    _write_pkg(reg / "bin" / "ax", name="ax", kind="bin", entrypoint="ax.py")
+    _write_pkg(reg / "drivers" / "ax", name="ax", kind="driver",
+               deps=["bin/ax"])
+    resolved = paiman._Registry(tmp_path / "work")
+    resolved._path = reg.resolve()
+    assert resolved.lookup("ax") == (reg / "drivers" / "ax").resolve()
+
+
 # ---------- pai install with deps ----------
 
 def test_install_pai_pulls_deps_from_registry(fhs_root: Path) -> None:

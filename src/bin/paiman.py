@@ -139,6 +139,13 @@ PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt", "lib")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
 DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
+# Bare-name resolution precedence when the same name lives under multiple
+# topics. Bundles that pull deps (pais, drivers) outrank the leaf packages
+# they depend on (bins, libs), so `paiman install ax` lands drivers/ax — which
+# pulls in its bin/ax dep and builds the sidecar — not bin/ax on its own.
+_TOPIC_RANK = {t: i for i, t in enumerate(
+    ("pais", "drivers", "subagents", "skills", "prompts", "lib", "bin", "sbin")
+)}
 
 
 def _validate_name(name: str) -> None:
@@ -287,10 +294,17 @@ class _Registry:
         pkg_dir = self.root() / name
         if (pkg_dir / "package.yaml").is_file():
             return pkg_dir
-        # Topic-foldered: <root>/<topic>/<name>/package.yaml
-        for topic_dir in sorted(self.root().iterdir()):
-            if not topic_dir.is_dir() or topic_dir.name.startswith("."):
-                continue
+        # Topic-foldered: <root>/<topic>/<name>/package.yaml. A bare name can
+        # collide across topics — e.g. drivers/ax and the bin/ax client it
+        # depends on. Walk topics in precedence order so the umbrella bundle
+        # wins; plain alphabetical order would pick bin/ax (b < d) and never
+        # the driver that builds the sidecar.
+        topics = sorted(
+            (d for d in self.root().iterdir()
+             if d.is_dir() and not d.name.startswith(".")),
+            key=lambda d: (_TOPIC_RANK.get(d.name, len(_TOPIC_RANK)), d.name),
+        )
+        for topic_dir in topics:
             candidate = topic_dir / name
             if (candidate / "package.yaml").is_file():
                 return candidate
