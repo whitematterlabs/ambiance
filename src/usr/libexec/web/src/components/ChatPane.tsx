@@ -28,27 +28,40 @@ export function ChatPane({
 
   return (
     <div className="chat-pane" ref={ref}>
+      {messages.length === 0 && shell.length === 0 && (
+        <div className="chat-empty">No messages yet for this PAI.</div>
+      )}
       {messages.map((m, i) => (
         <Message key={i} m={m} />
       ))}
-      {shell.map((e, i) => (
-        <div key={`s${i}`} className={`shell-line shell-${e.kind}`}>
-          {e.text}
+      {shell.length > 0 && (
+        <div className="shell-feed">
+          {shell.map((e, i) => (
+            <div key={`s${i}`} className={`shell-line shell-${e.kind}`}>
+              {e.text}
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
 function Message({ m }: { m: ThreadMessage }) {
   if (m.raw) {
-    return <div className="msg msg-other">{m.body}</div>;
+    return (
+      <article className="msg msg-other msg-raw">
+        <div className="msg-body msg-plain">{m.body}</div>
+      </article>
+    );
   }
   const isTool = m.body.trimStart().startsWith("» ");
+  const sender = m.sender.toLowerCase() === "me" ? "You" : m.sender;
   return (
-    <div className={`msg ${senderClass(m.sender)}`}>
+    <article className={`msg ${senderClass(m.sender)}`}>
       <div className="msg-head">
-        <span className="msg-ts">[{m.ts}]</span> <span className="msg-sender">{m.sender}:</span>
+        <span className="msg-sender">{sender}</span>
+        <span className="msg-ts">{m.ts}</span>
       </div>
       {m.body.trim() !== "" &&
         (isTool ? (
@@ -58,6 +71,6 @@ function Message({ m }: { m: ThreadMessage }) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.body}</ReactMarkdown>
           </div>
         ))}
-    </div>
+    </article>
   );
 }

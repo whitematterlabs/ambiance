@@ -200,38 +200,83 @@ export function App() {
     setPaletteOpen(false);
   }, []);
 
+  const handleInterrupt = useCallback(() => {
+    const pid = activePidRef.current ?? 1;
+    api.interrupt(pid);
+    setStatus(`interrupt sent → pid ${pid}, cancelled`);
+  }, []);
+
   const messages = activePid !== null ? threads[activePid] ?? [] : [];
   const shellEntries = activePid !== null ? shell[activePid] ?? [] : [];
+  const activeMember = activePid !== null ? fleet.find((m) => m.pid === activePid) ?? null : null;
+  const activeProc = activePid !== null ? procs.find((r) => r.pid === String(activePid)) : null;
+  const busyCount = procs.filter((r) => r.busy).length;
+  const activeLabel = activeMember?.title || activeMember?.slug || "No active PAI";
+  const activeMeta =
+    activeMember && activeProc
+      ? `${activeMember.slug} · PID ${activeMember.pid} · ${activeProc.type}`
+      : activeMember
+        ? `${activeMember.slug} · PID ${activeMember.pid}`
+        : "Start the kernel to attach a PAI";
 
   return (
     <div className="app">
-      <Header connected={connected} />
-      <div className="main">
-        <div className="chat-col">
+      <Header
+        connected={connected}
+        provider={provider}
+        busyCount={busyCount}
+        onOpenPalette={() => setPaletteOpen(true)}
+      />
+      <main className="main">
+        <section className="chat-col">
+          <div className="workspace-top">
+            <div>
+              <div className="section-kicker">Active workspace</div>
+              <h1>{activeLabel}</h1>
+              <p>{activeMeta}</p>
+            </div>
+            <div className={`workspace-state ${activeProc?.busy ? "busy" : ""}`}>
+              {activeProc?.busy ? "Working" : "Ready"}
+            </div>
+          </div>
           <FleetTabs fleet={fleet} activePid={activePid} onSelect={setActivePid} />
-          <ChatPane messages={messages} shell={shellEntries} />
-          <StatusBar text={status} />
-          <MessageInput disabled={activePid === null} onSubmit={handleSubmit} />
-        </div>
-        <div className="side-col">
-          <section className="panel">
-            <div className="panel-label">running procs</div>
+          <section className="conversation-panel">
+            <ChatPane messages={messages} shell={shellEntries} />
+            <StatusBar text={status} />
+            <MessageInput disabled={activePid === null} onSubmit={handleSubmit} onInterrupt={handleInterrupt} />
+          </section>
+        </section>
+        <aside className="side-col">
+          <section className="panel procs-panel">
+            <div className="panel-label">
+              <span>Running processes</span>
+              <strong>{procs.length}</strong>
+            </div>
             <ProcList rows={procs} />
           </section>
           <section className="panel grow2">
-            <div className="panel-label">PAI activity</div>
+            <div className="panel-label">
+              <span>PAI activity</span>
+              <strong>{activity.length}</strong>
+            </div>
             <ActivityPane entries={activity} />
           </section>
           <section className="panel">
-            <div className="panel-label">events (live)</div>
+            <div className="panel-label">
+              <span>Events</span>
+              <strong>{events.length}</strong>
+            </div>
             <EventStrip events={events} />
           </section>
           <section className="panel grow1">
-            <div className="panel-label">kernel.log</div>
+            <div className="panel-label">
+              <span>Kernel log</span>
+              <strong>{logLines.length}</strong>
+            </div>
             <LogTail lines={logLines} />
           </section>
-        </div>
-      </div>
+        </aside>
+      </main>
       {paletteOpen && (
         <CommandPalette
           provider={provider}

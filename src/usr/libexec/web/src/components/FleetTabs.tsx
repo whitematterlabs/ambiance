@@ -10,7 +10,7 @@ export function FleetTabs({
   onSelect: (pid: number) => void;
 }) {
   if (!fleet.length) {
-    return <div className="tabs empty">no running PAIs — start the kernel</div>;
+    return <div className="tabs empty">No running PAIs</div>;
   }
   return (
     <div className="tabs" role="tablist">
@@ -23,8 +23,9 @@ export function FleetTabs({
           onClick={() => onSelect(m.pid)}
           title={m.fallback ? "fallback (owner-facing) PAI" : ""}
         >
-          {m.slug} <span className="tab-pid">#{m.pid}</span>
-          {m.fallback && <span className="tab-fallback">★</span>}
+          <span className="tab-main">{m.slug}</span>
+          <span className="tab-pid">PID {m.pid}</span>
+          {m.fallback && <span className="tab-fallback">Default</span>}
         </button>
       ))}
     </div>

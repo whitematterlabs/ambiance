@@ -1,15 +1,18 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 
 export function MessageInput({
   disabled,
   onSubmit,
+  onInterrupt,
 }: {
   disabled: boolean;
   onSubmit: (text: string) => void;
+  onInterrupt: () => void;
 }) {
   const [value, setValue] = useState("");
 
-  const submit = () => {
+  const submit = (e?: FormEvent) => {
+    e?.preventDefault();
     const text = value.trim();
     if (!text) return;
     setValue("");
@@ -17,25 +20,21 @@ export function MessageInput({
   };
 
   return (
-    <div className={`input-row ${value.startsWith("!") ? "shell" : ""}`}>
+    <form className={`input-row ${value.startsWith("!") ? "shell" : ""}`} onSubmit={submit}>
       <input
         className="msg-input"
-        placeholder={
-          disabled
-            ? "no PAI tab active"
-            : "message PAI…  (Enter to send · !cmd to run shell · Esc to interrupt)"
-        }
+        placeholder={disabled ? "No active PAI" : "Message PAI or type !command"}
         value={value}
         disabled={disabled}
         autoFocus
         onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submit();
-          }
-        }}
       />
-    </div>
+      <button className="input-button secondary" type="button" disabled={disabled} onClick={onInterrupt}>
+        Interrupt
+      </button>
+      <button className="input-button primary" type="submit" disabled={disabled || !value.trim()}>
+        Send
+      </button>
+    </form>
   );
 }
