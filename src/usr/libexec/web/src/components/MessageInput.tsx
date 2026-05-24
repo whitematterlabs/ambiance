@@ -6,14 +6,17 @@ export function MessageInput({
   onInterrupt,
   onTranscribeAudio,
   onVoiceStatus,
+  prefill,
 }: {
   disabled: boolean;
   onSubmit: (text: string) => void;
   onInterrupt: () => void;
   onTranscribeAudio: (audio: Blob) => Promise<string>;
   onVoiceStatus: (status: string) => void;
+  prefill?: { text: string; nonce: number } | null;
 }) {
   const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "transcribing">(
     "idle",
   );
@@ -46,6 +49,18 @@ export function MessageInput({
       stopStream(streamRef.current);
     };
   }, []);
+
+  // Seed the field from a quick-action (e.g. the Compact button) and drop the
+  // caret at the end so the user can keep typing their summary immediately.
+  useEffect(() => {
+    if (!prefill) return;
+    setValue(prefill.text);
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.nonce]);
 
   const startRecording = async () => {
     if (!canRecord || disabled || recordingState !== "idle") return;
@@ -133,6 +148,7 @@ export function MessageInput({
         ◼
       </button>
       <input
+        ref={inputRef}
         className="composer-input"
         placeholder={
           disabled ? "No active PAI" : "Message your PAI...  (start with ! for shell)"

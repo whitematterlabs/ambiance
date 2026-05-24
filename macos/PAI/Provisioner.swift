@@ -85,6 +85,7 @@ final class Provisioner: ObservableObject {
             ]
             var env = ProcessInfo.processInfo.environment
             env["PAI_ROOT"] = FHS.root.path
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
             // The embedded interpreter has the package; the on-disk `drivers`
             // namespace resolves via PYTHONPATH=usr/lib (mirrors KernelLauncher).
             // On a clean root usr/lib is empty until paiman seeds it — harmless.

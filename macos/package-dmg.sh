@@ -4,7 +4,7 @@
 #
 #   ./package-dmg.sh [/path/to/PAI.app] [/path/to/out.dmg]
 #
-# Defaults: build/PAI.app -> build/PAI.dmg (what build.sh produces). Pure
+# Defaults: build/PAI.app -> build/PAI.dmg (what ./paibuild produces). Pure
 # packaging — nothing runs at install; the user drags PAI.app to Applications,
 # launches it, and it provisions ~/.pai on first run.
 #
@@ -19,7 +19,7 @@ VOLNAME="PAI"
 
 step() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-[ -d "$APP" ] || { echo "no app at $APP — run build.sh first" >&2; exit 1; }
+[ -d "$APP" ] || { echo "no app at $APP — run ./paibuild first" >&2; exit 1; }
 APP="$(cd "$APP" && pwd)"
 mkdir -p "$(dirname "$DMG")"
 rm -f "$DMG"

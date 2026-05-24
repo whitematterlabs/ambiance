@@ -23,17 +23,18 @@ settings:
     # it must be signed (with entitlements) for the hardened runtime to load
     # those libs. Developer ID is deferred — flip CODE_SIGN_IDENTITY +
     # DEVELOPMENT_TEAM the day a permission-bearing feature lands. The
-    # authoritative inside-out re-sign happens in macos/bundle-runtime.sh
-    # after the runtime is embedded; these settings keep a plain Xcode build
-    # self-consistent. See memory pai-app-consolidation.
+    # authoritative inside-out re-sign happens in repo-root ./paibuild
+    # (delegating to macos/bundle-runtime.sh for full runtime embedding);
+    # these settings keep a plain Xcode build self-consistent.
+    # See memory pai-app-consolidation.
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_REQUIRED: "YES"
     CODE_SIGNING_ALLOWED: "YES"
     # Developer ID flip (the day an Apple Developer account lands): set the two
     # below and pass SIGN_ID="Developer ID Application: … (TEAMID)" to
-    # macos/bundle-runtime.sh (optionally with --notarize). Left commented so
-    # ad-hoc builds stay the default.
+    # ./paibuild (optionally with --notarize). Left commented so ad-hoc builds
+    # stay the default.
     # DEVELOPMENT_TEAM: ABCDE12345
     # CODE_SIGN_IDENTITY: "Developer ID Application"
 

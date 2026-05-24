@@ -38,10 +38,7 @@ export function FleetTabs({
               onClick={() => onSelect(m.pid)}
               title={m.fallback ? "Default (owner-facing) PAI" : ""}
             >
-              <span className="fleet-tab-name">
-                <span className="fleet-tab-dot" aria-hidden="true" />
-                {label}
-              </span>
+              <span className="fleet-tab-name">{label}</span>
               <span className="fleet-tab-meta">
                 {busy ? "Working" : "Ready"} / PID {m.pid}
                 {m.fallback ? " / Default" : ""}
@@ -58,7 +55,9 @@ export function FleetTabs({
               {cloning ? (
                 <span className="fleet-clone-spinner" aria-hidden="true" />
               ) : (
-                <span aria-hidden="true">+</span>
+                <span className="fleet-clone-plus" aria-hidden="true">
+                  +
+                </span>
               )}
             </button>
           </div>

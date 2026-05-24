@@ -43,6 +43,10 @@ export function App() {
   const [kernelBusy, setKernelBusy] = useState(false);
   const [cloningSlugs, setCloningSlugs] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [composerDraft, setComposerDraft] = useState<{ text: string; nonce: number } | null>(
+    null,
+  );
   const [voiceEnabled, setVoiceEnabled] = useState(
     () => localStorage.getItem("voiceEnabled") === "true",
   );
@@ -292,6 +296,44 @@ export function App() {
     setStatus(`interrupt sent → pid ${pid}, cancelled`);
   }, []);
 
+  // Clear is one-shot: queue + apply the history reset for the active PAI. The
+  // kernel pushes the emptied thread back over SSE, so we only touch status.
+  const handleClearContext = useCallback(async () => {
+    const pid = activePidRef.current;
+    if (pid === null) {
+      setStatus("no PAI tab active");
+      return;
+    }
+    setClearBusy(true);
+    setStatus("clearing context…");
+    try {
+      const res = await api.runShell(pid, "clear");
+      const last = res.lines[res.lines.length - 1];
+      setStatus(
+        res.rc === 0
+          ? res.ctx_applied
+            ? "context cleared"
+            : last || "clear queued"
+          : `clear: exit ${res.rc}${last ? ` — ${last}` : ""}`,
+      );
+    } catch (e) {
+      setStatus(`clear failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setClearBusy(false);
+    }
+  }, []);
+
+  // Compact needs a summary you write, so it can't be one-click: seed the
+  // composer with the shell command and let the existing `!` path carry it.
+  const handleCompact = useCallback(() => {
+    if (activePidRef.current === null) {
+      setStatus("no PAI tab active");
+      return;
+    }
+    setComposerDraft({ text: "!compact ", nonce: Date.now() });
+    setStatus("compact: add a short summary, then send");
+  }, []);
+
   const handleClone = useCallback(async (member: FleetMember) => {
     const source = member.slug;
     setCloningSlugs((prev) => {
@@ -383,9 +425,29 @@ export function App() {
                 <h1 className="chat-title">{activeLabel}</h1>
                 <p className="chat-meta">{activeMeta}</p>
               </div>
-              <span className={`state-label ${activeProc?.busy ? "busy" : "ready"}`}>
-                {activeProc?.busy ? "Working" : "Ready"}
-              </span>
+              <div className="chat-head-actions">
+                <button
+                  className="head-action"
+                  type="button"
+                  disabled={activePid === null || clearBusy}
+                  onClick={handleClearContext}
+                  title="Clear this PAI's conversation buffer (archived, recoverable)"
+                >
+                  {clearBusy ? "Clearing…" : "Clear"}
+                </button>
+                <button
+                  className="head-action"
+                  type="button"
+                  disabled={activePid === null}
+                  onClick={handleCompact}
+                  title="Compact context — distill the conversation into a short summary you write"
+                >
+                  Compact
+                </button>
+                <span className={`state-label ${activeProc?.busy ? "busy" : "ready"}`}>
+                  {activeProc?.busy ? "Working" : "Ready"}
+                </span>
+              </div>
             </header>
             <ChatPane messages={messages} shell={shellEntries} threadKey={activePid} />
             <StatusBar text={status} />
@@ -395,6 +457,7 @@ export function App() {
               onInterrupt={handleInterrupt}
               onTranscribeAudio={handleTranscribeAudio}
               onVoiceStatus={setStatus}
+              prefill={composerDraft}
             />
           </section>
         </section>

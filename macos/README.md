@@ -34,14 +34,14 @@ sidebar selection — back.
 
 ## Status
 
-**Self-contained, ad-hoc signed.** `./build.sh` produces a single PAI.app that
-embeds the Python runtime + all deps + the kernel and owns the kernel as a
-child. Still deferred: Developer ID signing, notarization, Sparkle, and re-homed
-Location/Contacts/Calendar entitlements (the day a permission-bearing feature
-lands, flip `CODE_SIGN_IDENTITY`/`DEVELOPMENT_TEAM` and re-enable the hardened
-runtime — see `bundle-runtime.sh`). The TUI is unchanged and remains the daily
-driver. See the "Graduating from TTY to .app" section in the repo root
-`CLAUDE.md` for the framing.
+**Self-contained, ad-hoc signed.** Repo-root `./paibuild` produces a single
+PAI.app that embeds the Python runtime + all deps + the kernel and owns the
+kernel as a child. Still deferred: Developer ID signing, notarization, Sparkle,
+and re-homed Location/Contacts/Calendar entitlements (the day a
+permission-bearing feature lands, flip `CODE_SIGN_IDENTITY`/`DEVELOPMENT_TEAM`
+and re-enable the hardened runtime — see `bundle-runtime.sh`). The TUI is
+unchanged and remains the daily driver. See the "Graduating from TTY to .app"
+section in the repo root `CLAUDE.md` for the framing.
 
 ## Build
 
@@ -66,16 +66,26 @@ cd macos && xcodegen generate
 
 Build & run:
 
-- **Consolidated app (recommended):** `cd macos && ./build.sh` builds the app
-  *and* embeds a self-contained Python runtime (interpreter + all deps + the
-  kernel) into `Contents/Resources/runtime/`, then ad-hoc re-signs the bundle.
-  Result: `macos/build/PAI.app` — a single app that contains the kernel and
-  owns it. `bundle-runtime.sh` does the embedding step alone against an existing
-  build.
+- **Consolidated app (recommended):** from the repo root, run `./paibuild`.
+  It builds the Swift app, web surface, embedded Python runtime, seed content,
+  and signatures as needed. Result: `macos/build/PAI.app` — a single app that
+  contains the kernel and owns it. `macos/build.sh` is a compatibility wrapper,
+  and `bundle-runtime.sh` remains the lower-level full-runtime embedding step.
+- **Useful build flags:** `./paibuild --debug` builds Debug instead of the
+  default Release; `--full` rebuilds the app output and embedded Python runtime;
+  `--dmg` also writes `macos/build/PAI.dmg`; `--dry-run` prints the incremental
+  layer plan without changing outputs. By default, `paibuild` validates the
+  remote paiman registry has the first-run seed packages; use
+  `--skip-registry-check` only for local builds while the registry is being
+  repaired.
 - **App only (dev, no embedded runtime):** open `macos/PAI.xcodeproj` in Xcode
   and ⌘R, or `xcodebuild ... -configuration Debug build`. With no bundled
   runtime, the app falls back to launching the kernel from the FHS
   (`~/.pai/sbin/init`) — fast iteration on Swift without re-embedding Python.
+
+`paibuild` is intentionally repo-only developer tooling. It is not a Python
+console script, is not installed by `paifs-init`, and must not appear in
+`~/.pai/usr/bin` or `~/.pai/sbin`.
 
 The target is a menubar agent (`LSUIElement = YES`), ad-hoc signed, no sandbox —
 it reads/writes `~/.pai/` directly as the owner.

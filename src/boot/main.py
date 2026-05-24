@@ -23,9 +23,6 @@ from pathlib import Path
 
 import yaml
 
-from drivers import contacts
-from drivers import messages as M
-
 from . import config as C
 from . import outbound_echo
 from . import paths
@@ -49,6 +46,27 @@ _active_nudges: dict[int, set[asyncio.Task]] = defaultdict(set)
 # (load → mutate → save). Cancellation propagates through acquire()
 # cleanly — a task waiting on the lock will just raise CancelledError.
 _pai_locks: dict[int, asyncio.Lock] = {}
+
+_contacts_module = None
+_messages_module = None
+
+
+def _contacts_driver():
+    global _contacts_module
+    if _contacts_module is None:
+        from drivers import contacts
+
+        _contacts_module = contacts
+    return _contacts_module
+
+
+def _messages_driver():
+    global _messages_module
+    if _messages_module is None:
+        from drivers import messages
+
+        _messages_module = messages
+    return _messages_module
 
 
 def _pai_lock(to: int) -> asyncio.Lock:
@@ -169,7 +187,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         return
 
     # The `new_message`, `messages_backlog`, and `messages_multiple` branches
-    # below are iMessage-shaped (require `handle`, ingest via M.ingest, route
+    # below are iMessage-shaped (require `handle`, ingest via messages.ingest,
     # as imessage:*). Other drivers emit their own `<driver>:<kind>` and fall
     # through to the generic router at the bottom. Gate on source so we don't
     # grab whatsapp/etc.
@@ -204,6 +222,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         return
 
     if kind == "new_message" and is_imessage:
+        M = _messages_driver()
         # TUI-originated owner messages: the line is already appended to
         # me/YYYY-MM-DD.md by the client, so we skip ingest() and just nudge.
         if event.get("thread") == "me":
@@ -280,6 +299,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             _dispatch_nudge(pid, tag, context=ctx)
 
     elif kind == "messages_backlog" and is_imessage:
+        M = _messages_driver()
         messages = event.get("messages") or []
         if not messages:
             return
@@ -341,6 +361,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             _dispatch_nudge(pid, "messages backlog", context=ctx)
 
     elif kind == "messages_multiple" and is_imessage:
+        M = _messages_driver()
         # Live burst — multiple new rows in a single drain. Ingest each so
         # the day-files get written, dedupe PAI's own outbound echoes, then
         # nudge once with the full ordered list of what landed.
@@ -932,7 +953,8 @@ async def run() -> None:
 
     # NOTE: layout/legacy migrations moved to boot.phases. Reconcile is
     # now phase 4 and runs before this function is invoked.
-    contacts.sync(M.PEOPLE_DIR, M.MESSAGES_DIR)
+    M = _messages_driver()
+    _contacts_driver().sync(M.PEOPLE_DIR, M.MESSAGES_DIR)
     heap = T.rebuild_from_proc()
     watcher = EventWatcher(P.EVENTS_DIR, loop)
     watcher.start()

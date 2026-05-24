@@ -43,7 +43,6 @@ export function ProcList({ rows }: { rows: ProcRow[] }) {
                 style={style}
               >
                 <td className="slug">
-                  {paiLike && <span className="proc-color-dot" aria-hidden="true" />}
                   <span className="tree">{r.tree_prefix}</span>
                   {r.slug}
                 </td>

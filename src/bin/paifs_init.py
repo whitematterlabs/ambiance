@@ -113,9 +113,9 @@ ROOT_SEED_PROMPTS: tuple[str, ...] = (
     "subagent-persistent",
 )
 
-# Drivers the kernel imports as libraries at module-load time. A fresh
-# $PAI_ROOT must have these or `import drivers.contacts` / `drivers.messages`
-# raises during boot. Drivers with runnable processes (imessage, macmail)
+# Drivers the kernel imports as libraries during boot/runtime. A fresh
+# $PAI_ROOT must have these before `boot.entry` starts supervising; drivers
+# with runnable processes (imessage, macmail)
 # are NOT seeded — the root user installs them explicitly.
 KERNEL_SEED_DRIVERS: tuple[str, ...] = ("contacts", "messages")
 

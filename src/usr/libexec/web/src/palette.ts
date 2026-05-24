@@ -1,22 +1,20 @@
+// Per-PAI accent colors. Deliberately muted, warm earth tones that all sit in
+// the same desaturated family as the clay accent — they read as "ink with a
+// hue," never as candy-bright status dots. Used only as thin edge accents
+// (a left rule on tabs/rows), never as filled circles.
 const PAI_COLORS = [
-  "#2563eb",
-  "#059669",
-  "#d97706",
-  "#db2777",
-  "#7c3aed",
-  "#0f766e",
-  "#4f46e5",
-  "#16a34a",
-  "#dc2626",
-  "#ca8a04",
-  "#0891b2",
-  "#9333ea",
-  "#ea580c",
-  "#be123c",
-  "#15803d",
-  "#0369a1",
-  "#a16207",
-  "#c026d3",
+  "#b5683d", // terracotta
+  "#7c8a5a", // olive
+  "#a07c3a", // ochre
+  "#9a5b4c", // brick
+  "#5f7a6e", // pine
+  "#86638c", // muted plum
+  "#3f6f7d", // slate teal
+  "#a86b48", // pecan
+  "#6b7a4f", // moss
+  "#94604e", // sienna
+  "#577a8a", // dusty blue
+  "#8a6f3c", // bronze
 ];
 
 export function paiColor(seed: string | number | null | undefined): string {

@@ -16,6 +16,7 @@ enum PythonRuntime {
     static func env() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["PAI_ROOT"] = FHS.root.path
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONPATH"] = FHS.root.appendingPathComponent("usr/lib").path
         let extra = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         if let existing = env["PATH"], !existing.isEmpty {

@@ -58,8 +58,18 @@ Four tools, one layer each: `paiman` (bundles) / `paiadd`+`paidel` (configure in
 - **Tests**: `uv run python -m pytest`.
 - **Run kernel from FHS root**: `cd ~/.pai && usr/bin/python -m boot run`.
 - **Run kernel from repo (dev)**: `uv run python -m boot run`.
+- **Build final app**: `./paibuild` from the repo root. It is repo-only dev
+  tooling, defaults to a Release `macos/build/PAI.app`, and must never be added
+  to `pyproject.toml` scripts or installed into `~/.pai`.
 
 `paifs-init` provisions `~/.pai/` from the repo: creates the FHS skeleton, symlinks `/usr/src/`/`/usr/lib/drivers/`/`/usr/share/prompts/` at the live repo, builds a self-contained venv at `/usr/lib/venv/`, and generates console-script shims at `/usr/bin/` and `/sbin/`. Idempotent and non-destructive — safe to re-run after `git pull` to refresh shims/venv. To wipe runtime state, use `reset` (destructive).
+
+`paibuild` is the opposite side of that boundary: it packages the repo into a
+self-contained `.app` under ignored `macos/build/`, validates first-run registry
+seeds by default, and may rebuild the web dist, Swift app, embedded Python
+runtime, seed content, wheel install, signatures, and optional DMG. It must not
+write or rely on the real `$PAI_ROOT` runtime except for explicit read-only
+checks.
 
 ## Graduating from TTY to .app
 
@@ -81,4 +91,3 @@ Graduate when **2 of 3** hit — specifically when per-PAI native notifications 
 - Symlinks over duplication — single source of truth, linked from multiple contexts.
 - Config is the source of truth: `/etc/config.yaml` declares the fleet (name, provider, model, prompt, wake_on, fallback). Reconcile rewrites `/proc/<pai>/spec.yaml` from it.
 - The kernel routes events; it does not know what a "message" is. On-disk shape decisions belong to drivers.
-

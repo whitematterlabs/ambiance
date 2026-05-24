@@ -106,6 +106,7 @@ final class KernelLauncher: ObservableObject {
         // the on-disk layout; both modes inherit the rest of the environment.
         var env = ProcessInfo.processInfo.environment
         env["PAI_ROOT"] = FHS.root.path
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         // The embedded interpreter has the kernel in its site-packages but NOT
         // the `drivers` namespace package — drivers are installed state under
         // <root>/usr/lib (see paifs-init's _pai_src.pth). Put it on the path so
@@ -183,6 +184,7 @@ final class KernelLauncher: ObservableObject {
         p.arguments = ["-m", "bin.paifs_init", "--repoint-shims"]
         var env = ProcessInfo.processInfo.environment
         env["PAI_ROOT"] = FHS.root.path
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         p.environment = env
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice

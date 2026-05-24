@@ -30,14 +30,23 @@ def _frontend_dist() -> Path:
     """Where the built React frontend lives.
 
     The web surface *attaches* to the kernel from outside; it does not live in
-    the kernel's runtime root (~/.pai). So it resolves its own assets: from the
-    repo's libexec sidecar slot in dev, or from an embedded slot if a shipped
-    app populated `usr/libexec/web/`. Nothing is injected into ~/.pai.
+    the kernel's runtime root (~/.pai). Packaged builds prefer assets bundled
+    next to this Python package; dev falls back to the repo's libexec sidecar.
+    Nothing is injected into ~/.pai.
     """
-    candidates = (
+    package_dist = Path(__file__).resolve().parent.parent / "dist"
+    app_resource_dist = None
+    for parent in Path(sys.executable).resolve().parents:
+        if parent.name == "Resources":
+            app_resource_dist = parent / "usr" / "libexec" / "web" / "dist"
+            break
+    candidates = [package_dist]  # wheel: bundled by paibuild
+    if app_resource_dist is not None:
+        candidates.append(app_resource_dist)
+    candidates.extend([
         REPO_ROOT / "src" / "usr" / "libexec" / "web" / "dist",  # dev: read from repo
         usr_libexec() / "web" / "dist",                          # shipped: embedded slot
-    )
+    ])
     for cand in candidates:
         if (cand / "index.html").is_file():
             return cand

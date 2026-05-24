@@ -27,16 +27,18 @@ spawns, drives, or owns the kernel or its runtime.
   backend.
 
 Because the surface only *attaches* to the kernel, it does **not** install
-itself into the kernel runtime (`~/.pai`). The server resolves the built
-frontend from the repo (`src/usr/libexec/web/dist/`), or from an embedded
-`usr/libexec/web/dist/` if a shipped app populates one. `~/.pai` stays untouched.
+itself into the kernel runtime (`~/.pai`). In dev, the server resolves the built
+frontend from the repo (`src/usr/libexec/web/dist/`). In a `./paibuild` app, the
+frontend is bundled next to the Python package and also mirrored under app
+resources. `~/.pai` stays untouched.
 
 The browser→kernel direction is plain `POST /api/*`; the kernel→browser
 direction is one long-lived `GET /api/stream` SSE feed.
 
 ## Run
 
-One-time frontend build (also done by `install.sh`):
+One-time frontend build for repo/dev use (also done by `install.sh`; `paibuild`
+does this automatically when frontend inputs change):
 
 ```bash
 cd src/usr/libexec/web
@@ -59,8 +61,9 @@ surface on its own — it never boots or owns the kernel:
 python -m usr.libexec.web.pai_web # --host / --port / --open
 ```
 
-The surface serves the built frontend (`src/usr/libexec/web/dist/`) and the API
-from the same origin — read straight from the repo, nothing copied into `~/.pai`.
+The surface serves the built frontend and the API from the same origin. Repo/dev
+serves `src/usr/libexec/web/dist/`; packaged apps serve the bundled copy.
+Nothing is copied into `~/.pai`.
 
 ## Dev (hot reload)
 

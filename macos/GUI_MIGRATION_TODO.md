@@ -9,6 +9,8 @@ The target shape is locked: **single window + `NSStatusItem` (not `MenuBarExtra`
 - [x] Menubar app exists as a read-only filesystem client (`macos/PAI/`).
 - [x] Reads `/proc`, registry, kernel log.
 - [x] `AppDelegate`-owned `AppState`, sidebar + tab strip + detail panes (chat, activity, procs).
+- [x] `./paibuild` produces a self-contained app bundle with embedded Python,
+  web dist, seed content, system binaries, and signatures.
 
 ## Phase 1 — kernel lifecycle off the TTY
 
@@ -54,7 +56,9 @@ This is the actual reason to graduate. Without these, the `.app` is just Termina
 
 Don't get nerd-sniped into these before Phases 1–3 land.
 
-- [ ] **Embedded Python + kernel inside the bundle.** Only matters when non-technical users install PAI. Until then, the `.app` runs against an externally-installed `~/.pai`.
+- [x] **Embedded Python + kernel inside the bundle.** `./paibuild` is now the
+  repo-only build path for the self-contained app; `macos/build.sh` is only a
+  compatibility wrapper.
 - [ ] **Sparkle / auto-update.** Manual `xcodebuild` + drag-to-Applications is fine for an owner-only app.
 - [ ] **Notarization.** Defer until distribution is a real question.
 - [ ] **App sandbox.** Sandboxing while the kernel layout is still moving is wasted plumbing.
