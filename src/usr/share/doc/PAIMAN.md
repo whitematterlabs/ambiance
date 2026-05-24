@@ -38,7 +38,7 @@ it if you want.
 
 ## Bundle kinds
 
-Six installable kinds, each with one obvious FHS slot:
+Seven installable kinds, each with one obvious FHS slot:
 
 | Kind     | Activation slot                       | Form         | Notes |
 |----------|---------------------------------------|--------------|-------|
@@ -48,6 +48,7 @@ Six installable kinds, each with one obvious FHS slot:
 | `prompt` | `/usr/share/prompts/<name>.md`        | file symlink | symlink → `/opt/paiman/<name>/<entrypoint>` |
 | `lib`    | `/usr/lib/<name>/`                    | dir symlink  | symlink → `/opt/paiman/<name>/`; importable as `from <name> import …` |
 | `pai`    | `/usr/lib/pais/<name>/`               | dir symlink  | composes other bundles via `deps:`; `paiadd` instantiates it |
+| `subagent` | `/usr/lib/subagents/<name>/`        | dir symlink  | reusable specialist role; can compose driver/bin deps |
 
 The activation slot is the part the rest of the system introspects;
 `/opt/paiman/` is opaque to everything but paiman itself.
@@ -65,6 +66,7 @@ The activation slot is the part the rest of the system introspects;
 /usr/lib/<name>          -> /opt/paiman/<name>/   # lib
 /usr/share/prompts/<name>.md -> .../<entrypoint>  # prompt
 /usr/lib/pais/<name>     -> /opt/paiman/<name>/   # pai template
+/usr/lib/subagents/<name> -> /opt/paiman/<name>/  # subagent template
 /var/lib/paiman/log.md                    # append-only audit log
 ```
 
@@ -74,7 +76,7 @@ Every bundle has one at its root. Required fields: `name`, `kind`.
 
 ```yaml
 name: macmail
-kind: driver                 # bin | driver | skill | prompt | lib | pai
+kind: driver                 # bin | driver | skill | prompt | lib | pai | subagent
 version: 0.1.0               # informational
 description: "macOS Mail driver"
 
@@ -82,7 +84,7 @@ description: "macOS Mail driver"
 #   bin    — required `entrypoint:` (relative path to executable)
 #   prompt — required `entrypoint:` (relative path to .md file)
 #   skill  — optional `topic:` folds the install into /usr/lib/skills/<topic>/
-#   driver, pai — `deps:` list of bare bundle names; resolved recursively
+#   driver, pai, subagent — `deps:` list of bundle names or typed refs; resolved recursively
 #   lib    — none beyond name/kind
 
 # Optional install-time hooks. Run after activation. Failures are logged
@@ -121,6 +123,7 @@ pairegistry/
     drivers/macmail/package.yaml
     skills/<topic>/<name>/package.yaml
     bins/memorize/package.yaml
+    bins/remember/package.yaml
     pais/librarian-pai/package.yaml
     libs/tailer/package.yaml
     prompts/root/package.yaml
@@ -226,8 +229,9 @@ the kernel's job.
 2. **Validate manifest.** `package.yaml` must exist with `name` and
    `kind`. `bin`/`prompt` require an `entrypoint` that exists in the
    source.
-3. **Walk deps.** For `pai` and `driver` bundles, resolve every entry in
-   `deps:` first. Already-installed deps are skipped. Cycles error.
+3. **Walk deps.** For `pai`, `driver`, and `subagent` bundles, resolve
+   every entry in `deps:` first. Already-installed deps are skipped.
+   Cycles error.
 4. **Copy to store.** Replace `/opt/paiman/[<topic>/]<name>/` with the
    new tree (excluding `.git`, `__pycache__`, `.DS_Store`, `*.pyc`).
 5. **Activate.** Atomically swap the activation symlink for the kind.
@@ -266,8 +270,8 @@ declared as module constants in `src/bin/paifs_init.py`:
 - `KERNEL_SEED_SKILLS` — `schedule-reminder`, `grow-capability`. Kept
   tight: only skills that teach the use of a kernel-provided tool the
   PAI cannot reasonably invent on its own.
-- `KERNEL_SEED_BINS` — `memorize`. The memory-usage boilerplate in the
-  default prompts references it directly; without it installed the
+- `KERNEL_SEED_BINS` — `memorize`, `remember`. The memory-usage boilerplate
+  in the default prompts references them directly; without them installed the
   contract is inert.
 - `KERNEL_SEED_PAIS` — `librarian-pai`. Sole writer to shared/private
   MEMORY indexes; reserved fleet member so reconcile spawns it on first

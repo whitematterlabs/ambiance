@@ -106,6 +106,27 @@ def test_install_subagent(fhs_root: Path) -> None:
     assert (slot / "prompt.md").is_file()
 
 
+def test_install_subagent_pulls_deps_from_registry(
+    fhs_root: Path, tmp_path: Path
+) -> None:
+    pkg = tmp_path / "subagent-with-deps"
+    pkg.mkdir()
+    (pkg / "package.yaml").write_text(
+        "name: subagent-with-deps\n"
+        "kind: subagent\n"
+        "version: 0.1.0\n"
+        "prompt: prompt.md\n"
+        "deps:\n"
+        "  - bin/testbin1\n"
+    )
+    (pkg / "prompt.md").write_text("Role prompt.")
+
+    assert paiman.main(["install", str(pkg)]) == 0
+
+    assert (fhs_root / "usr" / "lib" / "subagents" / "subagent-with-deps").is_symlink()
+    assert (fhs_root / "usr" / "bin" / "testbin1").is_file()
+
+
 def test_skill_install_emits_reload(
     fhs_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -240,6 +261,33 @@ def test_lookup_typed_ref_resolves_nested_skill(tmp_path: Path) -> None:
     resolved._path = reg.resolve()
     assert resolved.lookup("skills/operating/drive-macos-ui") == \
         (reg / "skills" / "operating" / "drive-macos-ui").resolve()
+
+
+def test_install_subagent_dep_uses_typed_ref_for_same_name(
+    fhs_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reg = tmp_path / "registry"
+    bin_dir = reg / "bin" / "browse"
+    _write_pkg(bin_dir, name="browse", kind="bin", entrypoint="browse.py")
+    (bin_dir / "browse.py").write_text("#!/usr/bin/env python\n")
+
+    sub_dir = reg / "subagents" / "browse"
+    _write_pkg(
+        sub_dir,
+        name="browse",
+        kind="subagent",
+        prompt="prompt.md",
+        deps=["bin/browse"],
+    )
+    (sub_dir / "prompt.md").write_text("browse role\n")
+
+    monkeypatch.setenv("PAIMAN_REGISTRY", str(reg))
+
+    assert paiman.main(["install", "subagents/browse"]) == 0
+    assert (fhs_root / "usr" / "lib" / "subagents" / "browse").is_symlink()
+    assert (fhs_root / "usr" / "bin" / "browse").is_file()
 
 
 # ---------- pai install with deps ----------

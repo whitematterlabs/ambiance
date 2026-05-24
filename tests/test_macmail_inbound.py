@@ -16,8 +16,12 @@ these tests run against the installed copy under `usr/lib/drivers/`.
 
 from __future__ import annotations
 
+from email.message import EmailMessage
+import sqlite3
+
 import pytest
 
+from drivers.email.macmail import accounts as A
 from drivers.email.macmail import inbound
 
 
@@ -37,6 +41,120 @@ def _result(created: bool = True) -> dict:
         "path": "communication/email/owner@example.com/2026-05-14/s.yaml",
         "_created": created,
     }
+
+
+def test_delta_query_includes_read_and_unread_messages():
+    """The live driver must ingest all new inbox/sent rows, regardless of
+    Mail.app's read flag. Read/unread is a user-facing state, not a driver
+    routing predicate."""
+    cfg = A.AccountsConfig(
+        accounts={
+            "ACCOUNT-UUID": A.Account(
+                uuid="ACCOUNT-UUID",
+                addresses=["owner@example.com"],
+                inbox_name="INBOX",
+            )
+        }
+    )
+    sql, patterns = inbound._build_delta_sql(cfg)
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE mailboxes (
+            ROWID INTEGER PRIMARY KEY,
+            url TEXT NOT NULL
+        );
+        CREATE TABLE messages (
+            ROWID INTEGER PRIMARY KEY,
+            mailbox INTEGER NOT NULL,
+            date_received INTEGER NOT NULL,
+            conversation_id INTEGER NOT NULL,
+            read INTEGER NOT NULL
+        );
+        INSERT INTO mailboxes (ROWID, url)
+        VALUES (1, 'imap://ACCOUNT-UUID/INBOX');
+        INSERT INTO messages (ROWID, mailbox, date_received, conversation_id, read)
+        VALUES
+            (10, 1, 1800000000, 1, 0),
+            (11, 1, 1800000001, 1, 1);
+        """
+    )
+
+    rows = conn.execute(sql, (9, *patterns)).fetchall()
+
+    assert [int(row["rowid"]) for row in rows] == [10, 11]
+
+
+def test_delta_query_includes_gmail_all_mail_rows():
+    """Gmail messages visible in Mail.app's Inbox may be indexed under
+    [Gmail]/All Mail instead of INBOX."""
+    cfg = A.AccountsConfig(
+        accounts={
+            "ACCOUNT-UUID": A.Account(
+                uuid="ACCOUNT-UUID",
+                addresses=["owner@example.com"],
+                inbox_name="INBOX",
+                all_mail_name="All Mail",
+            )
+        }
+    )
+    sql, patterns = inbound._build_delta_sql(cfg)
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE mailboxes (
+            ROWID INTEGER PRIMARY KEY,
+            url TEXT NOT NULL
+        );
+        CREATE TABLE messages (
+            ROWID INTEGER PRIMARY KEY,
+            mailbox INTEGER NOT NULL,
+            date_received INTEGER NOT NULL,
+            conversation_id INTEGER NOT NULL
+        );
+        INSERT INTO mailboxes (ROWID, url)
+        VALUES (1, 'imap://ACCOUNT-UUID/%5BGmail%5D/All%20Mail');
+        INSERT INTO messages (ROWID, mailbox, date_received, conversation_id)
+        VALUES (12, 1, 1800000002, 1);
+        """
+    )
+
+    rows = conn.execute(sql, (9, *patterns)).fetchall()
+
+    assert [int(row["rowid"]) for row in rows] == [12]
+
+
+def test_all_mail_direction_uses_from_address():
+    cfg = A.AccountsConfig(
+        accounts={
+            "ACCOUNT-UUID": A.Account(
+                uuid="ACCOUNT-UUID",
+                addresses=["owner@example.com"],
+                all_mail_name="All Mail",
+            )
+        }
+    )
+    incoming = EmailMessage()
+    incoming["From"] = "Mercor <team@mercor.com>"
+    outgoing = EmailMessage()
+    outgoing["From"] = "Owner <owner@example.com>"
+
+    assert (
+        inbound._direction_for_message(
+            "inbound", incoming, cfg, "ACCOUNT-UUID", all_mail=True
+        )
+        == "inbound"
+    )
+    assert (
+        inbound._direction_for_message(
+            "inbound", outgoing, cfg, "ACCOUNT-UUID", all_mail=True
+        )
+        == "outbound"
+    )
 
 
 def test_drain_live_checkpoints_cursor_after_every_emit(monkeypatch):

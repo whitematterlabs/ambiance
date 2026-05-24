@@ -172,10 +172,13 @@ def _read_or_empty(path: Path) -> str:
         return ""
 
 
-def _list_dir(path: Path) -> str:
+def _list_dir(path: Path, exclude: Optional[set[str]] = None) -> str:
     """One filename per line, sorted. Empty string if dir is missing."""
+    blocked = exclude or set()
     try:
-        return "\n".join(sorted(p.name for p in path.iterdir()))
+        return "\n".join(
+            sorted(p.name for p in path.iterdir() if p.name not in blocked)
+        )
     except FileNotFoundError:
         return ""
 
@@ -295,6 +298,19 @@ def _list_system_subagents(path: Path) -> str:
             pass
         entries.append(f"{sub_dir.name}: {desc}" if desc else sub_dir.name)
     return "\n".join(entries)
+
+
+def _system_subagent_names(path: Path) -> set[str]:
+    """Installed subagent bundle names at /usr/lib/subagents/<name>/."""
+    if not path.exists():
+        return set()
+    names: set[str] = set()
+    for sub_dir in path.iterdir():
+        if not sub_dir.is_dir() or sub_dir.name.startswith("."):
+            continue
+        if (sub_dir / "package.yaml").exists():
+            names.add(sub_dir.name)
+    return names
 
 
 # One-line gloss per top-level FHS slot. Anything not listed here is
@@ -459,8 +475,10 @@ def _render_my_persubs(self_pid: int) -> str:
             continue
         if not spec.get("persub"):
             continue
+        pid = spec.get("pid")
+        pid_str = f"pid {pid}  " if pid is not None else ""
         desc = str(spec.get("description", "") or "")
-        rows.append(f"{slug}: {desc}" if desc else slug)
+        rows.append(f"{pid_str}{slug}: {desc}" if desc else f"{pid_str}{slug}")
     return "\n".join(sorted(rows))
 
 
@@ -633,8 +651,12 @@ def _fleet_extras(pai: int, home: Path) -> str:
     return out
 
 
-def _resolve_listings(pai: int, home: Path) -> tuple[str, str, str]:
-    bins = _list_dir(home / "bin")
+def _resolve_listings(
+    pai: int,
+    home: Path,
+    hidden_bins: Optional[set[str]] = None,
+) -> tuple[str, str, str]:
+    bins = _list_dir(home / "bin", exclude=hidden_bins)
     skills = _list_skills(home / "memory" / "skills")
     try:
         pai_slug = processes.find_pai_slug(pai)
@@ -678,7 +700,10 @@ def _runtime_blocks(
     """The kernel-computed half of the prompt: pai-instance line, fleet,
     bin/skills/system-skills listings, and (fleet-only) the runtime extras.
     Subagents always get the subagent-mode lifecycle block."""
-    bins, skills, system_skills = _resolve_listings(pai, home)
+    hidden_bins = (
+        _system_subagent_names(usr_lib_subagents()) if parent is None else set()
+    )
+    bins, skills, system_skills = _resolve_listings(pai, home, hidden_bins)
     fleet = _list_fleet(PAI_ROOT, pai)
     out = (
         f"<pai-instance>\n{_pai_line(pai, parent)}</pai-instance>\n\n"

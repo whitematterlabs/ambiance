@@ -5,14 +5,16 @@ thread per request, which is all an SSE stream needs (it blocks on its mailbox).
 The browser→kernel direction is plain POST; the kernel→browser direction is a
 single long-lived Server-Sent Events stream fed by `hub.Hub`.
 
-Run:  paiweb            # serves built frontend at http://127.0.0.1:8787
-      paiweb --port N   # custom port
+Run:  python -m usr.libexec.web.pai_web            # serves built frontend at http://127.0.0.1:8787
+      python -m usr.libexec.web.pai_web --port N   # custom port
 In dev, run Vite (`pnpm dev`) and let it proxy /api to this server.
 """
 
 from __future__ import annotations
 
 import argparse
+from email import policy
+from email.parser import BytesParser
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -56,6 +58,7 @@ _CONTENT_TYPES = {
 }
 
 HUB = Hub()
+MAX_STT_UPLOAD_BYTES = 30 * 1024 * 1024
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -74,6 +77,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _binary(self, data: bytes, content_type: str, status: int = 200) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length", 0) or 0)
         if not length:
@@ -83,6 +94,12 @@ class Handler(BaseHTTPRequestHandler):
             return json.loads(raw or b"{}")
         except json.JSONDecodeError:
             return {}
+
+    def _read_raw_body(self, *, limit: int | None = None) -> bytes:
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if limit is not None and length > limit:
+            raise ValueError("request body too large")
+        return self.rfile.read(length) if length else b""
 
     # -- routing --
     def do_OPTIONS(self):
@@ -98,12 +115,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._stream()
         if path == "/api/health":
             return self._json({"ok": True})
+        if path == "/api/kernel":
+            return self._json({"ok": True, **actions.kernel_status()})
         if path == "/api/state":
             return self._json(HUB.snapshot(actions.read_provider()))
         return self._static(path)
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        if path == "/api/stt":
+            return self._stt()
         body = self._read_body()
         try:
             if path == "/api/message":
@@ -112,6 +133,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/interrupt":
                 actions.interrupt(int(body["pid"]))
                 return self._json({"ok": True})
+            if path == "/api/clone":
+                result = actions.clone_pai(str(body["source"]))
+                return self._json({"ok": True, **result})
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))
                 return self._json({"ok": True, **result})
@@ -119,11 +143,94 @@ class Handler(BaseHTTPRequestHandler):
                 key = actions.write_provider(str(body["key"]))
                 HUB._broadcast({"type": "provider", "provider": key})
                 return self._json({"ok": True, "provider": key})
+            if path == "/api/kernel":
+                action = str(body["action"])
+                if action == "start":
+                    return self._json({"ok": True, **actions.start_kernel()})
+                if action == "stop":
+                    return self._json({"ok": True, **actions.stop_kernel()})
+                raise ValueError(f"unknown kernel action: {action}")
+            if path == "/api/tts":
+                return self._tts(str(body["text"]))
         except (KeyError, ValueError) as e:
             return self._json({"ok": False, "error": str(e)}, status=400)
         except Exception as e:  # noqa: BLE001
             return self._json({"ok": False, "error": str(e)}, status=500)
         return self._json({"ok": False, "error": "not found"}, status=404)
+
+    # -- speech-to-text (voice input) --
+    def _stt(self):
+        """Proxy recorded browser audio to the server-side STT backend."""
+        try:
+            audio, filename, content_type, fields = self._read_audio_upload()
+            text = actions.transcribe_speech(
+                audio,
+                filename=filename,
+                content_type=content_type,
+                language=fields.get("language"),
+                prompt=fields.get("prompt"),
+            )
+        except RuntimeError as e:
+            status = 400 if "OPENAI_API_KEY" in str(e) else 502
+            return self._json({"ok": False, "error": str(e)}, status=status)
+        except ValueError as e:
+            return self._json({"ok": False, "error": str(e)}, status=400)
+        except Exception as e:  # noqa: BLE001 — upstream / network
+            return self._json({"ok": False, "error": str(e)}, status=502)
+        return self._json({"ok": True, "text": text})
+
+    def _read_audio_upload(self) -> tuple[bytes, str, str, dict[str, str]]:
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.startswith("multipart/form-data"):
+            raise ValueError("expected multipart/form-data")
+
+        raw = self._read_raw_body(limit=MAX_STT_UPLOAD_BYTES)
+        parser = BytesParser(policy=policy.default)
+        msg = parser.parsebytes(
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode()
+            + raw
+        )
+        audio: bytes | None = None
+        filename = "audio.webm"
+        audio_content_type = "audio/webm"
+        fields: dict[str, str] = {}
+
+        for part in msg.iter_parts():
+            if part.get_content_disposition() != "form-data":
+                continue
+            name = part.get_param("name", header="content-disposition")
+            payload = part.get_payload(decode=True) or b""
+            if name == "audio":
+                audio = payload
+                filename = part.get_filename() or filename
+                audio_content_type = part.get_content_type() or audio_content_type
+            elif isinstance(name, str):
+                fields[name] = payload.decode("utf-8", errors="replace").strip()
+
+        if audio is None:
+            raise ValueError("missing audio upload")
+        if not audio:
+            raise ValueError("empty audio")
+        return audio, filename, audio_content_type, fields
+
+    # -- text-to-speech (voice mode) --
+    def _tts(self, text: str):
+        """Proxy text → mp3 bytes via actions.synthesize_speech (ElevenLabs).
+
+        Keeps the API key server-side. A missing key is a config problem (400);
+        an upstream/network failure is a gateway problem (502). The frontend
+        treats both as "fail quietly" so the speech queue never wedges.
+        """
+        text = text.strip()
+        if not text:
+            return self._json({"ok": False, "error": "empty text"}, status=400)
+        try:
+            audio = actions.synthesize_speech(text)
+        except RuntimeError as e:  # missing key / config
+            return self._json({"ok": False, "error": str(e)}, status=400)
+        except Exception as e:  # noqa: BLE001 — upstream / network
+            return self._json({"ok": False, "error": str(e)}, status=502)
+        return self._binary(audio, "audio/mpeg")
 
     # -- SSE --
     def _stream(self):
@@ -178,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
 def run(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = False) -> None:
     """Attach to the running kernel and serve the web surface (blocking).
 
-    Called by `pai start --web` and by `python -m sbin.web`.
+    Called by `pai start --web` and by `python -m usr.libexec.web.pai_web`.
     """
     HUB.start()
     server = ThreadingHTTPServer((host, port), Handler)

@@ -31,13 +31,20 @@ export interface EventSighting {
   source: string;
   kind: string;
   target: string;
+  pai?: string;
   consumed: boolean;
+}
+
+export interface KernelStatus {
+  running: boolean;
+  pid: string | null;
 }
 
 // A transient shell entry shown in the chat pane (never persisted to a thread).
 export interface ShellEntry {
   kind: "cmd" | "out" | "err" | "exit" | "note";
   text: string;
+  afterMessageIndex?: number;
 }
 
 export type ServerMessage =
@@ -45,6 +52,6 @@ export type ServerMessage =
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
   | { type: "thread"; pid: number; messages: ThreadMessage[] }
-  | { type: "event"; at: string; source: string; kind: string; target: string; consumed: boolean }
+  | { type: "event"; at: string; source: string; kind: string; target: string; pai?: string; consumed: boolean }
   | { type: "log"; line: string }
   | { type: "provider"; provider: string };

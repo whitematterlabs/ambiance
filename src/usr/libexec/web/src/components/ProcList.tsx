@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react";
 import type { ProcRow } from "../types";
+import { paiColor } from "../palette";
 
 // Compact token count: '-' if zero, else 12.3k / 187k / 1.2M (matches _fmt_ctx).
 function fmtCtx(n: number): string {
@@ -29,19 +31,30 @@ export function ProcList({ rows }: { rows: ProcRow[] }) {
               <td colSpan={6}>no running processes</td>
             </tr>
           )}
-          {rows.map((r) => (
-            <tr key={r.slug} className={r.busy ? "busy" : ""}>
-              <td className="slug">
-                <span className="tree">{r.tree_prefix}</span>
-                {r.slug}
-              </td>
-              <td>{r.pid || "-"}</td>
-              <td className={`ptype ptype-${r.type}`}>{r.type}</td>
-              <td>{r.parent || "-"}</td>
-              <td>{fmtCtx(r.ctx_tokens)}</td>
-              <td className="when">{r.when_short}</td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const paiLike = r.type === "pai";
+            const style = paiLike
+              ? ({ "--pai-color": paiColor(r.slug || r.pid) } as CSSProperties)
+              : undefined;
+            return (
+              <tr
+                key={r.slug}
+                className={`${r.busy ? "busy" : ""} ${paiLike ? "pai-coded" : ""}`}
+                style={style}
+              >
+                <td className="slug">
+                  {paiLike && <span className="proc-color-dot" aria-hidden="true" />}
+                  <span className="tree">{r.tree_prefix}</span>
+                  {r.slug}
+                </td>
+                <td>{r.pid || "-"}</td>
+                <td className={`ptype ptype-${r.type}`}>{r.type}</td>
+                <td>{r.parent || "-"}</td>
+                <td>{fmtCtx(r.ctx_tokens)}</td>
+                <td className="when">{r.when_short}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

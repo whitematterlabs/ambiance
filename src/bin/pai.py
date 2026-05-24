@@ -41,7 +41,7 @@ def cmd_start(args: argparse.Namespace) -> int:
     )
     try:
         if args.web:
-            from sbin.web.server import run as web_run
+            from usr.libexec.web.pai_web.server import run as web_run
             web_run(port=args.port, open_browser=not args.no_open)
         else:
             from sbin.tui import main as tui_main

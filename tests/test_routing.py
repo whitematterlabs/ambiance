@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from boot import bootstrap, main as M
+from boot import paths
 from boot import processes as P
 
 
@@ -172,3 +173,124 @@ def test_build_system_prompt_no_custom_when_missing(
         pai=1, prompt_path="does/not/exist.md", boilerplate=[]
     )
     assert "<custom>" not in out_missing
+
+
+def _block(out: str, tag: str) -> str:
+    start = out.index(f"<{tag}>")
+    end = out.index(f"</{tag}>", start)
+    return out[start:end]
+
+
+def test_parent_prompt_hides_bin_that_collides_with_system_subagent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "pai"
+    home = root / "home" / "pai"
+    (home / "bin").mkdir(parents=True)
+    (home / "memory" / "skills").mkdir(parents=True)
+    for name in ("browse", "subagent"):
+        (home / "bin" / name).write_text("")
+    subagent_dir = root / "usr" / "lib" / "subagents" / "browse"
+    subagent_dir.mkdir(parents=True)
+    (subagent_dir / "package.yaml").write_text(
+        "name: browse\n"
+        "kind: subagent\n"
+        "description: Drives Chrome through a child process.\n"
+    )
+    (root / "usr" / "lib" / "skills").mkdir(parents=True)
+    (root / "proc").mkdir(parents=True)
+
+    monkeypatch.setattr(paths, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "PROC_DIR", root / "proc", raising=True)
+
+    out = bootstrap.build_system_prompt(
+        pai=2,
+        parent=None,
+        home_dir=str(home),
+        boilerplate=[],
+    )
+
+    bin_block = _block(out, "bin")
+    assert "\nbrowse\n" not in bin_block
+    assert "\nsubagent\n" in bin_block
+    assert "browse: Drives Chrome through a child process." in _block(
+        out, "system-subagents"
+    )
+
+
+def test_parent_prompt_lists_persub_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "pai"
+    home = root / "home" / "pai"
+    home.mkdir(parents=True)
+    (root / "proc").mkdir(parents=True)
+    (root / "usr" / "lib" / "skills").mkdir(parents=True)
+    (root / "usr" / "lib" / "subagents").mkdir(parents=True)
+
+    monkeypatch.setattr(paths, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(P, "PROC_DIR", root / "proc", raising=True)
+    monkeypatch.setattr(P, "HOME_DIR", home, raising=True)
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "PROC_DIR", root / "proc", raising=True)
+
+    P.spawn_pai(pid=2, slug="pai", description="parent")
+    P.spawn_pai(
+        pid=5,
+        slug="pai.computer-use",
+        description="local macOS computer-use operator for app automation",
+        parent=2,
+        extra={"persistent": True, "persub": True},
+    )
+
+    out = bootstrap.build_system_prompt(
+        pai=2,
+        parent=None,
+        home_dir=str(home),
+        boilerplate=[],
+    )
+
+    assert (
+        "pid 5  pai.computer-use: local macOS computer-use operator for app automation"
+        in _block(out, "my-persubs")
+    )
+
+
+def test_subagent_prompt_keeps_bin_that_collides_with_system_subagent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "pai"
+    home = root / "home" / "browse-2026-05-23"
+    (home / "bin").mkdir(parents=True)
+    (home / "memory" / "skills").mkdir(parents=True)
+    (home / "bin" / "browse").write_text("")
+    subagent_dir = root / "usr" / "lib" / "subagents" / "browse"
+    subagent_dir.mkdir(parents=True)
+    (subagent_dir / "package.yaml").write_text(
+        "name: browse\n"
+        "kind: subagent\n"
+        "description: Drives Chrome through a child process.\n"
+    )
+    (root / "usr" / "lib" / "skills").mkdir(parents=True)
+    prompts = root / "usr" / "share" / "prompts"
+    prompts.mkdir(parents=True)
+    (prompts / "subagent.md").write_text("subagent parent {parent}\n")
+    (root / "proc").mkdir(parents=True)
+
+    monkeypatch.setattr(paths, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "PROC_DIR", root / "proc", raising=True)
+
+    out = bootstrap.build_system_prompt(
+        pai=7,
+        parent=2,
+        home_dir=str(home),
+        boilerplate=[],
+    )
+
+    assert "\nbrowse\n" in _block(out, "bin")
+    assert "<system-subagents>" not in out

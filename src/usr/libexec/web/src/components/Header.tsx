@@ -1,41 +1,50 @@
-import { useEffect, useState } from "react";
-
 export function Header({
   connected,
-  provider,
-  busyCount,
-  onOpenPalette,
+  kernelRunning,
+  kernelBusy,
+  onToggleKernel,
+  voiceEnabled,
+  onToggleVoice,
 }: {
   connected: boolean;
-  provider: string;
-  busyCount: number;
-  onOpenPalette: () => void;
+  kernelRunning: boolean;
+  kernelBusy: boolean;
+  onToggleKernel: () => void;
+  voiceEnabled: boolean;
+  onToggleVoice: () => void;
 }) {
-  const [clock, setClock] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setClock(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
   return (
     <header className="header">
       <div className="brand">
-        <div className="brand-mark">P</div>
-        <div className="brand-copy">
-          <span className="title">PAI</span>
-          <span className="subtitle">Web workspace</span>
-        </div>
+        <span className="brand-name">PAI</span>
+        <span
+          className={`conn-status ${connected ? "on" : "off"}`}
+          role="status"
+          aria-label={connected ? "Connected" : "Disconnected"}
+          title={connected ? "Connected" : "Disconnected"}
+        >
+          {connected ? "Online" : "Offline"}
+        </span>
+        <button
+          className="kernel-toggle"
+          type="button"
+          disabled={!connected || kernelBusy}
+          onClick={onToggleKernel}
+          title={kernelRunning ? "Stop kernel" : "Start kernel"}
+        >
+          {kernelBusy ? "Kernel..." : kernelRunning ? "Stop kernel" : "Start kernel"}
+        </button>
       </div>
       <span className="spacer" />
-      <span className="busy-chip">{busyCount ? `${busyCount} active` : "All idle"}</span>
-      <button className="provider-button" type="button" onClick={onOpenPalette}>
-        Provider: {provider}
+      <button
+        className="ghost-button"
+        type="button"
+        onClick={onToggleVoice}
+        aria-pressed={voiceEnabled}
+        title={voiceEnabled ? "Voice on — reading replies aloud" : "Voice off"}
+      >
+        <span className="ghost-label">{voiceEnabled ? "Voice on" : "Voice off"}</span>
       </button>
-      <span className={`conn ${connected ? "on" : "off"}`}>
-        <span className="conn-dot" />
-        {connected ? "Connected" : "Disconnected"}
-      </span>
-      <span className="clock">{clock.toLocaleTimeString()}</span>
     </header>
   );
 }

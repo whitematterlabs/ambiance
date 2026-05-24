@@ -19,6 +19,8 @@ prompt and powers (no capability gates), stitched at `/home/<new>/`.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
+from pathlib import Path
 import sys
 from typing import Any
 
@@ -27,6 +29,19 @@ import yaml
 from boot import config as C
 from boot import paths
 from bin import paiadd
+
+
+@dataclass(frozen=True)
+class ClonePlan:
+    source: str
+    name: str
+    entry: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CloneResult(ClonePlan):
+    instance: Path
+    home: Path
 
 
 def _load_entries() -> list[dict[str, Any]]:
@@ -52,12 +67,12 @@ def _next_free_name(base: str, taken: set[str]) -> str:
     return f"{base}-{i}"
 
 
-def cmd_clone(args: argparse.Namespace) -> int:
+def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
     entries = _load_entries()
     taken = {e["name"] for e in entries if "name" in e}
-    source = _find_entry(entries, args.source)
+    source = _find_entry(entries, source_name)
 
-    new_name = args.name or _next_free_name(args.source, taken)
+    new_name = new_name or _next_free_name(source_name, taken)
     if "/" in new_name or new_name.startswith(".") or not new_name:
         raise SystemExit(f"paiclone: invalid name {new_name!r}")
     if new_name in taken:
@@ -72,9 +87,30 @@ def cmd_clone(args: argparse.Namespace) -> int:
     entry["name"] = new_name
     entry.pop("pid", None)  # let kernel allocate a fresh pid
 
-    print(f"Cloning {args.source!r} → {new_name!r}.")
+    return ClonePlan(source=source_name, name=new_name, entry=entry)
+
+
+def materialize_clone(plan: ClonePlan) -> CloneResult:
+    instance, home = paiadd.materialize(plan.entry)
+    return CloneResult(
+        source=plan.source,
+        name=plan.name,
+        entry=plan.entry,
+        instance=instance,
+        home=home,
+    )
+
+
+def clone(source_name: str, new_name: str | None = None) -> CloneResult:
+    return materialize_clone(plan_clone(source_name, new_name))
+
+
+def cmd_clone(args: argparse.Namespace) -> int:
+    plan = plan_clone(args.source, args.name)
+
+    print(f"Cloning {plan.source!r} → {plan.name!r}.")
     print("Fleet entry:")
-    print(yaml.safe_dump([entry], sort_keys=False).rstrip())
+    print(yaml.safe_dump([plan.entry], sort_keys=False).rstrip())
 
     if not args.yes:
         raw = input("\nProceed? [Y/n]: ").strip().lower()
@@ -82,11 +118,11 @@ def cmd_clone(args: argparse.Namespace) -> int:
             print("aborted.")
             return 1
 
-    instance, home = paiadd.materialize(entry)
-    print(f"\ninstance state: {instance}")
-    print(f"home:           {home}")
+    result = materialize_clone(plan)
+    print(f"\ninstance state: {result.instance}")
+    print(f"home:           {result.home}")
     print(f"config:         {C.CONFIG_PATH} (entry appended)")
-    print(f"\nNext: paictl start {new_name}")
+    print(f"\nNext: paictl start {result.name}")
     return 0
 
 

@@ -161,7 +161,7 @@ def _stitch_skills(
 
 
 _PRIVATE_MEMORY_INDEX_HEADER = (
-    "<!-- Your private MEMORY index. You write here when journal entries warrant consolidation. -->\n"
+    "<!-- Private MEMORY index. Owned by librarian-pai; use `memorize --private` instead of editing directly. -->\n"
 )
 
 
@@ -252,6 +252,35 @@ def _installed_driver_names() -> list[str]:
     return out
 
 
+def _driver_dep_name(dep: object) -> str | None:
+    if not isinstance(dep, str) or not dep:
+        return None
+    if dep.startswith("drivers/"):
+        return dep.split("/", 1)[1]
+    if dep.startswith("driver/"):
+        return dep.split("/", 1)[1]
+    if "/" in dep:
+        return None
+    return dep
+
+
+def _bundle_package_path(slug: str, package: str | None) -> Path | None:
+    if package:
+        return paths.usr_lib_pais() / package / "package.yaml"
+    from . import processes  # local import: stitch loaded at boot
+
+    try:
+        spec = processes.read_spec(slug)
+    except Exception:
+        return None
+    spec_package = spec.get("package")
+    if not isinstance(spec_package, str) or not spec_package:
+        return None
+    if "parent" in spec:
+        return paths.usr_lib_subagents() / spec_package / "package.yaml"
+    return paths.usr_lib_pais() / spec_package / "package.yaml"
+
+
 def mounted_drivers_for(slug: str) -> set[str]:
     """Return the set of driver names this PAI mounts.
 
@@ -260,6 +289,8 @@ def mounted_drivers_for(slug: str) -> set[str]:
       installed driver — it must be able to handle any unrouted event.
     - A bundled PAI mounts the drivers listed in its bundle `deps:` that
       are installed locally.
+    - A bundled subagent mounts the drivers listed in its subagent bundle
+      `deps:` that are installed locally.
     - A bundleless, non-fallback PAI (e.g. `root`) mounts no drivers.
     """
     from . import config
@@ -278,8 +309,11 @@ def mounted_drivers_for(slug: str) -> set[str]:
     except Exception:
         package = None
     if not package:
+        pkg_path = _bundle_package_path(slug, None)
+    else:
+        pkg_path = _bundle_package_path(slug, package)
+    if pkg_path is None:
         return set()
-    pkg_path = paths.usr_lib_pais() / package / "package.yaml"
     if not pkg_path.exists():
         return set()
     try:
@@ -290,7 +324,11 @@ def mounted_drivers_for(slug: str) -> set[str]:
     deps = data.get("deps") or []
     if not isinstance(deps, list):
         return set()
-    return {d for d in deps if isinstance(d, str) and d in installed}
+    return {
+        driver
+        for dep in deps
+        if (driver := _driver_dep_name(dep)) is not None and driver in installed
+    }
 
 
 def _driver_home_links(drivers: set[str]) -> tuple[tuple[str, Path], ...]:

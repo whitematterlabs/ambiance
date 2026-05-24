@@ -30,9 +30,9 @@ description: long-lived knowledge curator for the parent PAI
 prompt: usr/lib/subagents/memory/prompt.md
 provider: deepseek
 model: deepseek-v4-pro
-# requires:
-#   drivers: []
-#   skills: []
+# Optional: install supporting bundles before this subagent is activated.
+# deps:
+#   - drivers/ax
 ```
 
 Provider/model travel together — a bundle that sets one but not the other will compose oddly with parent fallback. Set both, or neither.
@@ -89,7 +89,6 @@ ls /usr/lib/subagents/       # raw view
 
 ## What bundles do NOT do (today)
 
-- No `requires:` resolution (drivers/skills wiring is deferred — same status as `pai` bundles).
 - No version pinning. Bundles live at `/usr/lib/subagents/<name>/` flat; `/opt/<pkg>/<ver>/` is for future versioned releases.
 - No live update of running persubs when a bundle changes — the persub's spec is captured at spawn time. Stop the persub (parent shutdown) and let reconcile respawn it to pick up bundle changes.
 

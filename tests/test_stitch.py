@@ -17,6 +17,7 @@ import yaml
 
 from boot import config as C
 from boot import paths, stitch
+from boot import processes as P
 
 
 @pytest.fixture
@@ -30,12 +31,15 @@ def fhs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "var/spool/communication",
         "usr/lib/drivers",
         "usr/lib/pais",
+        "usr/lib/subagents",
         "usr/lib/skills",
         "usr/share/doc",
+        "proc",
     ):
         (root / sub).mkdir(parents=True)
     monkeypatch.setattr(paths, "PAI_ROOT", root, raising=True)
     monkeypatch.setattr(C, "CONFIG_PATH", root / "etc" / "config.yaml", raising=True)
+    monkeypatch.setattr(P, "PROC_DIR", root / "proc", raising=True)
     # Bundleless `pai`: empty `pais:` in config so `package_for("pai")` → None.
     (root / "etc" / "config.yaml").write_text(yaml.safe_dump({"pais": []}))
     return root
@@ -90,3 +94,27 @@ def test_does_not_create_self_symlink_when_driver_nests_under_seeded_dir(
     drafts = email_path / "drafts"
     drafts.mkdir(parents=True, exist_ok=True)
     assert drafts.is_dir()
+
+
+def test_subagent_package_deps_mount_prefixed_driver(fhs: Path) -> None:
+    _install_email_driver(fhs)
+    pkg = fhs / "usr" / "lib" / "subagents" / "computer-use"
+    pkg.mkdir(parents=True)
+    (pkg / "package.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "computer-use",
+                "kind": "subagent",
+                "deps": ["drivers/email"],
+            }
+        )
+    )
+    P.spawn_pai(
+        pid=5,
+        slug="pai.computer-use",
+        description="macOS UI operator",
+        parent=2,
+        extra={"persistent": True, "persub": True, "package": "computer-use"},
+    )
+
+    assert stitch.mounted_drivers_for("pai.computer-use") == {"email"}

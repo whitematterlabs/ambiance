@@ -2,22 +2,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   EventSighting,
   FleetMember,
+  KernelStatus,
   ProcRow,
   ServerMessage,
   ShellEntry,
   ThreadMessage,
 } from "./types";
 import { ActivityEntry, ActivityState, ingest, initialActivity } from "./activity";
+import { ElevenLabsBackend, SpeechQueue } from "./speech";
+import { deriveStatus } from "./status";
 import * as api from "./api";
 import { Header } from "./components/Header";
 import { FleetTabs } from "./components/FleetTabs";
 import { ChatPane } from "./components/ChatPane";
 import { StatusBar } from "./components/StatusBar";
 import { MessageInput } from "./components/MessageInput";
-import { ProcList } from "./components/ProcList";
-import { ActivityPane } from "./components/ActivityPane";
-import { EventStrip } from "./components/EventStrip";
-import { LogTail } from "./components/LogTail";
+import { SidePanel } from "./components/SidePanel";
 import { CommandPalette } from "./components/CommandPalette";
 
 const CAP = 500; // ring-buffer cap for log/activity/events
@@ -39,20 +39,79 @@ export function App() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [status, setStatus] = useState<string>("idle");
+  const [kernel, setKernel] = useState<KernelStatus>({ running: false, pid: null });
+  const [kernelBusy, setKernelBusy] = useState(false);
+  const [cloningSlugs, setCloningSlugs] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(
+    () => localStorage.getItem("voiceEnabled") === "true",
+  );
 
   const activityState = useRef<ActivityState>(initialActivity());
   const activePidRef = useRef<number | null>(null);
   const fleetRef = useRef<FleetMember[]>([]);
   const procsRef = useRef<ProcRow[]>([]);
+  const threadsRef = useRef<Record<number, ThreadMessage[]>>({});
+  const voiceEnabledRef = useRef(voiceEnabled);
+  const lastSpokenLen = useRef<Record<number, number>>({});
+  const pendingCloneSlug = useRef<string | null>(null);
+  const voiceQueue = useRef<SpeechQueue | null>(null);
+  if (voiceQueue.current === null) voiceQueue.current = new SpeechQueue(new ElevenLabsBackend());
   activePidRef.current = activePid;
   fleetRef.current = fleet;
   procsRef.current = procs;
+  threadsRef.current = threads;
+  voiceEnabledRef.current = voiceEnabled;
 
   // Refresh the status line when the active tab changes (TUI pokes /proc).
   useEffect(() => {
     setStatus(deriveStatus(procsRef.current, activePid));
   }, [activePid]);
+
+  const refreshKernel = useCallback(async () => {
+    try {
+      const next = await api.kernelStatus();
+      if (next.ok) {
+        setKernel({ running: Boolean(next.running), pid: next.pid ?? null });
+        return;
+      }
+      throw new Error(next.error || "kernel status failed");
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("/api/kernel returned")) {
+        setStatus(`kernel status failed: ${e.message}`);
+        return;
+      }
+      // Fall through to the local inference below. This keeps dev sessions
+      // usable when Vite has hot-reloaded but paiweb has not been restarted.
+    }
+    setKernel({
+      running: procsRef.current.length > 0 || fleetRef.current.length > 0,
+      pid: null,
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshKernel();
+    const id = window.setInterval(refreshKernel, 3000);
+    return () => window.clearInterval(id);
+  }, [refreshKernel]);
+
+  // Voice mode: persist the toggle, and watermark the active thread so only
+  // messages arriving *after* enable (or after a tab switch) are ever spoken —
+  // the existing backlog and reconnect snapshots stay silent. Disabling stops
+  // playback and drops anything queued.
+  useEffect(() => {
+    localStorage.setItem("voiceEnabled", String(voiceEnabled));
+    const queue = voiceQueue.current!;
+    if (!voiceEnabled) {
+      queue.clear();
+      return;
+    }
+    const pid = activePidRef.current;
+    if (pid !== null) {
+      lastSpokenLen.current[pid] = (threadsRef.current[pid] ?? []).length;
+    }
+  }, [voiceEnabled, activePid]);
 
   // Pick the fallback PAI when no tab is active (matches the TUI default).
   const ensureActive = useCallback((f: FleetMember[]) => {
@@ -62,6 +121,23 @@ export function App() {
       return fb ? fb.pid : f.length ? f[0].pid : null;
     });
   }, []);
+
+  const applyFleet = useCallback(
+    (f: FleetMember[]) => {
+      setFleet(f);
+      const pending = pendingCloneSlug.current;
+      if (pending) {
+        const clone = f.find((m) => m.slug === pending);
+        if (clone) {
+          pendingCloneSlug.current = null;
+          setActivePid(clone.pid);
+          return;
+        }
+      }
+      ensureActive(f);
+    },
+    [ensureActive],
+  );
 
   // --- SSE stream (kernel → browser) ---
   useEffect(() => {
@@ -73,12 +149,11 @@ export function App() {
       switch (msg.type) {
         case "hello": {
           setProvider(msg.provider);
-          setFleet(msg.fleet);
           setProcs(msg.procs);
           const t: Record<number, ThreadMessage[]> = {};
           for (const [pid, m] of Object.entries(msg.threads)) t[Number(pid)] = m;
           setThreads(t);
-          ensureActive(msg.fleet);
+          applyFleet(msg.fleet);
           break;
         }
         case "procs":
@@ -86,11 +161,20 @@ export function App() {
           setStatus(deriveStatus(msg.rows, activePidRef.current));
           break;
         case "fleet":
-          setFleet(msg.fleet);
-          ensureActive(msg.fleet);
+          applyFleet(msg.fleet);
           break;
         case "thread":
           setThreads((prev) => ({ ...prev, [msg.pid]: msg.messages }));
+          if (voiceEnabledRef.current && msg.pid === activePidRef.current) {
+            const queue = voiceQueue.current!;
+            const from = lastSpokenLen.current[msg.pid] ?? 0;
+            for (const m of msg.messages.slice(from)) {
+              if (m.sender !== "pai" || m.raw) continue;
+              const text = m.body.replace(/^\s*»\s+/, "").trim();
+              if (text) queue.enqueue(text);
+            }
+            lastSpokenLen.current[msg.pid] = msg.messages.length;
+          }
           break;
         case "event":
           setEvents((prev) =>
@@ -100,6 +184,7 @@ export function App() {
                 source: msg.source,
                 kind: msg.kind,
                 target: msg.target,
+                pai: msg.pai,
                 consumed: msg.consumed,
               },
             ]),
@@ -118,7 +203,7 @@ export function App() {
       }
     };
     return () => es.close();
-  }, [ensureActive]);
+  }, [applyFleet]);
 
   // --- input: message or !shell ---
   const handleSubmit = useCallback(async (text: string) => {
@@ -133,7 +218,8 @@ export function App() {
         setStatus("shell: empty command");
         return;
       }
-      appendShell(setShell, pid, [{ kind: "cmd", text: `$ ${cmd}` }]);
+      const afterMessageIndex = (threadsRef.current[pid] ?? []).length;
+      appendShell(setShell, pid, [{ kind: "cmd", text: `$ ${cmd}` }], afterMessageIndex);
       setStatus(`shell: running ${cmd.split(/\s+/)[0]}…`);
       const res = await api.runShell(pid, cmd);
       const entries: ShellEntry[] = res.lines.map((l) => ({
@@ -141,7 +227,7 @@ export function App() {
         text: l,
       }));
       if (res.ctx_applied) entries.push({ kind: "note", text: "context action applied." });
-      appendShell(setShell, pid, entries);
+      appendShell(setShell, pid, entries, afterMessageIndex);
       setStatus(`shell: exit ${res.rc}`);
       return;
     }
@@ -206,11 +292,63 @@ export function App() {
     setStatus(`interrupt sent → pid ${pid}, cancelled`);
   }, []);
 
+  const handleClone = useCallback(async (member: FleetMember) => {
+    const source = member.slug;
+    setCloningSlugs((prev) => {
+      const next = new Set(prev);
+      next.add(source);
+      return next;
+    });
+    setStatus(`cloning ${source}...`);
+    try {
+      const res = await api.clonePai(source);
+      if (!res.ok) throw new Error(res.error || "clone failed");
+      if (res.name) pendingCloneSlug.current = res.name;
+      setStatus(
+        res.name
+          ? `cloned ${source} as ${res.name}; waiting for kernel...`
+          : `cloned ${source}; waiting for kernel...`,
+      );
+    } catch (e) {
+      setStatus(`clone failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCloningSlugs((prev) => {
+        const next = new Set(prev);
+        next.delete(source);
+        return next;
+      });
+    }
+  }, []);
+
+  const handleTranscribeAudio = useCallback(async (audio: Blob) => {
+    const res = await api.transcribeAudio(audio);
+    if (!res.ok) throw new Error(res.error || "transcription failed");
+    return res.text ?? "";
+  }, []);
+
+  const handleToggleKernel = useCallback(async () => {
+    setKernelBusy(true);
+    setStatus(kernel.running ? "stopping kernel..." : "starting kernel...");
+    try {
+      const next = kernel.running ? await api.stopKernel() : await api.startKernel();
+      if (!next.ok) throw new Error(next.error || "request failed");
+      const running = Boolean(next.running);
+      const pid = next.pid ?? null;
+      setKernel({ running, pid });
+      setStatus(running ? `kernel running${pid ? ` (pid ${pid})` : ""}` : "kernel stopped");
+    } catch (e) {
+      setStatus(`kernel control failed: ${e instanceof Error ? e.message : String(e)}`);
+      await refreshKernel();
+    } finally {
+      setKernelBusy(false);
+    }
+  }, [kernel.running, refreshKernel]);
+
   const messages = activePid !== null ? threads[activePid] ?? [] : [];
   const shellEntries = activePid !== null ? shell[activePid] ?? [] : [];
   const activeMember = activePid !== null ? fleet.find((m) => m.pid === activePid) ?? null : null;
-  const activeProc = activePid !== null ? procs.find((r) => r.pid === String(activePid)) : null;
-  const busyCount = procs.filter((r) => r.busy).length;
+  const activeProc =
+    activePid !== null ? procs.find((r) => r.pid === String(activePid)) ?? null : null;
   const activeLabel = activeMember?.title || activeMember?.slug || "No active PAI";
   const activeMeta =
     activeMember && activeProc
@@ -223,59 +361,50 @@ export function App() {
     <div className="app">
       <Header
         connected={connected}
-        provider={provider}
-        busyCount={busyCount}
-        onOpenPalette={() => setPaletteOpen(true)}
+        kernelRunning={kernel.running}
+        kernelBusy={kernelBusy}
+        onToggleKernel={handleToggleKernel}
+        voiceEnabled={voiceEnabled}
+        onToggleVoice={() => setVoiceEnabled((v) => !v)}
+      />
+      <FleetTabs
+        fleet={fleet}
+        activePid={activePid}
+        procs={procs}
+        onSelect={setActivePid}
+        onClone={handleClone}
+        cloningSlugs={cloningSlugs}
       />
       <main className="main">
         <section className="chat-col">
-          <div className="workspace-top">
-            <div>
-              <div className="section-kicker">Active workspace</div>
-              <h1>{activeLabel}</h1>
-              <p>{activeMeta}</p>
-            </div>
-            <div className={`workspace-state ${activeProc?.busy ? "busy" : ""}`}>
-              {activeProc?.busy ? "Working" : "Ready"}
-            </div>
-          </div>
-          <FleetTabs fleet={fleet} activePid={activePid} onSelect={setActivePid} />
-          <section className="conversation-panel">
-            <ChatPane messages={messages} shell={shellEntries} />
+          <section className="conversation">
+            <header className="chat-head">
+              <div className="chat-head-copy">
+                <h1 className="chat-title">{activeLabel}</h1>
+                <p className="chat-meta">{activeMeta}</p>
+              </div>
+              <span className={`state-label ${activeProc?.busy ? "busy" : "ready"}`}>
+                {activeProc?.busy ? "Working" : "Ready"}
+              </span>
+            </header>
+            <ChatPane messages={messages} shell={shellEntries} threadKey={activePid} />
             <StatusBar text={status} />
-            <MessageInput disabled={activePid === null} onSubmit={handleSubmit} onInterrupt={handleInterrupt} />
+            <MessageInput
+              disabled={activePid === null}
+              onSubmit={handleSubmit}
+              onInterrupt={handleInterrupt}
+              onTranscribeAudio={handleTranscribeAudio}
+              onVoiceStatus={setStatus}
+            />
           </section>
         </section>
-        <aside className="side-col">
-          <section className="panel procs-panel">
-            <div className="panel-label">
-              <span>Running processes</span>
-              <strong>{procs.length}</strong>
-            </div>
-            <ProcList rows={procs} />
-          </section>
-          <section className="panel grow2">
-            <div className="panel-label">
-              <span>PAI activity</span>
-              <strong>{activity.length}</strong>
-            </div>
-            <ActivityPane entries={activity} />
-          </section>
-          <section className="panel">
-            <div className="panel-label">
-              <span>Events</span>
-              <strong>{events.length}</strong>
-            </div>
-            <EventStrip events={events} />
-          </section>
-          <section className="panel grow1">
-            <div className="panel-label">
-              <span>Kernel log</span>
-              <strong>{logLines.length}</strong>
-            </div>
-            <LogTail lines={logLines} />
-          </section>
-        </aside>
+        <SidePanel
+          activeProc={activeProc}
+          activity={activity}
+          procs={procs}
+          events={events}
+          logLines={logLines}
+        />
       </main>
       {paletteOpen && (
         <CommandPalette
@@ -288,22 +417,14 @@ export function App() {
   );
 }
 
-function deriveStatus(rows: ProcRow[], pid: number | null): string {
-  if (pid === null) return "idle";
-  const row = rows.find((r) => r.pid === String(pid));
-  if (!row || !row.busy) return "idle";
-  const reason = row.busy.reason.trim() || "thinking";
-  if (row.busy.started_at > 0) {
-    const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - row.busy.started_at));
-    return `${row.slug}: ${reason} (${elapsed}s)`;
-  }
-  return `${row.slug}: ${reason}`;
-}
-
 function appendShell(
   setShell: React.Dispatch<React.SetStateAction<Record<number, ShellEntry[]>>>,
   pid: number,
   entries: ShellEntry[],
+  afterMessageIndex: number,
 ) {
-  setShell((prev) => ({ ...prev, [pid]: (prev[pid] ?? []).concat(entries) }));
+  setShell((prev) => ({
+    ...prev,
+    [pid]: (prev[pid] ?? []).concat(entries.map((e) => ({ ...e, afterMessageIndex }))),
+  }));
 }

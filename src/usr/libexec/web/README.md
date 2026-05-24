@@ -15,7 +15,8 @@ running kernel: it reads the on-disk FHS state (`/proc`, me-thread day-files,
 makes — append a line to a me-thread day-file, and drop an event file. It never
 spawns, drives, or owns the kernel or its runtime.
 
-- **Backend** (`src/sbin/web/`: `server.py`, `hub.py`, `actions.py`) — stdlib
+- **Backend** (`src/usr/libexec/web/pai_web/`: `server.py`, `hub.py`,
+  `actions.py`) — stdlib
   HTTP + Server-Sent Events. No third-party web framework. Reuses `boot.*` and
   the TUI's pure parsing helpers (`sbin.tui.state`) so the message format has one
   source of truth. FS changes are picked up via `watchdog` (event-driven, tickless
@@ -55,7 +56,7 @@ To attach the web UI to an already-running (e.g. headless) kernel, run the
 surface on its own — it never boots or owns the kernel:
 
 ```bash
-python -m sbin.web               # --host / --port / --open
+python -m usr.libexec.web.pai_web # --host / --port / --open
 ```
 
 The surface serves the built frontend (`src/usr/libexec/web/dist/`) and the API
@@ -64,7 +65,7 @@ from the same origin — read straight from the repo, nothing copied into `~/.pa
 ## Dev (hot reload)
 
 ```bash
-python -m sbin.web                         # API on :8787
+python -m usr.libexec.web.pai_web          # API on :8787
 cd src/usr/libexec/web && pnpm dev         # UI on :5173, proxies /api → :8787
 ```
 
@@ -74,10 +75,18 @@ cd src/usr/libexec/web && pnpm dev         # UI on :5173, proxies /api → :8787
 |---|---|---|
 | GET | `/api/stream` | SSE: `hello`, `procs`, `fleet`, `thread`, `event`, `log`, `provider` |
 | GET | `/api/state` | One-shot snapshot (same payload as `hello`) |
+| GET | `/api/kernel` | Kernel lifecycle status `{running, pid}` |
 | POST | `/api/message` | `{pid, text}` → append day-file line + emit `new_message` |
 | POST | `/api/interrupt` | `{pid}` → emit `interrupt` event |
 | POST | `/api/shell` | `{pid, cmd}` → run `!cmd`, returns `{lines, rc, ctx_applied}` |
 | POST | `/api/provider` | `{key}` → write `provider.yaml` |
+| POST | `/api/kernel` | `{action: "start" \| "stop"}` → start/stop the kernel |
+| POST | `/api/tts` | `{text}` → server-side TTS proxy; requires `ELEVENLABS_API_KEY` |
+| POST | `/api/stt` | `multipart/form-data` with `audio` → server-side STT proxy; requires `OPENAI_API_KEY` |
+
+Voice input defaults to `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`.
+Optional `OPENAI_TRANSCRIBE_LANGUAGE` and `OPENAI_TRANSCRIBE_PROMPT` values are
+forwarded to the transcription request.
 
 ## Keyboard
 

@@ -121,6 +121,22 @@ def resolve_subagent_package(name: str) -> dict:
     return data
 
 
+def _resolve_subagent_bundle_path(package: str, value: str) -> str:
+    """Resolve a path coming from a subagent bundle manifest.
+
+    Registry bundles commonly use FHS-relative paths like
+    `usr/lib/subagents/computer-use/prompt.md`, which bootstrap already resolves
+    against PAI_ROOT. Short paths like `prompt.md` are bundle-local and need
+    expansion to the installed bundle directory.
+    """
+    p = Path(value)
+    if p.is_absolute():
+        return value
+    if value.startswith(("usr/", "opt/", "etc/")):
+        return value
+    return str(SUBAGENTS_DIR / package / value)
+
+
 def _validate_pai_entry(entry: dict, *, source: str, config_path: Path) -> None:
     name = entry.get("name")
     if not isinstance(name, str) or not name:
@@ -517,6 +533,27 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
             dep_name = dep["name"]
             slug = f"{parent_name}.{dep_name}"
             if (P.PROC_DIR / slug).exists():
+                expected_package = dep.get("package")
+                try:
+                    spec = P.read_spec(slug)
+                except P.ProcessNotFound:
+                    spec = None
+                if (
+                    expected_package
+                    and spec is not None
+                    and spec.get("package") != expected_package
+                ):
+                    spec["package"] = expected_package
+                    spec_path = P.PROC_DIR / slug / "spec.yaml"
+                    with spec_path.open("w") as f:
+                        yaml.safe_dump(spec, f, sort_keys=False)
+                    try:
+                        P.append_log(
+                            slug,
+                            "kernel: package metadata healed via reconcile",
+                        )
+                    except P.ProcessNotFound:
+                        pass
                 # Persub already exists; heal its status if shutdown left it
                 # at "stopped" (or anything else). Fleet members get the same
                 # treatment in the reconcile_from_config "Changed" branch.
@@ -540,21 +577,11 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
             if dep.get("package"):
                 bundle = resolve_subagent_package(dep["package"])
             prompt = dep.get("prompt") or bundle.get("prompt")
-            if (
-                prompt
-                and not dep.get("prompt")
-                and bundle.get("prompt")
-                and not Path(prompt).is_absolute()
-            ):
-                prompt = str(SUBAGENTS_DIR / dep["package"] / prompt)
+            if prompt and not dep.get("prompt") and bundle.get("prompt"):
+                prompt = _resolve_subagent_bundle_path(dep["package"], prompt)
             prompt_dir = dep.get("prompt_dir") or bundle.get("prompt_dir")
-            if (
-                prompt_dir
-                and not dep.get("prompt_dir")
-                and bundle.get("prompt_dir")
-                and not Path(prompt_dir).is_absolute()
-            ):
-                prompt_dir = str(SUBAGENTS_DIR / dep["package"] / prompt_dir)
+            if prompt_dir and not dep.get("prompt_dir") and bundle.get("prompt_dir"):
+                prompt_dir = _resolve_subagent_bundle_path(dep["package"], prompt_dir)
             # Inherit boilerplate from dep override, else bundle, else parent.
             boilerplate = (
                 dep.get("boilerplate")
@@ -583,6 +610,9 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
                 else None
             )
             child_pid = P.alloc_pai_pid()
+            extra = {"persistent": True, "persub": True}
+            if dep.get("package"):
+                extra["package"] = dep["package"]
             P.spawn_pai(
                 pid=child_pid,
                 slug=slug,
@@ -594,7 +624,7 @@ def _reconcile_persubs(desired: dict[str, dict]) -> None:
                 model=model,
                 wake_on=wake_on,
                 parent=parent_pid,
-                extra={"persistent": True, "persub": True},
+                extra=extra,
             )
             try:
                 P.append_log(slug, "kernel: spawned persub via reconcile")

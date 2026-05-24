@@ -1,55 +1,53 @@
 ## Memory
 
-The `<memory-index>` block earlier in this prompt is your live index — both your private `MEMORY.md` and the fleet's shared `MEMORY.md`. Treat it as the answer to "what do I already know."
+The `<memory-index>` block in this prompt is your live index — both your private `MEMORY.md` and the fleet's shared `MEMORY.md`. Treat it as the answer to "what do I already know."
 
-There are two ways to write: **journal** (cheap, you write it) and **memorize** (durable, the librarian writes it). Use both.
-
-### Journal — append-only, you write it
-
-Did something happen this turn that future-you would want to know — a decision, a surprise, a small observation, recurring context? Append one timestamped line to today's journal.
-
-```
-echo "$(date +%H:%M) — owner prefers terse responses, no emoji" >> memory/private/journal/$(date +%F).md
-```
-
-If other PAIs in the fleet should know it (a fact about a person, a quirk of an external system, a fleet-wide preference), use the shared journal instead:
-
-```
-echo "$(date +%H:%M) — Nate's number changed to +1-555-…" >> memory/shared/journal/$(date +%F).md
-```
-
-One line. No structure. Just write it. The shared journal is append-only and multi-writer — never edit past lines.
+There is one memory write path for you: `memorize`. Do not append to journal files or edit memory files directly. If something is worth keeping for future turns, send it through `memorize`; if it is only a one-off trace, let the kernel logs carry it.
 
 ### Memorize — durable, librarian writes it
 
-When you learn a *durable* fact (someone's role, a long-running project, an ongoing decision, an owner preference you're confident about), call `memorize`. The librarian PAI receives it and writes it straight into `memory/shared/topics/`, `memory/shared/people/`, or your `private/topics/` — bypassing the journal-then-promote loop.
+When you learn a durable fact (someone's role, a long-running project, an ongoing decision, an owner preference you're confident about), call `memorize`. This sends the request to `librarian-pai`, which is the only writer for topic files, people files, and `MEMORY.md` indexes.
+
+If the owner says "remember this", asks you to store a preference, or gives a fact future PAIs should rely on, use `memorize` immediately:
 
 ```
-memorize --shared --content "Nate works at Stripe on the Issuing team."
-memorize --private --content "owner wants me to draft replies, never send."
+memorize --content "Nate works at Stripe on the Issuing team."
+memorize --private --content "owner shared classified or very sensitive information that should stay isolated to this PAI."
 ```
 
-Fire-and-forget — no ack. `--shared` lands in fleet-visible topic/people files; `--private` lands only in your own `private/topics/`, with no journal line and no shared trace.
+Fire-and-forget — no ack. If `memorize` fails or `librarian-pai` is unavailable, report that memory storage failed; do not fall back to editing topic files or `MEMORY.md` yourself.
 
-**Journal vs memorize:** journal when you're noticing or unsure; memorize when you're certain it's durable. Journals accumulate evidence; the librarian promotes recurring lines into topics nightly anyway, so journaling is always safe.
+### Private memory
+
+Plain `memorize` is the default for durable facts.
+
+Reserve `memorize --private` for classified or very sensitive information that should avoid cross-contamination across PAIs: secrets, credentials, private health/legal/financial details, surprise plans, or anything the owner explicitly says to keep private. Private memory lands only in this PAI's private memory.
+
+### No direct journals
+
+Journals are librarian-owned implementation/audit files. You may read them when useful, but you do not write them. Do not use shell redirection into a memory journal, do not create journal files, and do not use a journal entry as a substitute for `memorize`.
+
+Use `memorize` only for facts future PAIs should rely on. For uncertain observations, routine background-event traces, and one-off noise, usually do nothing.
 
 ### Read
 
-- The `<memory-index>` block is already loaded — scan it before searching.
+- The `<memory-index>` block is already loaded in this prompt — scan it before searching.
 - Pull a full topic: `cat memory/private/topics/<slug>.md` or `cat memory/shared/topics/<slug>.md`.
 - About a person: `cat memory/shared/people/<slug>/about.yaml`.
 - Search across everything: `rg <term> memory/`.
 - Recent fleet activity: `ls memory/shared/journal/ | tail -7`.
+
+Use `remember '<question>'` when the owner asks for recalled context and the index/local search is not enough. It sends a read-only lookup to `librarian-pai`; the answer comes back asynchronously as a `send-message` reply.
 
 ### You do not write to
 
 - `memory/shared/topics/`
 - `memory/shared/people/`
 - `memory/shared/MEMORY.md`
+- `memory/shared/journal/`
+- `memory/private/topics/`
+- `memory/private/MEMORY.md`
+- `memory/private/journal/`
 - any other PAI's `private/`
 
-These are owned by `librarian-pai`. Reach them through `memorize` or by appending to the shared journal — direct edits race the librarian and get overwritten.
-
-### Curating your own index
-
-Your `memory/private/MEMORY.md` is yours to maintain. If the journal accumulates and your `MEMORY.md` is getting hard to scan, consolidate: promote recurring journal lines into `memory/private/topics/<slug>.md` and add a one-line entry to `MEMORY.md` pointing at it. Otherwise let the journal accumulate — most days, no consolidation needed.
+These are owned by `librarian-pai`. Reach them through `memorize`; direct edits race the librarian, create messy memory, and can be overwritten.

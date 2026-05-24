@@ -101,6 +101,7 @@ via `paiman install`, etc.) is an implementation detail tracked in Open Question
 | `src/sbin/migrate.py` | `~/.pai/sbin/migrate` | One-shot kernelPAI op |
 | `src/sbin/reset.py` | `~/.pai/sbin/reset` | One-shot kernelPAI op — destructive; wipes runtime state |
 | `src/sbin/reboot.py` | `~/.pai/sbin/reboot` | Emits `kernel:restart`; kernel drains in-flight nudges, gracefully stops drivers, then `os.execvp`s itself in place (PID 1 preserved). Use to apply on-disk patches to kernel-imported modules. |
+| `src/usr/libexec/web/` | `~/.pai/usr/libexec/web/` | Web owner surface sidecar: backend package, frontend source, and built assets. Invoked by `pai start --web`; not a `/sbin/` source tree. |
 | `src/prompts/` | `~/.pai/usr/share/prompts/` | Shipped baseline prompts |
 | `src/usr/share/doc/` | `~/.pai/usr/share/doc/` | Shipped documentation |
 | `src/seed/` | *removed* | Folded into bundle `defaults/` |
@@ -354,9 +355,10 @@ Code, libraries, shipped data.
   `paiadd` stitches directly from here for the dev path. `/opt/` is
   bypassed entirely; the source tree IS the bundle, edited in place.
 - `usr/lib/venv/` — Python virtualenv.
-- `usr/libexec/<driver>/` — **non-Python sidecar helpers** owned by
-  a driver: Node bridges, Rust binaries, Go agents, anything `exec`'d
-  by the driver and never invoked by the user. FHS-faithful split:
+- `usr/libexec/<name>/` — **sidecar helpers and internal app surfaces**:
+  Node bridges, Rust binaries, Go agents, owner UIs, anything driven by
+  a public command but not itself a user-facing source tree. FHS-faithful
+  split: `usr/libexec/web/` holds the web owner surface, while
   `usr/lib/drivers/<driver>/` stays Python-only; the bridge sources
   + manifest (e.g. `package.json`, `Cargo.toml`) live at
   `usr/libexec/<driver>/`. Installed dependency trees (`node_modules/`,

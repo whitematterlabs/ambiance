@@ -31,6 +31,7 @@ import yaml
 
 from bin import send_message as send_msg_bin
 from bin import subagent as sub_bin
+from boot import config as C
 from boot import nudge as nudge_mod
 from boot import paths as paths_mod
 from boot import processes as P
@@ -115,6 +116,69 @@ def test_reply_done_emits_response_and_resolves(
     assert resolved["slug"] == child_slug
     assert resolved["status"] == "completed"
     assert resolved["parent"] == 1
+
+
+def test_persub_reply_done_is_rejected_without_event(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    P.spawn_pai(
+        pid=5,
+        slug="root.computer-use",
+        description="macOS UI operator",
+        parent=1,
+        extra={"persistent": True, "persub": True},
+    )
+
+    monkeypatch.setenv("PAI_PID", "5")
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", "root.computer-use")
+    rc = sub_bin.main(["reply", "--done", "--content", "final answer"])
+
+    assert rc == 1
+    assert P.read_status("root.computer-use") == "running"
+    assert not list(P.EVENTS_DIR.iterdir())
+
+
+def test_spawn_package_resolves_bundle_prompt(
+    live_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "pairoot"
+    subagents = root / "usr" / "lib" / "subagents"
+    pkg = subagents / "computer-use"
+    pkg.mkdir(parents=True)
+    (pkg / "package.yaml").write_text(
+        "name: computer-use\n"
+        "kind: subagent\n"
+        "version: 0.2.0\n"
+        "description: macOS UI operator\n"
+        "prompt: prompt.md\n"
+    )
+    (pkg / "prompt.md").write_text("drive local apps\n")
+
+    monkeypatch.setattr(paths_mod, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(P, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(C, "SUBAGENTS_DIR", subagents, raising=True)
+
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    monkeypatch.setenv("PAI_PID", "1")
+    rc = sub_bin.main(
+        [
+            "spawn",
+            "--slug",
+            "computer-use",
+            "--package",
+            "computer-use",
+            "--prompt",
+            "go",
+        ]
+    )
+
+    assert rc == 0
+    [child_slug] = [s for s in P.list_procs() if s.startswith("computer-use-")]
+    spec = P.read_spec(child_slug)
+    assert spec["package"] == "computer-use"
+    assert spec["prompt"] == str(pkg / "prompt.md")
 
 
 def test_reply_without_done_does_not_resolve(

@@ -155,10 +155,19 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         "provider": provider,
         "model": model,
     }
+    if args.package:
+        spec["package"] = args.package
     if args.persistent:
         spec["persub"] = True
-    if bundle.get("prompt"):
-        spec["prompt"] = bundle["prompt"]
+    if args.package and bundle.get("prompt"):
+        spec["prompt"] = C._resolve_subagent_bundle_path(
+            args.package,
+            bundle["prompt"],
+        )
+    if args.package and bundle.get("prompt_dir"):
+        spec["prompt_dir"] = C._resolve_subagent_bundle_path(
+            args.package, bundle["prompt_dir"]
+        )
     if bundle.get("debugger"):
         spec["debugger"] = bundle["debugger"]
     try:
@@ -208,6 +217,25 @@ def cmd_reply(args: argparse.Namespace) -> int:
         print("error: $PAI_PID/$PAI_PARENT must be ints", file=sys.stderr)
         return 1
 
+    done_slug = None
+    if args.done:
+        done_slug = os.environ.get("PAI_SLUG")
+        if not done_slug:
+            print("error: $PAI_SLUG not set — required for --done", file=sys.stderr)
+            return 1
+        try:
+            own_spec = P.read_spec(done_slug)
+        except P.ProcessNotFound:
+            print(f"error: own proc {done_slug!r} not found", file=sys.stderr)
+            return 1
+        if own_spec.get("persub"):
+            print(
+                f"error: {done_slug!r} is a persistent subagent and cannot use --done; "
+                f"reply with `bin/subagent reply --content ...` and wait for the parent",
+                file=sys.stderr,
+            )
+            return 1
+
     payload = {
         "source": "subagent",
         "kind": "subagent:response",
@@ -224,14 +252,10 @@ def cmd_reply(args: argparse.Namespace) -> int:
         # before the proc_resolved event, so the parent's wake-up nudge
         # sees the reply with a (now-dead) child slug — no race window
         # for the parent to send-message a reaped pid.
-        slug = os.environ.get("PAI_SLUG")
-        if not slug:
-            print("error: $PAI_SLUG not set — required for --done", file=sys.stderr)
-            return 1
         try:
-            P.resolve(slug, "completed")
+            P.resolve(done_slug, "completed")
         except P.ProcessNotFound:
-            print(f"error: own proc {slug!r} not found", file=sys.stderr)
+            print(f"error: own proc {done_slug!r} not found", file=sys.stderr)
             return 1
         print(f"replied to parent pid={parent_pid} (done)")
         return 0

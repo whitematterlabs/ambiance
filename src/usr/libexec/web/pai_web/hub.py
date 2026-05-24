@@ -355,6 +355,12 @@ class Hub:
                 source = str(payload.get("source", "?"))
                 kind = str(payload.get("kind", "?"))
                 consumed = False
+            pai_ref = (
+                payload.get("slug")
+                or payload.get("target_pid")
+                or payload.get("pai")
+                or ""
+            )
             target = (
                 payload.get("thread")
                 or payload.get("handle")
@@ -368,6 +374,7 @@ class Hub:
                     "source": source,
                     "kind": kind,
                     "target": str(target),
+                    "pai": str(pai_ref) if pai_ref else "",
                     "consumed": consumed,
                 }
             )

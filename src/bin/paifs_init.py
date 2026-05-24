@@ -93,6 +93,7 @@ SKELETON: tuple[str, ...] = (
 SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("boot", REPO_ROOT / "src" / "boot"),
     ("usr/src", REPO_ROOT / "src"),
+    ("usr/libexec/web", REPO_ROOT / "src" / "usr" / "libexec" / "web"),
     ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
     ("etc/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
     ("etc/boilerplate/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
@@ -127,23 +128,37 @@ KERNEL_SEED_SKILLS: tuple[str, ...] = (
 )
 
 # Bins the kernel's memory contract refers to from the default prompts.
-# `memorize` is invoked by every PAI via the memory-usage boilerplate;
-# without it installed the contract is inert.
+# `memorize` and `remember` are invoked by every PAI via the memory-usage
+# boilerplate; without them installed the memory contract is inert.
 KERNEL_SEED_BINS: tuple[str, ...] = (
     "memorize",
+    "remember",
 )
 
 # PAIs the kernel itself requires to close core loops. `librarian-pai`
 # is the sole writer to shared/private MEMORY indexes and the consumer
-# of `remember` requests; the default config below declares it as a
+# of `memorize`/`remember` requests; the default config below declares it as a
 # reserved fleet member so reconcile spawns it on first boot.
 KERNEL_SEED_PAIS: tuple[str, ...] = (
     "librarian-pai",
 )
 
-# Default etc/config.yaml written on first install. Never overwritten —
-# once seeded this file is runtime state owned by the agent/user.
-DEFAULT_CONFIG_YAML = """\
+# Provider/model the seed config.yaml uses when install.sh doesn't pass an
+# owner choice (non-interactive installs, re-runs). Mirrors llm.PROVIDERS.
+DEFAULT_SEED_PROVIDER = "deepseek"
+DEFAULT_SEED_MODEL = "deepseek-v4-pro"
+
+
+def default_config_yaml(provider: str = DEFAULT_SEED_PROVIDER,
+                        model: str = DEFAULT_SEED_MODEL) -> str:
+    """Render the etc/config.yaml seeded on first install.
+
+    `provider`/`model` default to deepseek (preserving prior behavior) but are
+    overridden by install.sh's interactive prompt so the whole fleet boots on
+    the model the owner picked — and so only that provider's API key is needed.
+    Written once and never overwritten; afterward it's owner-editable state.
+    """
+    return f"""\
 # PAI kernel control plane.
 #
 # Source of truth for which long-running PAIs exist. The kernel reconciles
@@ -154,7 +169,7 @@ DEFAULT_CONFIG_YAML = """\
 #   name         (required) stable proc-dir slug; unique
 #   pid          required for reserved entries (1 and 2); auto-allocated otherwise
 #   description  required
-#   package      (optional) pulls defaults from packages/{package}/package.yaml
+#   package      (optional) pulls defaults from packages/{{package}}/package.yaml
 #   prompt       per-PAI role file (resolved relative to repo root)
 #   provider     LLM provider key (anthropic | deepseek). Drives base_url + key.
 #   model        model id within the provider; defaults to provider's default
@@ -167,8 +182,8 @@ pais:
     description: kernel-internal events + errored nudges
     prompt_dir: opt/paiman/root
     boilerplate: [owner]
-    provider: deepseek
-    model: deepseek-v4-pro
+    provider: {provider}
+    model: {model}
     wake_on: ['kernel:*']
 
   - name: pai
@@ -176,8 +191,8 @@ pais:
     description: owner-facing PAI; catch-all for unclaimed events
     prompt_dir: opt/paiman/pai_default
     boilerplate: [owner, memory-usage, capability-escalation]
-    provider: deepseek
-    model: deepseek-v4-pro
+    provider: {provider}
+    model: {model}
     fallback: true
 
   - name: librarian-pai
@@ -259,13 +274,14 @@ def ensure_symlink(link: Path, target: Path) -> None:
     link.symlink_to(target)
 
 
-def ensure_default_config(root: Path) -> None:
+def ensure_default_config(root: Path, *, provider: str = DEFAULT_SEED_PROVIDER,
+                          model: str = DEFAULT_SEED_MODEL) -> None:
     """Write a default etc/config.yaml on first install. Never overwrites."""
     dest = root / "etc" / "config.yaml"
     if dest.exists():
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(DEFAULT_CONFIG_YAML)
+    dest.write_text(default_config_yaml(provider, model))
 
 
 SHARED_MEMORY_INDEX_HEADER = (
@@ -465,7 +481,9 @@ def write_provisioned_marker(root: Path) -> None:
     dest.write_text(f"{PROVISION_SCHEMA}\n")
 
 
-def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None) -> None:
+def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None,
+            default_provider: str = DEFAULT_SEED_PROVIDER,
+            default_model: str = DEFAULT_SEED_MODEL) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for rel in SKELETON:
         if rel in SYMLINK_TARGETS:
@@ -483,7 +501,7 @@ def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None) 
     # /bin → usr/bin (relative). One bin for PAI-callable tools; /sbin
     # holds the kernel-only ones.
     ensure_symlink(root / "bin", Path("usr/bin"))
-    ensure_default_config(root)
+    ensure_default_config(root, provider=default_provider, model=default_model)
     ensure_shared_memory_index(root)
     if bundle_mode:
         # No dev venv: the embedded interpreter already has the package, and the
@@ -696,6 +714,18 @@ def main() -> int:
         default=None,
         help="interpreter for --repoint-shims (default: the one running this)",
     )
+    ap.add_argument(
+        "--default-provider",
+        default=DEFAULT_SEED_PROVIDER,
+        help="provider key the seed config.yaml boots the fleet on "
+             f"(default: {DEFAULT_SEED_PROVIDER}). Ignored if config.yaml exists.",
+    )
+    ap.add_argument(
+        "--default-model",
+        default=DEFAULT_SEED_MODEL,
+        help="model id the seed config.yaml boots the fleet on "
+             f"(default: {DEFAULT_SEED_MODEL}). Ignored if config.yaml exists.",
+    )
     args = ap.parse_args()
     if args.repoint_shims:
         py = args.python or Path(sys.executable)
@@ -709,7 +739,8 @@ def main() -> int:
         print(f"FHS skeleton ready at {args.root} (bundle mode)")
         return 0
     _ensure_uv()
-    lay_out(args.root)
+    lay_out(args.root, default_provider=args.default_provider,
+            default_model=args.default_model)
     expose_pai_command(args.root)
     print(f"FHS skeleton ready at {args.root}")
     if not args.no_setup:

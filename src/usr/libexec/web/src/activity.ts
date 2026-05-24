@@ -5,11 +5,13 @@
 export interface ActivityEntry {
   cls: string;
   text: string;
+  pai?: string;
 }
 
 export interface ActivityState {
   inCommand: boolean;
   outLines: number;
+  commandPai?: string;
 }
 
 export const initialActivity = (): ActivityState => ({
@@ -29,36 +31,42 @@ export function ingest(
   if (line.startsWith("--- pai supervisor")) {
     out.push({ cls: "act-dim", text: line });
     s.inCommand = false;
+    s.commandPai = undefined;
     return { state: s, entries: out };
   }
   if (line.startsWith("[kernel] nudge:")) {
     out.push({ cls: "act-nudge", text: "> " + line.slice("[kernel] ".length) });
     s.inCommand = false;
+    s.commandPai = undefined;
     return { state: s, entries: out };
   }
   if (line.startsWith("[kernel] nudge failed")) {
     out.push({ cls: "act-fail", text: "! " + line.slice("[kernel] ".length) });
     s.inCommand = false;
+    s.commandPai = undefined;
     return { state: s, entries: out };
   }
   if (line.startsWith("[kernel] nudge complete")) {
     out.push({ cls: "act-done", text: "  done." });
     s.inCommand = false;
+    s.commandPai = undefined;
     return { state: s, entries: out };
   }
 
   const m = PAI_PREFIX.exec(line);
   if (m) {
-    const pid = m[1] || "";
+    const pai = m[1] || "";
     const rest = line.slice(m[0].length).replace(/^ +/, "");
-    const tag = pid ? `pai:${pid}` : "pai";
+    const tag = pai ? `pai:${pai}` : "pai";
     if (rest.startsWith("$ ")) {
-      out.push({ cls: "act-cmd", text: `[${tag}] $ ${rest.slice(2)}` });
+      out.push({ cls: "act-cmd", text: `[${tag}] $ ${rest.slice(2)}`, pai });
       s.inCommand = true;
       s.outLines = 0;
+      s.commandPai = pai || undefined;
     } else {
-      out.push({ cls: "act-pai", text: `${tag}: ${rest}` });
+      out.push({ cls: "act-pai", text: `${tag}: ${rest}`, pai });
       s.inCommand = false;
+      s.commandPai = undefined;
     }
     return { state: s, entries: out };
   }
@@ -72,17 +80,19 @@ export function ingest(
       out.push({
         cls: ok ? "act-ok" : "act-fail",
         text: `    ${ok ? "ok" : "fail"} (${codeText})`,
+        pai: s.commandPai,
       });
       s.inCommand = false;
+      s.commandPai = undefined;
     } else if (stripped === "[stderr]") {
       // skip
     } else if (s.outLines < 2) {
       const preview =
         stripped.length <= 80 ? stripped : stripped.slice(0, 77) + "…";
-      out.push({ cls: "act-out", text: `    ${preview}` });
+      out.push({ cls: "act-out", text: `    ${preview}`, pai: s.commandPai });
       s.outLines += 1;
     } else if (s.outLines === 2) {
-      out.push({ cls: "act-out", text: "    …" });
+      out.push({ cls: "act-out", text: "    …", pai: s.commandPai });
       s.outLines += 1;
     }
   }
