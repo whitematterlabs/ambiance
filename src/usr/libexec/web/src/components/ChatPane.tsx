@@ -1,7 +1,8 @@
 import { Fragment, useLayoutEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ShellEntry, ThreadMessage } from "../types";
+import type { ProcRow, ShellEntry, ThreadMessage } from "../types";
+import { WorkingIndicator } from "./WorkingIndicator";
 
 const STICKY_BOTTOM_PX = 72;
 
@@ -18,10 +19,14 @@ export function ChatPane({
   messages,
   shell,
   threadKey,
+  busy,
+  clearMarker,
 }: {
   messages: ThreadMessage[];
   shell: ShellEntry[];
   threadKey: number | null;
+  busy: ProcRow["busy"];
+  clearMarker: string | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -45,7 +50,7 @@ export function ChatPane({
     if (stickToBottom.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, shell, threadKey]);
+  }, [messages, shell, threadKey, busy?.reason, busy?.started_at]);
 
   function handleScroll() {
     const el = ref.current;
@@ -56,9 +61,14 @@ export function ChatPane({
 
   return (
     <div className="chat-pane" ref={ref} onScroll={handleScroll}>
-      {messages.length === 0 && shell.length === 0 && (
+      {messages.length === 0 && shell.length === 0 && !busy && (
         <div className="chat-empty">
           <span>Say hello to start this conversation.</span>
+        </div>
+      )}
+      {clearMarker && (
+        <div className="clear-divider" role="separator" aria-label="context cleared">
+          <span>context cleared · {clearMarker}</span>
         </div>
       )}
       {shellSlots[0].length > 0 && <ShellFeed items={shellSlots[0]} />}
@@ -68,6 +78,7 @@ export function ChatPane({
           {shellSlots[i + 1].length > 0 && <ShellFeed items={shellSlots[i + 1]} />}
         </Fragment>
       ))}
+      {busy && <WorkingIndicator busy={busy} />}
     </div>
   );
 }

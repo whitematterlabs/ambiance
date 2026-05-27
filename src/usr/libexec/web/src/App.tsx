@@ -44,6 +44,7 @@ export function App() {
   const [cloningSlugs, setCloningSlugs] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
+  const [clearMarkers, setClearMarkers] = useState<Record<number, string>>({});
   const [composerDraft, setComposerDraft] = useState<{ text: string; nonce: number } | null>(
     null,
   );
@@ -61,6 +62,9 @@ export function App() {
   const pendingCloneSlug = useRef<string | null>(null);
   const voiceQueue = useRef<SpeechQueue | null>(null);
   if (voiceQueue.current === null) voiceQueue.current = new SpeechQueue(new ElevenLabsBackend());
+  // Route TTS failures (missing key, ElevenLabs 4xx/5xx, playback blocked) to
+  // the status bar — otherwise voice mode looks like a no-op when it errors.
+  voiceQueue.current.setErrorReporter((msg) => setStatus(msg));
   activePidRef.current = activePid;
   fleetRef.current = fleet;
   procsRef.current = procs;
@@ -316,6 +320,10 @@ export function App() {
             : last || "clear queued"
           : `clear: exit ${res.rc}${last ? ` — ${last}` : ""}`,
       );
+      if (res.rc === 0) {
+        const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        setClearMarkers((prev) => ({ ...prev, [pid]: ts }));
+      }
     } catch (e) {
       setStatus(`clear failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -449,7 +457,13 @@ export function App() {
                 </span>
               </div>
             </header>
-            <ChatPane messages={messages} shell={shellEntries} threadKey={activePid} />
+            <ChatPane
+              messages={messages}
+              shell={shellEntries}
+              threadKey={activePid}
+              busy={activeProc?.busy ?? null}
+              clearMarker={activePid !== null ? clearMarkers[activePid] ?? null : null}
+            />
             <StatusBar text={status} />
             <MessageInput
               disabled={activePid === null}
