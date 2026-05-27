@@ -9,14 +9,25 @@ export interface SpeechBackend {
   cancel(): void; // stop current + drop in-flight
 }
 
+// Optional callback so the queue can report failures to the UI (status bar)
+// instead of failures being console-only. Kept as a property to avoid widening
+// the backend constructor — the queue owns this.
+export type SpeechErrorReporter = (message: string) => void;
+
 // v1 backend: POST text to the local /api/tts proxy (which holds the ElevenLabs
 // key), play the returned mp3 through a single reused <audio> element.
 export class ElevenLabsBackend implements SpeechBackend {
   private audio: HTMLAudioElement;
   private currentUrl: string | null = null;
+  onError: SpeechErrorReporter | null = null;
 
   constructor() {
     this.audio = new Audio();
+  }
+
+  private report(msg: string): void {
+    console.warn(msg);
+    this.onError?.(msg);
   }
 
   async speak(text: string): Promise<void> {
@@ -28,7 +39,14 @@ export class ElevenLabsBackend implements SpeechBackend {
         body: JSON.stringify({ text }),
       });
       if (!res.ok) {
-        console.warn(`tts: server returned ${res.status}`);
+        let detail = `${res.status}`;
+        try {
+          const j = await res.json();
+          if (j && typeof j.error === "string") detail = `${res.status} — ${j.error}`;
+        } catch {
+          // body wasn't JSON; surface the status alone
+        }
+        this.report(`voice: tts server returned ${detail}`);
         return; // fail quietly so one failure doesn't wedge the queue
       }
       const blob = await res.blob();
@@ -44,12 +62,12 @@ export class ElevenLabsBackend implements SpeechBackend {
         this.audio.addEventListener("ended", done);
         this.audio.addEventListener("error", done);
         this.audio.play().catch((err) => {
-          console.warn("tts: playback failed", err);
+          this.report(`voice: playback failed (${err?.message ?? err})`);
           done();
         });
       });
     } catch (err) {
-      console.warn("tts: fetch failed", err);
+      this.report(`voice: fetch failed (${(err as Error)?.message ?? err})`);
     } finally {
       if (url) {
         URL.revokeObjectURL(url);
@@ -77,6 +95,12 @@ export class SpeechQueue {
 
   constructor(backend: SpeechBackend) {
     this.backend = backend;
+  }
+
+  setErrorReporter(reporter: SpeechErrorReporter | null): void {
+    // Duck-typed: forwarded to backends that expose `onError` (ElevenLabsBackend
+    // does). Keeps SpeechBackend itself minimal.
+    (this.backend as { onError?: SpeechErrorReporter | null }).onError = reporter;
   }
 
   enqueue(text: string): void {

@@ -196,6 +196,21 @@ _OPENAI_TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions"
 _DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
 
 
+def _reload_dotenv() -> None:
+    """Re-read .env.local / .env from $PAI_ROOT and the repo, same order as
+    boot/__init__.py. Lets the user drop a fresh key into the file mid-session
+    and have voice mode work on the next request without restarting the server.
+    override=False matches boot's behavior so a shell-exported value still wins.
+    """
+    from dotenv import load_dotenv
+
+    pai_root = Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai")))
+    code_root = Path(__file__).resolve().parents[5]
+    for base in (pai_root, code_root):
+        load_dotenv(base / ".env.local")
+        load_dotenv(base / ".env")
+
+
 def synthesize_speech(text: str) -> bytes:
     """Swap point: turn text into mp3 bytes. v1 = ElevenLabs.
 
@@ -205,6 +220,9 @@ def synthesize_speech(text: str) -> bytes:
     missing so the route can return 400.
     """
     api_key = os.environ.get("ELEVENLABS_API_KEY")
+    if not api_key:
+        _reload_dotenv()
+        api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
         raise RuntimeError("ELEVENLABS_API_KEY is not set")
     voice_id = os.environ.get("ELEVENLABS_VOICE_ID") or _DEFAULT_VOICE_ID
