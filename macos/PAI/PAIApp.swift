@@ -38,9 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let provisioner = Provisioner()
     private let loginItem = LoginItem()
     private let capabilities = CapabilityCatalog()
+    private let webLauncher = WebServerLauncher()
 
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
+    private var webWindow: WebWindowController?
     private var setupWindow: NSWindow?
     private var capabilitiesWindow: NSWindow?
     private var iconSubscription: AnyCancellable?
@@ -79,16 +81,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// Stand up the menubar item, main window, watchers, and FDA prompt. Called
+    /// Stand up the menubar item, web window, watchers, and FDA prompt. Called
     /// directly on a provisioned root, or after first-run provisioning succeeds.
+    /// The menubar click opens a native window hosting the React web UI via a
+    /// `pai://` scheme handler that proxies HTTP over a unix socket — no
+    /// loopback TCP listener, leaving the port free for a future ngrok-tunneled
+    /// remote surface.
     private func startNormalSurfaces() {
         installStatusItem()
-        buildMainWindow()
+        startWebServerAndWindow()
         observeRegistryForIcon()
         notifier.onActivate = { [weak self] in self?.activateWindow() }
         notifier.start()
         events.start()
         promptForFullDiskAccessIfNeeded()
+    }
+
+    private func startWebServerAndWindow() {
+        webLauncher.start()
+        let socketPath = webLauncher.socketURL.path
+        webWindow = WebWindowController(socketPath: socketPath)
+        // Best-effort: warm-load the window once the socket is up. This avoids
+        // a "connect failed" flash if the user clicks the menubar within ~1s
+        // of launch. Failing silently is fine — first click will load anyway.
+        Task { @MainActor in
+            await webLauncher.waitForReady()
+        }
     }
 
     /// Show the setup window and kick off provisioning. On success we tear the
@@ -206,15 +224,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func activateWindow() {
         // Nil while the first-run setup window is up; nothing to bring forward.
-        guard let window else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        guard let webWindow else { return }
+        webWindow.show()
     }
 
-    // The app OWNS the kernel: when PAI quits, the kernel quits with it. We
-    // SIGTERM and block briefly so its PAIs shut down cleanly before we exit.
+    // The app OWNS the kernel and the web server: when PAI quits, both quit
+    // with it. We SIGTERM the kernel and block briefly so its PAIs shut down
+    // cleanly; pai_web is a thin attach-only process and can be torn down
+    // after.
     func applicationWillTerminate(_ notification: Notification) {
         launcher.terminateKernelSync()
+        webLauncher.terminateSync()
     }
 
     // If macOS asks to "reopen" the app (Dock click, notification tap on
@@ -294,12 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.terminate(nil)
             return
         }
-        if window.isVisible && window.isKeyWindow {
-            window.orderOut(nil)
-            return
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        webWindow?.toggle()
     }
 
     // Red close button hides the window instead of destroying it, so the

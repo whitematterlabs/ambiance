@@ -51,6 +51,15 @@ final class KernelLauncher: ObservableObject {
         if let py = bundledPython {
             exe = py
             args = ["-u", "-m", "boot.init"]
+        } else if Bundle.main.bundleURL.pathExtension == "app" {
+            // Running inside a .app bundle but no embedded runtime: silently
+            // falling back to the dev venv would re-attribute every TCC call to
+            // a different binary identity, which is exactly the bug class this
+            // hard-fail exists to prevent. See memory tcc-permission-reprompts.
+            let msg = "PAI.app runtime missing — rebuild with: paibuild --full"
+            FileHandle.standardError.write(Data((msg + "\n").utf8))
+            lastError = msg
+            exit(78)
         } else {
             exe = initURL
             args = []

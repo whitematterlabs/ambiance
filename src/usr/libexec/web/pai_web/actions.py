@@ -211,13 +211,22 @@ def _reload_dotenv() -> None:
         load_dotenv(base / ".env")
 
 
-def synthesize_speech(text: str) -> bytes:
+def synthesize_speech(
+    text: str,
+    *,
+    voice_id: str | None = None,
+    speed: float | None = None,
+) -> bytes:
     """Swap point: turn text into mp3 bytes. v1 = ElevenLabs.
 
     Reads ELEVENLABS_API_KEY (required), ELEVENLABS_VOICE_ID and
     ELEVENLABS_MODEL_ID (optional) from the environment (loaded from
     ~/.pai/.env.local by boot/__init__.py). Raises RuntimeError if the key is
     missing so the route can return 400.
+
+    Per-call ``voice_id`` and ``speed`` overrides come from the browser so the
+    user can pick a voice without restarting; both fall back to env / defaults.
+    ElevenLabs clamps ``speed`` to [0.7, 1.2].
     """
     api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
@@ -225,14 +234,17 @@ def synthesize_speech(text: str) -> bytes:
         api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
         raise RuntimeError("ELEVENLABS_API_KEY is not set")
-    voice_id = os.environ.get("ELEVENLABS_VOICE_ID") or _DEFAULT_VOICE_ID
+    chosen_voice = voice_id or os.environ.get("ELEVENLABS_VOICE_ID") or _DEFAULT_VOICE_ID
     model_id = os.environ.get("ELEVENLABS_MODEL_ID") or _DEFAULT_MODEL_ID
+    payload: dict = {"text": text, "model_id": model_id}
+    if speed is not None:
+        payload["voice_settings"] = {"speed": max(0.7, min(1.2, float(speed)))}
 
     resp = requests.post(
-        _ELEVENLABS_TTS_URL.format(voice_id=voice_id),
+        _ELEVENLABS_TTS_URL.format(voice_id=chosen_voice),
         headers={"xi-api-key": api_key, "accept": "audio/mpeg"},
         params={"output_format": "mp3_44100_128"},
-        json={"text": text, "model_id": model_id},
+        json=payload,
         timeout=30,
     )
     resp.raise_for_status()

@@ -147,6 +147,20 @@ mkdir -p "$SEED"
 cp -R "$REPO_ROOT/src/etc" "$SEED/etc"
 cp -R "$REPO_ROOT/src/usr/share/doc" "$SEED/doc"
 
+step "Staging the pairegistry into the bundle (paiman reads it via PAIMAN_REGISTRY at first run)"
+# Self-contained transport: a friend's fresh Mac has no git, no network promise,
+# no access to the public registry remote. Bundle the local checkout in and
+# point Provisioner's PAIMAN_REGISTRY at it. Hard-fail when absent — silently
+# shipping a registry-less .app is the same bug class as the silent dev fallback.
+PAIREGISTRY="${PAIREGISTRY:-$HOME/Projects/pairegistry}"
+if [ -d "$PAIREGISTRY" ]; then
+    cp -R "$PAIREGISTRY" "$SEED/registry"
+    rm -rf "$SEED/registry/.git"
+else
+    echo "bundle-runtime.sh: pairegistry not found at $PAIREGISTRY" >&2
+    exit 1
+fi
+
 step "Bundling system binaries the kernel shells out to (tmux, CoreLocationCLI)"
 # A Finder-launched, distributed app can't assume Homebrew. Vendor the two
 # binaries the kernel needs onto PATH (KernelLauncher prepends runtime/bin).

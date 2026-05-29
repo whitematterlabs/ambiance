@@ -5,14 +5,22 @@ thread per request, which is all an SSE stream needs (it blocks on its mailbox).
 The browser→kernel direction is plain POST; the kernel→browser direction is a
 single long-lived Server-Sent Events stream fed by `hub.Hub`.
 
-Run:  python -m usr.libexec.web.pai_web            # serves built frontend at http://127.0.0.1:8787
-      python -m usr.libexec.web.pai_web --port N   # custom port
+Run:  python -m usr.libexec.web.pai_web                       # TCP at http://127.0.0.1:8787 (browser)
+      python -m usr.libexec.web.pai_web --port N              # custom port
+      python -m usr.libexec.web.pai_web --unix-socket PATH    # in-house (PAI.app via WKWebView)
 In dev, run Vite (`pnpm dev`) and let it proxy /api to this server.
+
+The unix-socket mode is what the macOS app uses: WKWebView speaks a custom
+`pai://` URL scheme whose handler proxies HTTP over the socket. No loopback
+TCP listener, so ngrok-tunneled remote (a separate, opt-in TCP listener) and
+the local owner surface are two distinct paths.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
+import socket
 from email import policy
 from email.parser import BytesParser
 import json
@@ -160,7 +168,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": True, **actions.stop_kernel()})
                 raise ValueError(f"unknown kernel action: {action}")
             if path == "/api/tts":
-                return self._tts(str(body["text"]))
+                voice_id = body.get("voice_id")
+                speed = body.get("speed")
+                return self._tts(
+                    str(body["text"]),
+                    voice_id=str(voice_id) if voice_id else None,
+                    speed=float(speed) if speed is not None else None,
+                )
         except (KeyError, ValueError) as e:
             return self._json({"ok": False, "error": str(e)}, status=400)
         except Exception as e:  # noqa: BLE001
@@ -223,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
         return audio, filename, audio_content_type, fields
 
     # -- text-to-speech (voice mode) --
-    def _tts(self, text: str):
+    def _tts(self, text: str, *, voice_id: str | None = None, speed: float | None = None):
         """Proxy text → mp3 bytes via actions.synthesize_speech (ElevenLabs).
 
         Keeps the API key server-side. A missing key is a config problem (400);
@@ -234,7 +248,7 @@ class Handler(BaseHTTPRequestHandler):
         if not text:
             return self._json({"ok": False, "error": "empty text"}, status=400)
         try:
-            audio = actions.synthesize_speech(text)
+            audio = actions.synthesize_speech(text, voice_id=voice_id, speed=speed)
         except RuntimeError as e:  # missing key / config
             return self._json({"ok": False, "error": str(e)}, status=400)
         except Exception as e:  # noqa: BLE001 — upstream / network
@@ -291,23 +305,72 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def run(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = False) -> None:
+class ThreadingUnixHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer over AF_UNIX, for the in-app `pai://` surface.
+
+    BaseHTTPServer is AF_INET by default; flip the address_family and let it
+    bind the socket path like a regular `(host, port)` tuple. `server_bind`
+    sets server_name/server_port for logging (which we silence anyway).
+    """
+
+    address_family = socket.AF_UNIX
+
+    def server_bind(self) -> None:
+        # Hardcode a sensible (host, port) for logging since unix sockets
+        # don't have either. Skip the AF_INET-specific getsockname unpack.
+        socket.socket.bind(self.socket, self.server_address)
+        self.server_name = "unix"
+        self.server_port = 0
+
+
+def _bind_unix(server_address: str) -> ThreadingUnixHTTPServer:
+    path = Path(server_address)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Stale socket from a previous (crashed) run blocks bind with EADDRINUSE.
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    server = ThreadingUnixHTTPServer(str(path), Handler)
+    server.daemon_threads = True
+    # Owner-only: the socket is in $PAI_ROOT/run, but be defensive.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return server
+
+
+def run(
+    host: str = "127.0.0.1",
+    port: int = 8787,
+    open_browser: bool = False,
+    unix_socket: str | None = None,
+) -> None:
     """Attach to the running kernel and serve the web surface (blocking).
 
-    Called by `pai start --web` and by `python -m usr.libexec.web.pai_web`.
+    Called by `pai start --web` (TCP), by `python -m usr.libexec.web.pai_web`,
+    and by PAI.app's WebServerLauncher (unix-socket mode). When `unix_socket`
+    is set, `host`/`port`/`open_browser` are ignored.
     """
     HUB.start()
-    server = ThreadingHTTPServer((host, port), Handler)
-    server.daemon_threads = True
-    url = f"http://{host}:{port}"
-    print(f"PAI web surface attached → {url}", file=sys.stderr)
+    if unix_socket:
+        server = _bind_unix(unix_socket)
+        descriptor = f"unix:{unix_socket}"
+        url = None
+    else:
+        server = ThreadingHTTPServer((host, port), Handler)
+        server.daemon_threads = True
+        url = f"http://{host}:{port}"
+        descriptor = url
+    print(f"PAI web surface attached → {descriptor}", file=sys.stderr)
     if not (FRONTEND_DIST / "index.html").is_file():
         print(
             "  (frontend not built yet — run `pnpm install && pnpm build` in "
             f"{FRONTEND_DIST.parent})",
             file=sys.stderr,
         )
-    if open_browser:
+    if open_browser and url is not None:
         import threading
         import webbrowser
 
@@ -319,6 +382,11 @@ def run(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = False) -
     finally:
         HUB.stop()
         server.shutdown()
+        if unix_socket:
+            try:
+                Path(unix_socket).unlink()
+            except FileNotFoundError:
+                pass
 
 
 def main() -> None:
@@ -326,8 +394,18 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--open", action="store_true", help="open a browser tab")
+    parser.add_argument(
+        "--unix-socket",
+        default=None,
+        help="bind a unix-domain socket at this path instead of TCP",
+    )
     args = parser.parse_args()
-    run(host=args.host, port=args.port, open_browser=args.open)
+    run(
+        host=args.host,
+        port=args.port,
+        open_browser=args.open,
+        unix_socket=args.unix_socket,
+    )
 
 
 if __name__ == "__main__":

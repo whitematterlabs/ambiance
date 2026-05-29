@@ -51,6 +51,14 @@ export function App() {
   const [voiceEnabled, setVoiceEnabled] = useState(
     () => localStorage.getItem("voiceEnabled") === "true",
   );
+  const [voiceId, setVoiceId] = useState<string | null>(
+    () => localStorage.getItem("voiceId"),
+  );
+  const [voiceSpeed, setVoiceSpeed] = useState<number>(() => {
+    const raw = localStorage.getItem("voiceSpeed");
+    const n = raw ? parseFloat(raw) : NaN;
+    return Number.isFinite(n) ? n : 1.1;
+  });
 
   const activityState = useRef<ActivityState>(initialActivity());
   const activePidRef = useRef<number | null>(null);
@@ -60,8 +68,14 @@ export function App() {
   const voiceEnabledRef = useRef(voiceEnabled);
   const lastSpokenLen = useRef<Record<number, number>>({});
   const pendingCloneSlug = useRef<string | null>(null);
+  const voiceBackend = useRef<ElevenLabsBackend | null>(null);
+  if (voiceBackend.current === null) voiceBackend.current = new ElevenLabsBackend();
   const voiceQueue = useRef<SpeechQueue | null>(null);
-  if (voiceQueue.current === null) voiceQueue.current = new SpeechQueue(new ElevenLabsBackend());
+  if (voiceQueue.current === null) voiceQueue.current = new SpeechQueue(voiceBackend.current);
+  // Apply current prefs to the backend on every render — cheap, and keeps the
+  // next utterance honest after the user tweaks the dialog mid-session.
+  voiceBackend.current.voiceId = voiceId;
+  voiceBackend.current.speed = voiceSpeed;
   // Route TTS failures (missing key, ElevenLabs 4xx/5xx, playback blocked) to
   // the status bar — otherwise voice mode looks like a no-op when it errors.
   voiceQueue.current.setErrorReporter((msg) => setStatus(msg));
@@ -108,6 +122,14 @@ export function App() {
   // messages arriving *after* enable (or after a tab switch) are ever spoken —
   // the existing backlog and reconnect snapshots stay silent. Disabling stops
   // playback and drops anything queued.
+  useEffect(() => {
+    if (voiceId === null) localStorage.removeItem("voiceId");
+    else localStorage.setItem("voiceId", voiceId);
+  }, [voiceId]);
+  useEffect(() => {
+    localStorage.setItem("voiceSpeed", String(voiceSpeed));
+  }, [voiceSpeed]);
+
   useEffect(() => {
     localStorage.setItem("voiceEnabled", String(voiceEnabled));
     const queue = voiceQueue.current!;
@@ -416,6 +438,10 @@ export function App() {
         onToggleKernel={handleToggleKernel}
         voiceEnabled={voiceEnabled}
         onToggleVoice={() => setVoiceEnabled((v) => !v)}
+        voiceId={voiceId}
+        voiceSpeed={voiceSpeed}
+        onVoiceIdChange={setVoiceId}
+        onVoiceSpeedChange={setVoiceSpeed}
       />
       <FleetTabs
         fleet={fleet}

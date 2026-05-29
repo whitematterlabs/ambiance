@@ -9,7 +9,6 @@ runtime shim.
 from __future__ import annotations
 
 import argparse
-import ast
 import base64
 import csv
 from dataclasses import dataclass
@@ -21,7 +20,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
 
 
@@ -448,60 +446,6 @@ def build_wheel(paths: Paths, runner: Runner) -> Path:
     return wheels[0]
 
 
-FALLBACK_DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
-
-
-def _is_registry_url(value: str) -> bool:
-    return (
-        value.startswith(("http://", "https://", "git+", "git@"))
-        or value.startswith("github.com/")
-        or value.startswith("gitlab.com/")
-    )
-
-
-def _clone_registry(url: str, into: Path) -> Path:
-    if "@" in url and not url.startswith("git@"):
-        url, ref = url.rsplit("@", 1)
-    else:
-        ref = None
-    if url.startswith(("github.com/", "gitlab.com/")):
-        url = "https://" + url
-    cmd = ["git", "clone", "--depth", "1"]
-    if ref:
-        cmd += ["--branch", ref]
-    cmd += [url, str(into)]
-    subprocess.run(cmd, check=True)
-    return into
-
-
-def _paiman_default_registry(repo: Path) -> str:
-    paiman = repo / "src" / "bin" / "paiman.py"
-    try:
-        tree = ast.parse(paiman.read_text(encoding="utf-8"))
-    except OSError:
-        return FALLBACK_DEFAULT_REGISTRY
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == "DEFAULT_REGISTRY" for t in node.targets):
-            continue
-        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-            return node.value.value
-    return FALLBACK_DEFAULT_REGISTRY
-
-
-def _registry_root(repo: Path, work: Path) -> Path:
-    loc = os.environ.get("PAIMAN_REGISTRY", _paiman_default_registry(repo))
-    if _is_registry_url(loc):
-        return _clone_registry(loc, work / "registry")
-    root = Path(loc).expanduser()
-    if not root.is_dir():
-        raise SystemExit(
-            f"paibuild: registry {loc!r} is not a directory or URL"
-        )
-    return root.resolve()
-
-
 def _registry_has_package(root: Path, typed_name: str) -> bool:
     candidate = root / typed_name
     if (candidate / "package.yaml").is_file():
@@ -532,18 +476,19 @@ def validate_registry(paths: Paths) -> None:
         + [f"bin/{n}" for n in paifs_init.KERNEL_SEED_BINS]
         + [f"pais/{n}" for n in paifs_init.KERNEL_SEED_PAIS]
     )
-    missing: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="paibuild-registry-") as td:
-        registry = _registry_root(paths.repo, Path(td))
-        for name in required:
-            if not _registry_has_package(registry, name):
-                missing.append(name)
+    registry = paths.app_seed / "registry"
+    if not registry.is_dir():
+        raise SystemExit(
+            f"paibuild: staged registry missing at {registry}; "
+            "rebuild with --full to restage from ~/Projects/pairegistry."
+        )
+    missing = [n for n in required if not _registry_has_package(registry, n)]
     if missing:
         joined = ", ".join(missing)
         raise SystemExit(
-            "paibuild: required first-run package(s) missing from paiman "
-            f"registry: {joined}\n"
-            "Fix the registry or rerun with --skip-registry-check for a local-only build."
+            "paibuild: required first-run package(s) missing from the bundled "
+            f"pairegistry copy: {joined}\n"
+            "Fix ~/Projects/pairegistry and rerun, or use --skip-registry-check."
         )
 
 
@@ -674,9 +619,6 @@ class Builder:
 
         self.paths.build_dir.mkdir(parents=True, exist_ok=True)
 
-        if plan.registry_check:
-            validate_registry(self.paths)
-
         if plan.web_deps:
             self.runner.run(["pnpm", "install", "--frozen-lockfile"], cwd=self.paths.web_dir)
         if plan.web:
@@ -699,6 +641,9 @@ class Builder:
 
         if plan.full_runtime:
             self.runner.run([str(self.paths.macos / "bundle-runtime.sh"), str(self.paths.final_app)])
+
+        if plan.registry_check:
+            validate_registry(self.paths)
 
         if plan.python_package:
             wheel = build_wheel(self.paths, self.runner)

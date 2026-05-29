@@ -4,6 +4,26 @@
 // SpeechBackend and constructing the queue with it — the queue, the toggle, and
 // the watermark logic in App.tsx never change.
 
+// Curated subset of the ElevenLabs public voice library. The dialog in Header
+// shows these; users with ELEVENLABS_VOICE_ID set in .env can still hit "Server
+// default" to ignore the per-session pick.
+export interface VoiceOption {
+  id: string;
+  name: string;
+  blurb: string;
+}
+
+export const VOICE_OPTIONS: VoiceOption[] = [
+  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", blurb: "Calm, warm narrator" },
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", blurb: "Soft, friendly" },
+  { id: "AZnzlk1HvdvWOWPv4f5WU", name: "Domi", blurb: "Confident, upbeat" },
+  { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", blurb: "Young, expressive" },
+  { id: "ErXwobaYiN019PkySvjV", name: "Antoni", blurb: "Well-rounded male" },
+  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam", blurb: "Deep, grounded" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", blurb: "Casual, conversational" },
+  { id: "VR6AewLTigWG4xSOukaG", name: "Arnold", blurb: "Crisp, authoritative" },
+];
+
 export interface SpeechBackend {
   speak(text: string): Promise<void>; // resolves when audio finishes
   cancel(): void; // stop current + drop in-flight
@@ -20,6 +40,10 @@ export class ElevenLabsBackend implements SpeechBackend {
   private audio: HTMLAudioElement;
   private currentUrl: string | null = null;
   onError: SpeechErrorReporter | null = null;
+  // Per-session voice + speed; the dialog in Header mutates these directly.
+  // `null` voiceId means "let the server pick" (env / built-in default).
+  voiceId: string | null = null;
+  speed: number = 1.1;
 
   constructor() {
     this.audio = new Audio();
@@ -36,7 +60,11 @@ export class ElevenLabsBackend implements SpeechBackend {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          ...(this.voiceId ? { voice_id: this.voiceId } : {}),
+          speed: this.speed,
+        }),
       });
       if (!res.ok) {
         let detail = `${res.status}`;

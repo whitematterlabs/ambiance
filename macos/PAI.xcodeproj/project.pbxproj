@@ -19,6 +19,7 @@
 		593487ED90C8BD43EF6B69CC /* EventEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36EF8AE7F9A68B10A06442FC /* EventEmitter.swift */; };
 		5D42E64CA357B37F764AA2D5 /* ProcRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D85F1FF2DB97979E4E697D /* ProcRegistry.swift */; };
 		6DB460B754AF40F8C2DCCF4C /* EventsTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 042B4919C6BF3CFE242CF7C3 /* EventsTailer.swift */; };
+		71C03D0948AC9F7A12E1D89E /* WebWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855A47E2410C1DCCF97E802C /* WebWindowController.swift */; };
 		7B185D434C18056EF38AD85D /* TabStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 972D6D438622F5A4DD0898B6 /* TabStrip.swift */; };
 		7BCAF608DF9A7B1753B84EBE /* ActivityWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6039086C086533FEF3139A11 /* ActivityWindow.swift */; };
 		7F1E5D4A38EE2D2C2EC5255A /* PythonRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3E538EBB5C60C580DC7E20C /* PythonRuntime.swift */; };
@@ -26,11 +27,13 @@
 		89D4C0CAC7ABB51E69514F29 /* SetupCapabilitiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7453997CCA167B7C272DCFF /* SetupCapabilitiesView.swift */; };
 		8DBF70B74B6D3FE84EAB88A3 /* Provisioner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 150B88D8DF0AFB6A8F885F6E /* Provisioner.swift */; };
 		94909948343104E95BB8A510 /* LoginItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34A6FAE0D4648A5F4102E2D /* LoginItem.swift */; };
+		A04532BA796DDEF9BC747276 /* PAIWebScheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 167C2E844973D8975D01ADEC /* PAIWebScheme.swift */; };
 		A7299AFAC321750622816D0C /* SetupWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A105A63E20FFF151CA2CA3E /* SetupWindow.swift */; };
 		B5E82FBDCBF12BC6FC0D745E /* CapabilityCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0337FDF1ED7B6DBF0CAE84 /* CapabilityCatalog.swift */; };
 		C04B168B151900F1EE78D66E /* PAICloner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C32B6D5EF99A48635EAD0279 /* PAICloner.swift */; };
 		DB884594DB3856ECEF2AEC11 /* ChatWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC2E636B61658A6BF1DCF7B /* ChatWindow.swift */; };
 		DC41FA16FAAC34F52F78F30C /* NotifyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9D23CED2263E7D4CCDB9B4 /* NotifyWatcher.swift */; };
+		E64333CB7EC5EE2F82C02467 /* WebServerLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9C53F46634EF85A9E7693B /* WebServerLauncher.swift */; };
 		EFF2C3622E9EE1DBFCBD970D /* KernelLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E291E049F3295B307FC85DC4 /* KernelLog.swift */; };
 		F587DE7D9792637CF6C3032E /* EventStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D5B987F9C78208BDBF095C /* EventStripView.swift */; };
 		FF729026BAE19ABC56B66133 /* Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 437C49783C16ABCC26EC3E26 /* Sidebar.swift */; };
@@ -40,6 +43,7 @@
 		042B4919C6BF3CFE242CF7C3 /* EventsTailer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventsTailer.swift; sourceTree = "<group>"; };
 		0BB510A1063503AB18C16DB3 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		150B88D8DF0AFB6A8F885F6E /* Provisioner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provisioner.swift; sourceTree = "<group>"; };
+		167C2E844973D8975D01ADEC /* PAIWebScheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAIWebScheme.swift; sourceTree = "<group>"; };
 		343A7347B600768299E838FE /* FHS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FHS.swift; sourceTree = "<group>"; };
 		34FA2F0E59DBEE4E74C48788 /* PAIRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAIRegistry.swift; sourceTree = "<group>"; };
 		36EF8AE7F9A68B10A06442FC /* EventEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventEmitter.swift; sourceTree = "<group>"; };
@@ -49,6 +53,7 @@
 		6039086C086533FEF3139A11 /* ActivityWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindow.swift; sourceTree = "<group>"; };
 		622839EAF633DA59D7081C86 /* PAI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PAI.entitlements; sourceTree = "<group>"; };
 		6A105A63E20FFF151CA2CA3E /* SetupWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWindow.swift; sourceTree = "<group>"; };
+		855A47E2410C1DCCF97E802C /* WebWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebWindowController.swift; sourceTree = "<group>"; };
 		972D6D438622F5A4DD0898B6 /* TabStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStrip.swift; sourceTree = "<group>"; };
 		9B9E2253F1D467674F24E9D3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		AD071A206A28EBA9798DE3C9 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
@@ -59,6 +64,7 @@
 		C32B6D5EF99A48635EAD0279 /* PAICloner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAICloner.swift; sourceTree = "<group>"; };
 		C8D5B987F9C78208BDBF095C /* EventStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStripView.swift; sourceTree = "<group>"; };
 		CD9D23CED2263E7D4CCDB9B4 /* NotifyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifyWatcher.swift; sourceTree = "<group>"; };
+		CF9C53F46634EF85A9E7693B /* WebServerLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebServerLauncher.swift; sourceTree = "<group>"; };
 		D4D85F1FF2DB97979E4E697D /* ProcRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcRegistry.swift; sourceTree = "<group>"; };
 		DB28C180D43558F148D0FC88 /* ProcsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcsWindow.swift; sourceTree = "<group>"; };
 		DFA8E8899F8DE9912FC607AF /* KernelLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelLauncher.swift; sourceTree = "<group>"; };
@@ -89,9 +95,12 @@
 				E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */,
 				C32B6D5EF99A48635EAD0279 /* PAICloner.swift */,
 				34FA2F0E59DBEE4E74C48788 /* PAIRegistry.swift */,
+				167C2E844973D8975D01ADEC /* PAIWebScheme.swift */,
 				D4D85F1FF2DB97979E4E697D /* ProcRegistry.swift */,
 				150B88D8DF0AFB6A8F885F6E /* Provisioner.swift */,
 				E3E538EBB5C60C580DC7E20C /* PythonRuntime.swift */,
+				CF9C53F46634EF85A9E7693B /* WebServerLauncher.swift */,
+				855A47E2410C1DCCF97E802C /* WebWindowController.swift */,
 				EB51D1286162F5E5B1A295F7 /* Views */,
 			);
 			path = PAI;
@@ -217,6 +226,7 @@
 				1CA19E1A2FAB6E085B119D9C /* PAIApp.swift in Sources */,
 				C04B168B151900F1EE78D66E /* PAICloner.swift in Sources */,
 				27FC35165F6852F29DE2B890 /* PAIRegistry.swift in Sources */,
+				A04532BA796DDEF9BC747276 /* PAIWebScheme.swift in Sources */,
 				5D42E64CA357B37F764AA2D5 /* ProcRegistry.swift in Sources */,
 				2FC79050F12EA67782BEB383 /* ProcsWindow.swift in Sources */,
 				8DBF70B74B6D3FE84EAB88A3 /* Provisioner.swift in Sources */,
@@ -226,6 +236,8 @@
 				FF729026BAE19ABC56B66133 /* Sidebar.swift in Sources */,
 				1B2F064B043ADC66FA06A03A /* StatusBar.swift in Sources */,
 				7B185D434C18056EF38AD85D /* TabStrip.swift in Sources */,
+				E64333CB7EC5EE2F82C02467 /* WebServerLauncher.swift in Sources */,
+				71C03D0948AC9F7A12E1D89E /* WebWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

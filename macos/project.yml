@@ -60,6 +60,21 @@ targets:
         CFBundleIconName: AppIcon
         NSHumanReadableCopyright: ""
         NSUserNotificationsUsageDescription: "PAI posts a notification when one of your PAIs finishes a turn."
+        # TCC prompts. These keys make macOS surface the consent dialog the
+        # first time the kernel (running as the embedded python signed under
+        # this bundle's identity) hits each service. Without the key the call
+        # is silently denied and no prompt is ever shown. Full Disk Access and
+        # Accessibility are user-toggle services and don't key off a string.
+        NSContactsUsageDescription: "PAI reads your contacts so it can recognise people you mention by name and address messages on your behalf."
+        NSCalendarsFullAccessUsageDescription: "PAI reads and writes calendar events so it can answer questions about your schedule and add events you ask it to."
+        NSRemindersFullAccessUsageDescription: "PAI reads and writes reminders so it can manage tasks you ask it to track."
+        NSMicrophoneUsageDescription: "PAI listens to the microphone when you start a voice conversation with it."
+        NSLocationWhenInUseUsageDescription: "PAI uses your location so it can answer questions that depend on where you are (weather, nearby places, travel time)."
+        NSAppleEventsUsageDescription: "PAI controls Messages, Mail, Calendar, and System Events so it can send messages and create events on your behalf."
+        NSDesktopFolderUsageDescription: "PAI reads files from your Desktop when you ask it to work with them."
+        NSDocumentsFolderUsageDescription: "PAI reads files from your Documents folder when you ask it to work with them."
+        NSDownloadsFolderUsageDescription: "PAI reads files from your Downloads folder when you ask it to work with them."
+        NSSystemAdministrationUsageDescription: "PAI runs system-administration scripts on your behalf when you ask it to change system settings."
         # macOS 14+ scenes-based lifecycle.
         NSPrincipalClass: NSApplication
     settings:

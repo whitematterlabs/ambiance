@@ -5,11 +5,11 @@ import Combine
 /// KernelLauncher's "the app owns a python child" model: it runs the embedded
 /// interpreter's `bin.paifs_init --bundle-mode --seed <Resources/seed>` to lay
 /// out the FHS, copy the bundled seed content, generate tool shims at the
-/// embedded python, and clone+seed the public package registry.
+/// embedded python, and seed kernel-essential packages from the bundled
+/// pairegistry copy at `Resources/seed/registry/` (PAIMAN_REGISTRY points at it).
 ///
-/// Precondition for the registry step: `git` + network on first run (paiman
-/// clones the public registry). A failure surfaces as `lastError` in the
-/// setup window, with a Retry.
+/// No `git` or network needed on first run — the registry ships with the app.
+/// A failure surfaces as `lastError` in the setup window, with a Retry.
 ///
 /// Dev builds (no bundled runtime) never provision here — a repo checkout +
 /// `paifs-init` already laid out `~/.pai`.
@@ -90,8 +90,12 @@ final class Provisioner: ObservableObject {
             // namespace resolves via PYTHONPATH=usr/lib (mirrors KernelLauncher).
             // On a clean root usr/lib is empty until paiman seeds it — harmless.
             env["PYTHONPATH"] = FHS.root.appendingPathComponent("usr/lib").path
-            // paiman shells out to `git` to clone the public registry. A
-            // Finder-launched app inherits no shell PATH, so add the usual bins.
+            // Point paiman at the bundled pairegistry copy. paiman.py treats a
+            // local-path value as `Path(loc).expanduser()` and skips the clone,
+            // so no git + no network is required on first run.
+            env["PAIMAN_REGISTRY"] = seed.appendingPathComponent("registry").path
+            // A Finder-launched app inherits no shell PATH; add the usual bins
+            // so any subprocesses paiman/paifs_init shell out to resolve.
             let extra = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
             if let existing = env["PATH"], !existing.isEmpty {
                 env["PATH"] = extra + ":" + existing
