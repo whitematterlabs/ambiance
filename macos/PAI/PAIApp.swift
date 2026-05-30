@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let notifier = NotifyWatcher()
     private let events = EventsTailer()
     private let provisioner = Provisioner()
+    private let modelSetup = ModelSetup()
     private let loginItem = LoginItem()
     private let capabilities = CapabilityCatalog()
     private let webLauncher = WebServerLauncher()
@@ -44,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
     private var webWindow: WebWindowController?
     private var setupWindow: NSWindow?
+    private var modelSetupWindow: NSWindow?
     private var capabilitiesWindow: NSWindow?
     private var iconSubscription: AnyCancellable?
 
@@ -59,12 +61,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // bundled runtime) report needsProvisioning == false and skip straight
         // to the normal app.
         if provisioner.needsProvisioning {
-            runFirstRunProvisioning()
+            // Before laying out the FHS, ask which model to boot on and for its
+            // API key (install.sh's interactive prompts, as a GUI step). Skip
+            // it when a provider key is already reachable — that provider then
+            // becomes the seed default. PAI can't run without a key, so this
+            // gates provisioning on a clean install.
+            if modelSetup.needsSetup {
+                runModelSetup()
+            } else {
+                modelSetup.selected = modelSetup.skipDefault
+                runFirstRunProvisioning()
+            }
         } else {
             // Plain launch of an already-set-up root: come up to the menubar
             // without popping the window (matches the original behavior).
             continueAfterProvisioning(activate: false)
         }
+    }
+
+    /// First-run model/provider picker + API-key entry. On continue we tear the
+    /// window down and move on to provisioning, which seeds config.yaml on the
+    /// chosen provider; the key is written to `~/.pai/.env` after the FHS exists.
+    private func runModelSetup() {
+        let view = ModelSetupView(setup: modelSetup) { [weak self] in
+            guard let self else { return }
+            self.modelSetupWindow?.orderOut(nil)
+            self.modelSetupWindow = nil
+            self.runFirstRunProvisioning()
+        }
+        let hosting = NSHostingController(rootView: view)
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "PAI Setup"
+        win.titlebarAppearsTransparent = true
+        win.isReleasedWhenClosed = false
+        win.contentViewController = hosting
+        win.center()
+        modelSetupWindow = win
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
     }
 
     /// Once the root is provisioned (confirmed or freshly laid out), run the
@@ -136,8 +175,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func startProvisioning() {
         Task { @MainActor in
-            await provisioner.provision()
+            await provisioner.provision(
+                provider: modelSetup.selected.id, model: modelSetup.selected.model
+            )
             guard provisioner.lastError == nil else { return }  // Retry stays available.
+            // FHS now exists → persist the chosen provider's key (no-op if the
+            // user skipped or a key was already reachable).
+            modelSetup.commitKey()
             setupWindow?.orderOut(nil)
             setupWindow = nil
             // Freshly provisioned → run the first-run capability picker (then

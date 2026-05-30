@@ -735,7 +735,13 @@ def main() -> int:
     if args.bundle_mode:
         # GUI launch: no uv, no TTY. Lay out, seed, mark — that's all the app
         # needs. No expose_pai_command / paisetup chaining (no shell, no TTY).
-        lay_out(args.root, bundle_mode=True, seed=args.seed)
+        # The .app's model-setup screen passes the owner's provider/model the
+        # same way install.sh does, so the seed config.yaml boots on the model
+        # they picked (and only that provider's key is needed). Ignored once
+        # config.yaml exists.
+        lay_out(args.root, bundle_mode=True, seed=args.seed,
+                default_provider=args.default_provider,
+                default_model=args.default_model)
         print(f"FHS skeleton ready at {args.root} (bundle mode)")
         return 0
     _ensure_uv()

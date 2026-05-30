@@ -26,10 +26,30 @@
 	<true/>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>PAI controls Messages, Mail, Calendar, and System Events so it can send messages and create events on your behalf.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>PAI reads and writes calendar events so it can answer questions about your schedule and add events you ask it to.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>PAI reads your contacts so it can recognise people you mention by name and address messages on your behalf.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>PAI reads files from your Desktop when you ask it to work with them.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>PAI reads files from your Documents folder when you ask it to work with them.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>PAI reads files from your Downloads folder when you ask it to work with them.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>PAI uses your location so it can answer questions that depend on where you are (weather, nearby places, travel time).</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>PAI listens to the microphone when you start a voice conversation with it.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>PAI reads and writes reminders so it can manage tasks you ask it to track.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>PAI runs system-administration scripts on your behalf when you ask it to change system settings.</string>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>PAI posts a notification when one of your PAIs finishes a turn.</string>
 </dict>

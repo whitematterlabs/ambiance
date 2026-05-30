@@ -56,7 +56,12 @@ final class Provisioner: ObservableObject {
 
     /// Run `paifs_init --bundle-mode`, streaming output into `log`. Sets
     /// `lastError` on failure (leaving the setup window up for a Retry).
-    func provision() async {
+    ///
+    /// `provider`/`model` (when the owner picked one on the model-setup screen)
+    /// are forwarded as `--default-provider`/`--default-model` so the seed
+    /// config.yaml boots the fleet on that model. Nil ⇒ paifs_init's own
+    /// deepseek default, matching a non-interactive install.
+    func provision(provider: String? = nil, model: String? = nil) async {
         guard let py = bundledPython, let seed = seedDir else {
             lastError = "no bundled runtime — cannot provision"
             return
@@ -65,7 +70,9 @@ final class Provisioner: ObservableObject {
         lastError = nil
         log = ""
 
-        let result = await Self.run(python: py, seed: seed) { [weak self] chunk in
+        let result = await Self.run(
+            python: py, seed: seed, provider: provider, model: model
+        ) { [weak self] chunk in
             Task { @MainActor in self?.log += chunk }
         }
         inProgress = false
@@ -75,14 +82,19 @@ final class Provisioner: ObservableObject {
     /// Returns nil on success, an error string on failure. Off the main actor;
     /// pipes merged stdout+stderr through `onOutput`.
     nonisolated private static func run(
-        python: URL, seed: URL, onOutput: @escaping @Sendable (String) -> Void
+        python: URL, seed: URL, provider: String?, model: String?,
+        onOutput: @escaping @Sendable (String) -> Void
     ) async -> String? {
         await withCheckedContinuation { continuation in
             let proc = Process()
             proc.executableURL = python
-            proc.arguments = [
+            var argv = [
                 "-u", "-m", "bin.paifs_init", "--bundle-mode", "--seed", seed.path,
             ]
+            if let provider, let model {
+                argv += ["--default-provider", provider, "--default-model", model]
+            }
+            proc.arguments = argv
             var env = ProcessInfo.processInfo.environment
             env["PAI_ROOT"] = FHS.root.path
             env["PYTHONDONTWRITEBYTECODE"] = "1"
