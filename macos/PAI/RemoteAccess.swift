@@ -14,6 +14,7 @@ import SwiftUI
 final class RemoteAccess: ObservableObject {
     enum Phase: Equatable {
         case off
+        case needsAuth   // toggled on, but ngrok has no authtoken yet
         case starting
         case ready
         case failed(String)
@@ -46,7 +47,19 @@ final class RemoteAccess: ObservableObject {
     }
 
     private func enable() {
-        guard case .off = phase else { return }
+        // Already on or coming up — nothing to do. (Re-entrant from .needsAuth
+        // once the user supplies a token, and from .failed on retry.)
+        switch phase {
+        case .starting, .ready: return
+        default: break
+        }
+        // Pre-flight: ngrok needs a one-time authtoken. Surface the in-app setup
+        // (first-run, or the panel's token field) instead of failing into the
+        // tunnel and reporting it after the fact.
+        guard Ngrok.isConfigured() else {
+            phase = .needsAuth
+            return
+        }
         let code = Self.mintCode()
         accessCode = code
         publicURL = nil

@@ -23,23 +23,6 @@ final class TunnelLauncher: ObservableObject {
         FHS.root.appendingPathComponent("var/log/kernel/ngrok.log")
     }
 
-    /// Bundled ngrok (`Contents/Resources/runtime/bin/ngrok`) if present;
-    /// otherwise resolve `ngrok` on the inherited PATH (dev fallback).
-    private func resolveExecutable() -> (URL, [String])? {
-        if let res = Bundle.main.resourceURL {
-            let bundled = res.appendingPathComponent("runtime/bin/ngrok")
-            if FileManager.default.isExecutableFile(atPath: bundled.path) {
-                return (bundled, [])
-            }
-        }
-        // Dev: defer to PATH resolution via env(1).
-        let env = URL(fileURLWithPath: "/usr/bin/env")
-        if FileManager.default.isExecutableFile(atPath: env.path) {
-            return (env, ["ngrok"])
-        }
-        return nil
-    }
-
     /// Spawn `ngrok http <port>` (loopback target). Returns immediately; the
     /// public URL is read asynchronously via `fetchPublicURL()`.
     func start(port: Int) {
@@ -47,7 +30,7 @@ final class TunnelLauncher: ObservableObject {
         lastError = nil
         publicURL = nil
 
-        guard let (exe, prefixArgs) = resolveExecutable() else {
+        guard let (exe, prefixArgs) = Ngrok.resolveExecutable() else {
             lastError = "ngrok not found — bundle it (paibuild) or install it on PATH"
             return
         }

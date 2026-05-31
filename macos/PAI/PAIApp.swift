@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let events = EventsTailer()
     private let provisioner = Provisioner()
     private let modelSetup = ModelSetup()
+    private let ngrokSetup = NgrokSetup()
     private let loginItem = LoginItem()
     private let capabilities = CapabilityCatalog()
     private let webLauncher = WebServerLauncher()
@@ -47,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var webWindow: WebWindowController?
     private var setupWindow: NSWindow?
     private var modelSetupWindow: NSWindow?
+    private var ngrokSetupWindow: NSWindow?
     private var capabilitiesWindow: NSWindow?
     private var iconSubscription: AnyCancellable?
 
@@ -116,9 +118,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if capabilities.needsSetup {
             runCapabilitySetup(firstRun: true)
         } else {
+            proceedAfterCapabilities(activate: activate)
+        }
+    }
+
+    /// Last first-run gate before the app proper: offer the optional ngrok
+    /// authtoken step so remote access works later without a terminal trip.
+    /// Skipped on dev builds and once the user has answered it once.
+    private func proceedAfterCapabilities(activate: Bool) {
+        if ngrokSetup.needsFirstRunSetup {
+            runNgrokSetup(activate: activate)
+        } else {
             startNormalSurfaces()
             if activate { activateWindow() }
         }
+    }
+
+    /// Optional first-run remote-access step. Save or "Set up later" both tear
+    /// the window down and continue into the app; saving stores the authtoken
+    /// via ngrok so the StatusBar toggle works immediately.
+    private func runNgrokSetup(activate: Bool) {
+        let proceed: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.ngrokSetup.markAsked()
+            self.ngrokSetupWindow?.orderOut(nil)
+            self.ngrokSetupWindow = nil
+            self.startNormalSurfaces()
+            if activate { self.activateWindow() }
+        }
+        let view = NgrokSetupView(
+            setup: ngrokSetup, onSaved: proceed, onSkip: proceed
+        )
+        let hosting = NSHostingController(rootView: view)
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 300),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "PAI Setup"
+        win.titlebarAppearsTransparent = true
+        win.isReleasedWhenClosed = false
+        win.contentViewController = hosting
+        win.center()
+        ngrokSetupWindow = win
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
     }
 
     /// Stand up the menubar item, web window, watchers, and FDA prompt. Called
@@ -201,8 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.capabilitiesWindow?.orderOut(nil)
             self.capabilitiesWindow = nil
             if firstRun {
-                self.startNormalSurfaces()
-                self.activateWindow()
+                self.proceedAfterCapabilities(activate: true)
             }
         }
         let hosting = NSHostingController(rootView: view)

@@ -11,13 +11,32 @@ struct RemoteAccessPanel: View {
     @ObservedObject var remote: RemoteAccess
     var onClose: () -> Void
 
+    // Token-entry shown when remote is toggled on without ngrok configured.
+    @StateObject private var ngrok = NgrokSetup()
+
     var body: some View {
+        // `.needsAuth` is self-contained (it carries its own Save / Set-up-later
+        // footer), so it renders without the panel chrome.
+        if case .needsAuth = remote.phase {
+            NgrokSetupView(
+                setup: ngrok,
+                compact: true,
+                onSaved: { remote.toggle(true) },          // configured → retry
+                onSkip: { remote.toggle(false); onClose() }  // leave it off
+            )
+            .padding(22)
+        } else {
+            chrome
+        }
+    }
+
+    private var chrome: some View {
         VStack(spacing: 16) {
             Text("Remote access")
                 .font(.headline)
 
             switch remote.phase {
-            case .starting, .off:
+            case .starting, .off, .needsAuth:
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("Starting remote access…")

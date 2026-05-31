@@ -18,6 +18,8 @@
 		306ABBF195E9CDC92A8529F6 /* MarkdownBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAD2CD4C1D5B4BFAE4641B54 /* MarkdownBlocks.swift */; };
 		359778CC1E2A47D61AEF1D56 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 59BDD3A38FBE33C4DCCAD8E8 /* Assets.xcassets */; };
 		431498F7B1E7FBF2EAA65587 /* TunnelLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C59553451FD83A772D48E31 /* TunnelLauncher.swift */; };
+		456AC2C6C0C6444265A6A653 /* Ngrok.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40C581A86ACC5A95B99651C /* Ngrok.swift */; };
+		520AC545BA7EBCA0E0EACF3D /* NgrokSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFCFE1EE3EAE758C48413DD /* NgrokSetup.swift */; };
 		54621AD6E5E9628775F42C3A /* ModelSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF76C1A1214B07F635AE034 /* ModelSetupView.swift */; };
 		593487ED90C8BD43EF6B69CC /* EventEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36EF8AE7F9A68B10A06442FC /* EventEmitter.swift */; };
 		5D42E64CA357B37F764AA2D5 /* ProcRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D85F1FF2DB97979E4E697D /* ProcRegistry.swift */; };
@@ -36,6 +38,7 @@
 		AB6D3450F7163AABD41227B8 /* RemoteAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532ED0CF29E96D619F4540B6 /* RemoteAccess.swift */; };
 		B5E82FBDCBF12BC6FC0D745E /* CapabilityCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0337FDF1ED7B6DBF0CAE84 /* CapabilityCatalog.swift */; };
 		C04B168B151900F1EE78D66E /* PAICloner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C32B6D5EF99A48635EAD0279 /* PAICloner.swift */; };
+		C1A0C27FC0FB85E64215D35E /* NgrokSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF463274EFB171651D09BF4 /* NgrokSetupView.swift */; };
 		DB884594DB3856ECEF2AEC11 /* ChatWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC2E636B61658A6BF1DCF7B /* ChatWindow.swift */; };
 		DC41FA16FAAC34F52F78F30C /* NotifyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9D23CED2263E7D4CCDB9B4 /* NotifyWatcher.swift */; };
 		E154618589743FFD1BAB9055 /* ModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B605791E10BC7EAAFFEB7A7C /* ModelSetup.swift */; };
@@ -50,6 +53,7 @@
 		0BB510A1063503AB18C16DB3 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		150B88D8DF0AFB6A8F885F6E /* Provisioner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provisioner.swift; sourceTree = "<group>"; };
 		167C2E844973D8975D01ADEC /* PAIWebScheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAIWebScheme.swift; sourceTree = "<group>"; };
+		1BFCFE1EE3EAE758C48413DD /* NgrokSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NgrokSetup.swift; sourceTree = "<group>"; };
 		343A7347B600768299E838FE /* FHS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FHS.swift; sourceTree = "<group>"; };
 		34FA2F0E59DBEE4E74C48788 /* PAIRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PAIRegistry.swift; sourceTree = "<group>"; };
 		36EF8AE7F9A68B10A06442FC /* EventEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventEmitter.swift; sourceTree = "<group>"; };
@@ -77,6 +81,7 @@
 		C8D5B987F9C78208BDBF095C /* EventStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStripView.swift; sourceTree = "<group>"; };
 		CD9D23CED2263E7D4CCDB9B4 /* NotifyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifyWatcher.swift; sourceTree = "<group>"; };
 		CF9C53F46634EF85A9E7693B /* WebServerLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebServerLauncher.swift; sourceTree = "<group>"; };
+		D40C581A86ACC5A95B99651C /* Ngrok.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ngrok.swift; sourceTree = "<group>"; };
 		D4D85F1FF2DB97979E4E697D /* ProcRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcRegistry.swift; sourceTree = "<group>"; };
 		DB28C180D43558F148D0FC88 /* ProcsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcsWindow.swift; sourceTree = "<group>"; };
 		DFA8E8899F8DE9912FC607AF /* KernelLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelLauncher.swift; sourceTree = "<group>"; };
@@ -84,6 +89,7 @@
 		E291E049F3295B307FC85DC4 /* KernelLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelLog.swift; sourceTree = "<group>"; };
 		E3E538EBB5C60C580DC7E20C /* PythonRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonRuntime.swift; sourceTree = "<group>"; };
 		E676ECCEA481352A1C5E6803 /* PAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ECF463274EFB171651D09BF4 /* NgrokSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NgrokSetupView.swift; sourceTree = "<group>"; };
 		F0C24334DA7FBB9885019A42 /* DayFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayFile.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -103,6 +109,8 @@
 				E291E049F3295B307FC85DC4 /* KernelLog.swift */,
 				B34A6FAE0D4648A5F4102E2D /* LoginItem.swift */,
 				B605791E10BC7EAAFFEB7A7C /* ModelSetup.swift */,
+				D40C581A86ACC5A95B99651C /* Ngrok.swift */,
+				1BFCFE1EE3EAE758C48413DD /* NgrokSetup.swift */,
 				CD9D23CED2263E7D4CCDB9B4 /* NotifyWatcher.swift */,
 				622839EAF633DA59D7081C86 /* PAI.entitlements */,
 				E1D4A05FEF4CC9BEBB0EE858 /* PAIApp.swift */,
@@ -146,6 +154,7 @@
 				C8D5B987F9C78208BDBF095C /* EventStripView.swift */,
 				BAD2CD4C1D5B4BFAE4641B54 /* MarkdownBlocks.swift */,
 				4CF76C1A1214B07F635AE034 /* ModelSetupView.swift */,
+				ECF463274EFB171651D09BF4 /* NgrokSetupView.swift */,
 				DB28C180D43558F148D0FC88 /* ProcsWindow.swift */,
 				8977DFC7498A8BE35244B1B4 /* RemoteAccessPanel.swift */,
 				B7453997CCA167B7C272DCFF /* SetupCapabilitiesView.swift */,
@@ -242,6 +251,9 @@
 				306ABBF195E9CDC92A8529F6 /* MarkdownBlocks.swift in Sources */,
 				E154618589743FFD1BAB9055 /* ModelSetup.swift in Sources */,
 				54621AD6E5E9628775F42C3A /* ModelSetupView.swift in Sources */,
+				456AC2C6C0C6444265A6A653 /* Ngrok.swift in Sources */,
+				520AC545BA7EBCA0E0EACF3D /* NgrokSetup.swift in Sources */,
+				C1A0C27FC0FB85E64215D35E /* NgrokSetupView.swift in Sources */,
 				DC41FA16FAAC34F52F78F30C /* NotifyWatcher.swift in Sources */,
 				1CA19E1A2FAB6E085B119D9C /* PAIApp.swift in Sources */,
 				C04B168B151900F1EE78D66E /* PAICloner.swift in Sources */,
