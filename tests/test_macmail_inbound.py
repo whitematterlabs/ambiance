@@ -242,6 +242,53 @@ def test_drain_live_already_written_rows_are_not_emitted(monkeypatch):
     assert new_last == 10
 
 
+def test_index_access_reports_denied_not_absent(monkeypatch):
+    """A TCC denial (EPERM) must be classified 'denied', not masked as
+    'absent'. `Path.exists()` returns False under a Full Disk Access denial,
+    which used to make a permission wall look like a missing mailbox and idle
+    the driver with the wrong message."""
+    # Permission denied → 'denied'
+    def _eperm(path, flags):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(inbound.os, "open", _eperm)
+    assert inbound._index_access() == "denied"
+
+    # Genuinely missing → 'absent'
+    def _enoent(path, flags):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(inbound.os, "open", _enoent)
+    assert inbound._index_access() == "absent"
+
+    # Readable → 'ok', and the probe fd is closed.
+    closed: list[int] = []
+    monkeypatch.setattr(inbound.os, "open", lambda path, flags: 4242)
+    monkeypatch.setattr(inbound.os, "close", lambda fd: closed.append(fd))
+    assert inbound._index_access() == "ok"
+    assert closed == [4242]
+
+
+def test_run_surfaces_fda_hint_on_denied_access(monkeypatch, capsys):
+    """When the Mail store is unreadable, run() prints an actionable Full Disk
+    Access hint and exits cleanly — without the old "not found" mislabel and
+    without proceeding into account discovery (which would hit the same wall)."""
+    monkeypatch.setattr(inbound, "_index_access", lambda: "denied")
+
+    def _must_not_run(*a, **k):
+        raise AssertionError("run() must bail before account discovery")
+
+    monkeypatch.setattr(inbound.A, "refresh", _must_not_run)
+
+    import asyncio
+
+    asyncio.run(inbound.run())
+
+    out = capsys.readouterr().out
+    assert "Full Disk Access" in out
+    assert "not found" not in out
+
+
 def test_drain_catchup_checkpoints_before_returning(monkeypatch):
     """The boot-time backlog event is followed immediately by a cursor
     save, so a crash after the emit can't trigger a re-announce next boot."""
