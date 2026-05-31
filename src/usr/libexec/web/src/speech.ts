@@ -24,6 +24,8 @@ export const VOICE_OPTIONS: VoiceOption[] = [
   { id: "VR6AewLTigWG4xSOukaG", name: "Arnold", blurb: "Crisp, authoritative" },
 ];
 
+import { authHeaders } from "./auth";
+
 export interface SpeechBackend {
   speak(text: string): Promise<void>; // resolves when audio finishes
   cancel(): void; // stop current + drop in-flight
@@ -59,7 +61,7 @@ export class ElevenLabsBackend implements SpeechBackend {
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           text,
           ...(this.voiceId ? { voice_id: this.voiceId } : {}),

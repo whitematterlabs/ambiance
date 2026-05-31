@@ -1773,6 +1773,82 @@ button {
   font-style: italic;
 }
 
+/* ---------- Login gate (remote access "password" path) ---------- */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  background: rgba(43, 41, 38, 0.5);
+  backdrop-filter: blur(6px);
+  z-index: 200;
+  animation: fade-in 0.2s var(--ease) both;
+}
+
+.login-card {
+  width: 360px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 40px 90px -30px rgba(43, 41, 38, 0.55);
+  padding: 22px 20px;
+  animation: palette-in 0.32s var(--ease-out) both;
+}
+
+.login-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.login-copy {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.login-input {
+  width: 100%;
+  background: var(--surface-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 13px 14px;
+  font-size: 16px; /* >=16px so iOS Safari doesn't zoom on focus */
+  outline: none;
+}
+
+.login-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.login-button {
+  min-height: 44px;
+  background: var(--accent);
+  color: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.14s var(--ease);
+}
+
+.login-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar {
   width: 11px;

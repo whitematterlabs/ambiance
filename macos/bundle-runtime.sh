@@ -183,6 +183,16 @@ if [ -x "$TMUX" ]; then
 else
     echo "warning: tmux not found at $TMUX; PAI viewers will degrade gracefully" >&2
 fi
+# ngrok: the remote-access tunnel (opt-in "Enable remote access"). A standalone
+# Go binary that links only system frameworks — clean copy, no vendoring. Dev
+# builds fall back to `ngrok` on PATH (TunnelLauncher resolves via env(1)).
+NGROK="$(command -v ngrok || echo "$BREW_PREFIX/bin/ngrok")"
+if [ -x "$NGROK" ]; then
+    cp "$NGROK" "$RUNTIME/bin/ngrok"
+    chmod u+w "$RUNTIME/bin/ngrok"
+else
+    echo "warning: ngrok not found; remote access will be unavailable in this build" >&2
+fi
 
 step "Pruning bloat (caches, CPython test suite, unused stdlib)"
 find "$PYDIR" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true

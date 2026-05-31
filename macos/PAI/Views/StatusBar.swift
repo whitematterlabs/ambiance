@@ -8,7 +8,10 @@ struct StatusBar: View {
     @ObservedObject var registry: PAIRegistry
     @ObservedObject var launcher: KernelLauncher
     @ObservedObject var loginItem: LoginItem
+    @ObservedObject var remote: RemoteAccess
     let selection: AppSelection?
+
+    @State private var showRemotePanel = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -27,6 +30,9 @@ struct StatusBar: View {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.thinMaterial)
+        .sheet(isPresented: $showRemotePanel) {
+            RemoteAccessPanel(remote: remote) { showRemotePanel = false }
+        }
     }
 
     private var kernelMenu: some View {
@@ -47,6 +53,17 @@ struct StatusBar: View {
                 get: { loginItem.isEnabled },
                 set: { loginItem.setEnabled($0) }
             ))
+            Divider()
+            Toggle("Enable remote access", isOn: Binding(
+                get: { remote.isOn },
+                set: { on in
+                    remote.toggle(on)
+                    showRemotePanel = on  // pop the QR panel on enable
+                }
+            ))
+            if remote.isOn {
+                Button("Show access code…") { showRemotePanel = true }
+            }
         } label: {
             HStack(spacing: 5) {
                 Circle()

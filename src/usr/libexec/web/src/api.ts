@@ -1,21 +1,29 @@
 // Browser→backend writes. Chat actions mirror the TUI; kernel lifecycle is
 // handled through the web backend's explicit control endpoint.
 
+import { authHeaders, notifyUnauthorized } from "./auth";
+
 async function post(path: string, body: unknown): Promise<any> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   return readJson(res, path);
 }
 
 async function get(path: string): Promise<any> {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: authHeaders() });
   return readJson(res, path);
 }
 
 async function readJson(res: Response, path: string): Promise<any> {
+  if (res.status === 401) {
+    // Remote tunnel rejected us — surface the login overlay and let callers
+    // treat it as a soft failure (they fall back to local inference).
+    notifyUnauthorized();
+    throw new Error(`${path} returned 401 (unauthorized)`);
+  }
   const text = await res.text();
   if (!text.trim()) return {};
   try {
@@ -63,6 +71,7 @@ export async function transcribeAudio(audio: Blob): Promise<{
   form.append("audio", audio, `pai-voice.${extensionForAudio(audio.type)}`);
   const res = await fetch("/api/stt", {
     method: "POST",
+    headers: authHeaders(),
     body: form,
   });
   return readJson(res, "/api/stt");

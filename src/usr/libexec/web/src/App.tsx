@@ -12,6 +12,8 @@ import { ActivityEntry, ActivityState, ingest, initialActivity } from "./activit
 import { ElevenLabsBackend, SpeechQueue } from "./speech";
 import { deriveStatus } from "./status";
 import * as api from "./api";
+import { onUnauthorized, setAuthToken, withTokenParam } from "./auth";
+import { LoginGate } from "./components/LoginGate";
 import { Header } from "./components/Header";
 import { FleetTabs } from "./components/FleetTabs";
 import { ChatPane } from "./components/ChatPane";
@@ -43,6 +45,7 @@ export function App() {
   const [kernelBusy, setKernelBusy] = useState(false);
   const [cloningSlugs, setCloningSlugs] = useState<Set<string>>(() => new Set());
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [authNeeded, setAuthNeeded] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearMarkers, setClearMarkers] = useState<Record<number, string>>({});
   const [composerDraft, setComposerDraft] = useState<{ text: string; nonce: number } | null>(
@@ -118,6 +121,13 @@ export function App() {
     return () => window.clearInterval(id);
   }, [refreshKernel]);
 
+  // Remote tunnel rejected our token (or we have none): pop the login overlay.
+  // Any /api/* 401 routes here via api.ts → auth.notifyUnauthorized.
+  useEffect(() => {
+    onUnauthorized(() => setAuthNeeded(true));
+    return () => onUnauthorized(null);
+  }, []);
+
   // Voice mode: persist the toggle, and watermark the active thread so only
   // messages arriving *after* enable (or after a tab switch) are ever spoken —
   // the existing backlog and reconnect snapshots stay silent. Disabling stops
@@ -171,7 +181,7 @@ export function App() {
 
   // --- SSE stream (kernel → browser) ---
   useEffect(() => {
-    const es = new EventSource("/api/stream");
+    const es = new EventSource(withTokenParam("/api/stream"));
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
     es.onmessage = (e) => {
@@ -514,6 +524,15 @@ export function App() {
           provider={provider}
           onPick={onPickProvider}
           onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {authNeeded && (
+        <LoginGate
+          onSubmit={(code) => {
+            setAuthToken(code);
+            // Reload so the SSE stream + every poll re-issue with the new token.
+            window.location.reload();
+          }}
         />
       )}
     </div>

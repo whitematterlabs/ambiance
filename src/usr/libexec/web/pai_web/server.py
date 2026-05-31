@@ -19,8 +19,10 @@ the local owner surface are two distinct paths.
 from __future__ import annotations
 
 import argparse
+import hmac
 import os
 import socket
+import urllib.parse
 from email import policy
 from email.parser import BytesParser
 import json
@@ -118,8 +120,45 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("request body too large")
         return self.rfile.read(length) if length else b""
 
+    # -- auth --
+    def _check_auth(self) -> bool:
+        """Whether this request may proceed.
+
+        Only the remote TCP instance sets `server.auth_token` (via PAI.app's
+        `--auth-token`); the local unix-socket surface and dev `pai start --web`
+        leave it `None` and stay unauthenticated. When a token is set, every
+        `/api/*` route requires it — except `/api/health` (so the tunnel can be
+        probed) and the static shell (so the page can load and then present the
+        token on its own API calls). The token arrives either as
+        `Authorization: Bearer <tok>` or, for the header-less SSE `EventSource`,
+        as a `?token=<tok>` query param. Compared constant-time.
+        """
+        token = getattr(getattr(self, "server", None), "auth_token", None)
+        if not token:
+            return True
+        path = self.path.split("?", 1)[0]
+        if not path.startswith("/api/") or path == "/api/health":
+            return True
+        presented = self._presented_token()
+        return presented is not None and hmac.compare_digest(presented, token)
+
+    def _presented_token(self) -> str | None:
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[len("Bearer "):].strip()
+        _, _, query = self.path.partition("?")
+        if query:
+            vals = urllib.parse.parse_qs(query).get("token")
+            if vals:
+                return vals[0]
+        return None
+
     # -- routing --
     def do_OPTIONS(self):
+        # CORS stays blanket `*` for MVP: the mobile surface is same-origin over
+        # the tunnel (the page and its /api/* calls share the ngrok host), so the
+        # wildcard isn't load-bearing for auth — the bearer token is. Tighten to
+        # the tunnel origin if cross-origin embedding ever becomes a concern.
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -127,6 +166,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if not self._check_auth():
+            return self._json({"ok": False, "error": "unauthorized"}, status=401)
         path = self.path.split("?", 1)[0]
         if path == "/api/stream":
             return self._stream()
@@ -139,6 +180,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._static(path)
 
     def do_POST(self):
+        if not self._check_auth():
+            return self._json({"ok": False, "error": "unauthorized"}, status=401)
         path = self.path.split("?", 1)[0]
         if path == "/api/stt":
             return self._stt()
@@ -346,12 +389,18 @@ def run(
     port: int = 8787,
     open_browser: bool = False,
     unix_socket: str | None = None,
+    auth_token: str | None = None,
 ) -> None:
     """Attach to the running kernel and serve the web surface (blocking).
 
     Called by `pai start --web` (TCP), by `python -m usr.libexec.web.pai_web`,
     and by PAI.app's WebServerLauncher (unix-socket mode). When `unix_socket`
     is set, `host`/`port`/`open_browser` are ignored.
+
+    `auth_token` is set only by PAI.app's remote (TCP, ngrok-tunneled) instance,
+    which puts `/api/*` on the public internet; the local unix-socket surface
+    and dev runs leave it `None`. The token is stashed on the server so each
+    Handler can read it via `self.server.auth_token` (see `_check_auth`).
     """
     HUB.start()
     if unix_socket:
@@ -363,6 +412,7 @@ def run(
         server.daemon_threads = True
         url = f"http://{host}:{port}"
         descriptor = url
+    server.auth_token = auth_token
     print(f"PAI web surface attached → {descriptor}", file=sys.stderr)
     if not (FRONTEND_DIST / "index.html").is_file():
         print(
@@ -399,12 +449,18 @@ def main() -> None:
         default=None,
         help="bind a unix-domain socket at this path instead of TCP",
     )
+    parser.add_argument(
+        "--auth-token",
+        default=None,
+        help="require this bearer token on /api/* (remote/tunneled TCP only)",
+    )
     args = parser.parse_args()
     run(
         host=args.host,
         port=args.port,
         open_browser=args.open,
         unix_socket=args.unix_socket,
+        auth_token=args.auth_token,
     )
 
 

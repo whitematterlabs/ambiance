@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let loginItem = LoginItem()
     private let capabilities = CapabilityCatalog()
     private let webLauncher = WebServerLauncher()
+    private let remoteAccess = RemoteAccess()
 
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
@@ -258,12 +259,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func hasFullDiskAccess() -> Bool {
-        let probe = ("~/Library/Safari/Bookmarks.plist" as NSString).expandingTildeInPath
+        // Probe the per-user TCC database: it exists on every macOS account and
+        // is itself gated behind Full Disk Access, so a successful read means
+        // FDA is granted and a failure means it isn't. The old probe read
+        // Safari bookmarks and treated ENOENT (file absent — e.g. Safari never
+        // run) as "granted" — a false-positive that silently skipped the prompt
+        // and left FDA-dependent drivers (mail, messages) failing with no nudge.
+        let probe = ("~/Library/Application Support/com.apple.TCC/TCC.db" as NSString).expandingTildeInPath
         let fd = open(probe, O_RDONLY)
         if fd >= 0 { close(fd); return true }
-        // ENOENT means the file just isn't there (e.g. Safari never run);
-        // that's not a TCC denial, so don't pester the user.
-        return errno == ENOENT
+        return false
     }
 
     private func activateWindow() {
@@ -278,6 +283,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // after.
     func applicationWillTerminate(_ notification: Notification) {
         launcher.terminateKernelSync()
+        // Take the public tunnel down before the local children it fronts.
+        remoteAccess.terminateSync()
         webLauncher.terminateSync()
     }
 
@@ -305,7 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func buildMainWindow() {
         let root = MainWindow(
             registry: registry, procs: procs, log: log, state: state,
-            cloner: cloner, launcher: launcher, events: events, loginItem: loginItem
+            cloner: cloner, launcher: launcher, events: events, loginItem: loginItem,
+            remote: remoteAccess
         )
         let hosting = NSHostingController(rootView: root)
         let win = NSWindow(
@@ -385,6 +393,7 @@ struct MainWindow: View {
     @ObservedObject var launcher: KernelLauncher
     @ObservedObject var events: EventsTailer
     @ObservedObject var loginItem: LoginItem
+    @ObservedObject var remote: RemoteAccess
 
     var body: some View {
         VStack(spacing: 0) {
@@ -398,7 +407,7 @@ struct MainWindow: View {
                     .frame(minWidth: 520, minHeight: 420)
             }
             Divider()
-            StatusBar(registry: registry, launcher: launcher, loginItem: loginItem, selection: state.selection)
+            StatusBar(registry: registry, launcher: launcher, loginItem: loginItem, remote: remote, selection: state.selection)
         }
         .navigationTitle(titleForSelection)
         .onAppear {
