@@ -64,20 +64,22 @@ Severity: P0 = system-breaking now, P1 = actively degrading, P2 = contained.
   from config + `paidel`. If multi-pai intended → give them distinct
   `wake_on`/routing so they don't all fire on every event.
 
-- [ ] **B2 (P1, HELD) — nightly librarian cron broken + orphan accumulation.**
-  Root cause confirmed: the cron's whole job is to put `librarian:consolidate`
-  on the event bus, but **no CLI emits a raw event** — `send-message` only
-  emits `pai_message` (needs `--to/--content/$PAI_PID`), so the canonical hook
-  command `bin/send_message emit librarian:consolidate` can never work
-  (`rc=127`/`rc=2`). The dated-suffix orphans (`-05-31/-06-01/-06-02`) come
-  from the PAI self-healing via `paicron start` (auto-appends a date) instead
-  of `ensure`.
-  **Decision (2026-06-06): schedule-only reminder-nudge.** Drop `--run` from
-  the canonical hook (pairegistry `pais/librarian-pai/package.yaml`); a
-  schedule-only cron with `--parent-slug librarian-pai` nudges the librarian
-  directly at 3 AM (reason "schedule fired", not "librarian:consolidate") — no
-  new kernel surface. Still need to: reap the orphan dated procs and confirm
-  the librarian prompt handles a generic schedule-fired wake.
+- [x] **B2 (P1) — nightly librarian cron broken + orphan accumulation — FIXED.**
+  Root cause: the cron's job is to put `librarian:consolidate` on the event
+  bus, but **no CLI emits a raw event** — `send-message` only emits
+  `pai_message` — so `bin/send_message emit librarian:consolidate` could never
+  work (`rc=127`/`rc=2`). Dated-suffix orphans came from `paicron start`
+  (auto-appends a date) instead of `ensure`.
+  Fix (schedule-only reminder-nudge, pairegistry `pais/librarian-pai/`):
+  dropped `--run` from the boot hook; a schedule-only cron with
+  `--parent-slug librarian-pai` nudges the librarian directly at 03:00
+  (reason "schedule fired") — no new kernel surface. Added a `--description`
+  carrying intent and updated `prompt.md` to treat a scheduled wake as the
+  nightly run. `ensure` keeps the slug stable so dated dupes won't recur.
+  Reaped the runtime orphan `/proc/librarian-nightly-2026-06-02` (its log
+  confirmed schedule-fired → nudge complete, validating the approach). The
+  stale `librarian-nightly` proc will be replaced by `ensure` on next boot
+  (spec now differs).
 
 - [x] **B4 — stale lifecycle state — CLOSED, non-issue.**
   `run/kernel.pid` is an flock lock (`boot/entry.py`); flock releases on death
