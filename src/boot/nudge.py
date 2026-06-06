@@ -191,6 +191,129 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     return True
 
 
+# Substrings that identify a provider "prompt exceeds the context window"
+# error. Matched against the stringified exception so it works across SDKs
+# (Anthropic BadRequestError, OpenAI-compatible 400, etc.) without importing
+# provider exception types into the kernel.
+_OVERFLOW_MARKERS = (
+    "maximum context",          # "maximum context length is N tokens"
+    "context length",
+    "context_length_exceeded",  # OpenAI-style error code
+    "prompt is too long",       # Anthropic-style
+    "input is too long",
+    "too many tokens",
+)
+
+# Substrings that identify a transient / systemic infrastructure failure
+# (network blip, provider timeout, rate limit, overload). These are NOT
+# actionable by root and, escalated per-failure, snowball into a nudge storm
+# against pid 1 — so we log them and stop rather than re-nudging root. Context
+# overflow counts as transient here too: we recover from it kernel-side, so
+# there's nothing for root to act on.
+_TRANSIENT_MARKERS = (
+    "connection error",
+    "timed out",
+    "timeout",
+    "rate limit",
+    "ratelimit",
+    "429",
+    "overloaded",
+    "503",
+    "502",
+    "temporarily unavailable",
+)
+
+
+def _is_context_overflow(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(m in msg for m in _OVERFLOW_MARKERS)
+
+
+def _is_transient(exc: BaseException) -> bool:
+    if _is_context_overflow(exc):
+        return True
+    msg = str(exc).lower()
+    return any(m in msg for m in _TRANSIENT_MARKERS)
+
+
+def _emergency_reset_history(pai_slug: str, history_path: Path) -> str:
+    """Kernel-side last resort when a turn overflows the provider's context
+    window: archive the oversized history and replace it with an empty
+    conversation so the next turn fits.
+
+    Unlike the soft `bin/compact` path, this needs no cooperation from the
+    model — it's what recovers a PAI whose context grew past the *hard* limit
+    because the model never actually compacted. Self-calibrates to the real
+    provider limit (it only fires on an observed overflow). Returns the archive
+    path (relative to PAI_ROOT) for logging."""
+    proc_dir = PROC_DIR / pai_slug
+    archive_dir = proc_dir / "history"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+    archive_path = archive_dir / f"{ts}-overflow.jsonl"
+    if history_path.exists():
+        shutil.copy(history_path, archive_path)
+    _save_history(history_path, [])
+    # Reset the token rollup so the soft-compaction threshold doesn't keep
+    # firing against the now-stale (pre-reset) window size.
+    tokens_path = proc_dir / "tokens"
+    if tokens_path.exists():
+        try:
+            data = json.loads(tokens_path.read_text())
+            data["last_window_tokens"] = 0
+            tokens_path.write_text(json.dumps(data))
+        except Exception:
+            pass
+    try:
+        return str(archive_path.relative_to(PROC_DIR.parent))
+    except ValueError:
+        return str(archive_path)
+
+
+async def _handle_turn_failure(
+    e: BaseException,
+    reason: str,
+    slug: Optional[str],
+    pai_pid: int,
+    pai_slug: str,
+    is_ephemeral: bool,
+) -> None:
+    print(f"[kernel] nudge failed: {e!r}", flush=True)
+    try:
+        append_log(pai_slug, f"nudge failed — {e!r}")
+    except ProcessNotFound:
+        pass
+    if slug and slug != pai_slug:
+        try:
+            append_log(slug, f"kernel: nudge failed — {e!r}")
+        except ProcessNotFound:
+            pass
+    if is_ephemeral:
+        try:
+            P.resolve(pai_slug, "failed")
+        except ProcessNotFound:
+            pass
+    # Surface genuine, actionable failures to root so it can decide what to do.
+    # Transient/systemic infrastructure errors (network blips, provider
+    # timeouts, rate limits, context overflow) are NOT actionable and,
+    # escalated per-failure, snowball into a nudge storm against pid 1 — so we
+    # log them and stop. Root itself failing has nowhere to escalate.
+    if pai_pid != 1 and not _is_transient(e):
+        await nudge(
+            reason="nudge failed",
+            slug=pai_slug,
+            context={
+                "target": pai_slug,
+                "target_pid": pai_pid,
+                "original_reason": reason,
+                "error": repr(e),
+            },
+            to=1,
+            from_=pai_pid,
+            from_kind="pai",
+        )
+
+
 async def nudge(
     reason: str,
     slug: Optional[str] = None,
@@ -384,67 +507,64 @@ async def _nudge_body(
         except ProcessNotFound:
             pass
 
-    try:
-        reply, new_history = await llm.run_turn(
-            system,
-            user,
-            history=history,
-            env=env,
-            provider=pai_spec.get("provider"),
-            model=pai_spec.get("model"),
-            set_status=_set_status,
-        )
-    except llm.TurnCancelled as c:
-        _save_history(history_path, c.messages)
-        print(f"[kernel] nudge interrupted (pai={pai_slug})", flush=True)
+    # Run the turn, with one kernel-side recovery retry if the provider
+    # rejects the prompt for exceeding its context window. The retry runs
+    # against a freshly reset history, so it fits.
+    reply = ""
+    new_history: Optional[list[dict]] = None
+    for attempt in range(2):
         try:
-            append_log(pai_slug, "nudge interrupted by owner")
-        except ProcessNotFound:
-            pass
-        if slug and slug != pai_slug:
-            try:
-                append_log(slug, "kernel: nudge interrupted")
-            except ProcessNotFound:
-                pass
-        if is_ephemeral:
-            try:
-                P.resolve(pai_slug, "cancelled")
-            except ProcessNotFound:
-                pass
-        return
-    except Exception as e:
-        print(f"[kernel] nudge failed: {e!r}", flush=True)
-        try:
-            append_log(pai_slug, f"nudge failed — {e!r}")
-        except ProcessNotFound:
-            pass
-        if slug and slug != pai_slug:
-            try:
-                append_log(slug, f"kernel: nudge failed — {e!r}")
-            except ProcessNotFound:
-                pass
-        if is_ephemeral:
-            try:
-                P.resolve(pai_slug, "failed")
-            except ProcessNotFound:
-                pass
-        # Surface the failure to root so it can decide what to do.
-        # Root itself failing has nowhere to escalate — just stop.
-        if pai_pid != 1:
-            await nudge(
-                reason="nudge failed",
-                slug=pai_slug,
-                context={
-                    "target": pai_slug,
-                    "target_pid": pai_pid,
-                    "original_reason": reason,
-                    "error": repr(e),
-                },
-                to=1,
-                from_=pai_pid,
-                from_kind="pai",
+            reply, new_history = await llm.run_turn(
+                system,
+                user,
+                history=history,
+                env=env,
+                provider=pai_spec.get("provider"),
+                model=pai_spec.get("model"),
+                set_status=_set_status,
             )
-        return
+            break
+        except llm.TurnCancelled as c:
+            _save_history(history_path, c.messages)
+            print(f"[kernel] nudge interrupted (pai={pai_slug})", flush=True)
+            try:
+                append_log(pai_slug, "nudge interrupted by owner")
+            except ProcessNotFound:
+                pass
+            if slug and slug != pai_slug:
+                try:
+                    append_log(slug, "kernel: nudge interrupted")
+                except ProcessNotFound:
+                    pass
+            if is_ephemeral:
+                try:
+                    P.resolve(pai_slug, "cancelled")
+                except ProcessNotFound:
+                    pass
+            return
+        except Exception as e:
+            # Context-window overflow: the soft compaction never took (the
+            # model didn't call bin/compact), history grew past the provider's
+            # hard limit, and every turn now 400s. Recover kernel-side on the
+            # first attempt — archive and reset the conversation so the retry
+            # fits — without waiting on the model.
+            if attempt == 0 and _is_context_overflow(e):
+                archived = _emergency_reset_history(pai_slug, history_path)
+                history = []
+                note = (
+                    f"kernel: context overflow — archived history to "
+                    f"{archived} and reset; retrying"
+                )
+                print(f"[kernel] nudge: pai={pai_slug} {note}", flush=True)
+                try:
+                    append_log(pai_slug, note)
+                except ProcessNotFound:
+                    pass
+                continue
+            await _handle_turn_failure(
+                e, reason, slug, pai_pid, pai_slug, is_ephemeral
+            )
+            return
 
     if debugger_cfg:
         try:

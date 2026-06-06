@@ -192,3 +192,127 @@ def test_concurrent_nudges_queue_behind_compaction(live_dir: Path) -> None:
     assert order[1] == "compact-end"
     # The cooldown prevents a second compaction for the queued nudge.
     assert order[2:] == ["first", "second"]
+
+
+# --- Hard-limit recovery: when the model never compacted and history blew
+# --- past the provider's context window, the kernel resets it itself.
+
+
+def _patch_run_turn(fake):
+    import boot.llm as L
+    orig = L.run_turn
+    L.run_turn = fake  # type: ignore[assignment]
+    return L, orig
+
+
+def test_context_overflow_archives_resets_and_retries(live_dir: Path) -> None:
+    _spawn("omega", pid=30)
+    history_path = _write_history("omega", 6)
+    proc_dir = P.HOME_DIR / "proc" / "omega"
+
+    seen_history_lens: list[int] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        seen_history_lens.append(len(history or []))
+        if len(seen_history_lens) == 1:
+            # Provider rejects the oversized prompt (Anthropic/OpenAI shape).
+            raise RuntimeError(
+                "Error code: 400 - this model's maximum context length is "
+                "1048565 tokens. However, you requested 1051452 tokens."
+            )
+        return ("recovered", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "recovered"},
+        ])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=30, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    # First attempt saw the full history; retry saw a reset (empty) history.
+    assert seen_history_lens == [6, 0]
+    # The oversized history was archived under an -overflow tag.
+    archives = list((proc_dir / "history").glob("*-overflow.jsonl"))
+    assert len(archives) == 1
+    archived = [json.loads(ln) for ln in archives[0].read_text().splitlines() if ln.strip()]
+    assert len(archived) == 6
+    # Live history is the recovered turn only (reset + the successful retry).
+    live = [json.loads(ln) for ln in history_path.read_text().splitlines() if ln.strip()]
+    assert len(live) == 2
+    assert live[-1]["content"] == "recovered"
+
+
+def test_overflow_retry_failure_does_not_escalate_to_root(live_dir: Path) -> None:
+    # If even the reset retry fails, the failure must NOT be escalated to root
+    # (overflow is transient/self-handled — escalating snowballs into a storm).
+    _spawn("root", pid=1)
+    _spawn("worker", pid=31)
+    _write_history("worker", 4)
+
+    seen_pids: list[str] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        seen_pids.append((env or {}).get("PAI_PID"))
+        raise RuntimeError("maximum context length exceeded")
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=31, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    # Worker tried twice (initial + reset retry); root was never nudged.
+    assert seen_pids == ["31", "31"]
+    assert "1" not in seen_pids
+
+
+def test_transient_error_not_escalated_to_root(live_dir: Path) -> None:
+    _spawn("root", pid=1)
+    _spawn("worker", pid=32)
+    _write_history("worker", 2)
+
+    seen_pids: list[str] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        pid = (env or {}).get("PAI_PID")
+        seen_pids.append(pid)
+        if pid == "32":
+            raise RuntimeError("Connection error.")
+        return ("ok", [{"role": "assistant", "content": "ok"}])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=32, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    # A network blip is logged and dropped — root is never woken.
+    assert seen_pids == ["32"]
+    assert "1" not in seen_pids
+
+
+def test_genuine_error_still_escalates_to_root(live_dir: Path) -> None:
+    _spawn("root", pid=1)
+    _spawn("worker", pid=33)
+    _write_history("worker", 2)
+
+    seen_pids: list[str] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        pid = (env or {}).get("PAI_PID")
+        seen_pids.append(pid)
+        if pid == "33":
+            raise RuntimeError("KeyError: 'unexpected_field'")
+        return ("ok", [{"role": "assistant", "content": "ok"}])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=33, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    # A genuine, actionable bug IS surfaced to root (pid 1 gets nudged).
+    assert "33" in seen_pids
+    assert "1" in seen_pids
