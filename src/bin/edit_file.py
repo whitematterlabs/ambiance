@@ -15,15 +15,18 @@ import tempfile
 from pathlib import Path
 
 
-def _read_input(name: str, file_arg: str | None, stdin_flag: bool) -> str:
-    if file_arg and stdin_flag:
-        print(f"error: --{name}-file and --{name}-stdin are mutually exclusive", file=sys.stderr)
+def _read_input(name: str, str_arg: str | None, file_arg: str | None, stdin_flag: bool) -> str:
+    sources = [s for s in (str_arg is not None, bool(file_arg), stdin_flag) if s]
+    if len(sources) > 1:
+        print(f"error: --{name} / --{name}-file / --{name}-stdin are mutually exclusive", file=sys.stderr)
         raise SystemExit(5)
+    if str_arg is not None:
+        return str_arg
     if file_arg:
         return Path(file_arg).read_text()
     if stdin_flag:
         return sys.stdin.read()
-    print(f"error: must pass one of --{name}-file or --{name}-stdin", file=sys.stderr)
+    print(f"error: must pass one of --{name} / --{name}-file / --{name}-stdin", file=sys.stderr)
     raise SystemExit(5)
 
 
@@ -33,8 +36,10 @@ def main(argv: list[str] | None = None) -> int:
         description="Atomic exact-string file edit. Symlinks are resolved and the target is edited.",
     )
     p.add_argument("path", help="file to edit (symlinks resolved)")
+    p.add_argument("--old", help="literal old string (for short edits; for multi-line use --old-file/--old-stdin)")
     p.add_argument("--old-file", help="read old string from this file")
     p.add_argument("--old-stdin", action="store_true", help="read old string from stdin")
+    p.add_argument("--new", help="literal new string")
     p.add_argument("--new-file", help="read new string from this file")
     p.add_argument("--new-stdin", action="store_true", help="read new string from stdin")
     p.add_argument(
@@ -54,8 +59,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        old = _read_input("old", args.old_file, args.old_stdin)
-        new = _read_input("new", args.new_file, args.new_stdin)
+        old = _read_input("old", args.old, args.old_file, args.old_stdin)
+        new = _read_input("new", args.new, args.new_file, args.new_stdin)
     except SystemExit as e:
         return int(e.code) if isinstance(e.code, int) else 5
 
