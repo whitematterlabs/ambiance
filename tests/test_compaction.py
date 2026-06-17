@@ -289,7 +289,8 @@ def test_transient_error_not_escalated_to_root(live_dir: Path) -> None:
         L.run_turn = orig  # type: ignore[assignment]
 
     # A network blip is logged and dropped — root is never woken.
-    assert seen_pids == ["32"]
+    # The kernel retries once (two attempts total), then gives up silently.
+    assert seen_pids == ["32", "32"]
     assert "1" not in seen_pids
 
 

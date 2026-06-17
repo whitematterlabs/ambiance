@@ -223,6 +223,11 @@ _TRANSIENT_MARKERS = (
     "temporarily unavailable",
 )
 
+# Brief backoff before the kernel retries a turn that hit a transient provider
+# error (timeout / dropped connection / 429 / 5xx), so the retry doesn't slam a
+# still-recovering upstream. One retry only — see the nudge() loop.
+_TRANSIENT_RETRY_DELAY = 2.0
+
 
 def _is_context_overflow(exc: BaseException) -> bool:
     msg = str(exc).lower()
@@ -568,6 +573,15 @@ async def _nudge_body(
                     append_log(pai_slug, note)
                 except ProcessNotFound:
                     pass
+                continue
+            if attempt == 0 and _is_transient(e):
+                note = f"kernel: transient provider error, retrying once — {e!r}"
+                print(f"[kernel] nudge: pai={pai_slug} {note}", flush=True)
+                try:
+                    append_log(pai_slug, note)
+                except ProcessNotFound:
+                    pass
+                await asyncio.sleep(_TRANSIENT_RETRY_DELAY)
                 continue
             await _handle_turn_failure(
                 e, reason, slug, pai_pid, pai_slug, is_ephemeral
