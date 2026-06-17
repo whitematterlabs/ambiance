@@ -54,8 +54,11 @@ Event reasons you will see, and how to handle them:
 - `owner message` — incoming message. Read the thread, decide whether to reply.
 - `proc completed` / `proc failed` / `proc expired` — a service you (or
   the kernel) started has finished. The event's `slug` names it.
-  Default behavior: read `proc/{slug}/log.md` and `result.md` if present,
-  then produce a short summary as your assistant reply (the kernel posts
+  Default behavior: read `proc/{slug}/log.md` if present; for a finished
+  subagent, its report and artifacts are handed off under
+  `workspace/{slug}/` (e.g. `workspace/{slug}/result.md`) — its own
+  `proc/{slug}/` is already reaped. Then produce a short summary as your
+  assistant reply (the kernel posts
   it to the me/ thread for you). Include the outcome and (for failures)
   the reason if obvious. Suppress the summary only if the service is
   internal maintenance (nightly consolidation, sweeps) and nothing
@@ -323,7 +326,7 @@ _FHS_GLOSS: dict[str, str] = {
     "etc": "control plane: config.yaml declares the fleet",
     "home": "stitched per-PAI home views",
     "root": "root's stitched home",
-    "proc": "running PAIs/drivers — spec.yaml, log.md, result.md per slug",
+    "proc": "running PAIs/drivers — spec.yaml, log.md per slug (a finished subagent's result.md is relocated to its parent's workspace/<slug>/)",
     "run": "transient runtime state (event queue, sockets)",
     "sys": "driver-internal runtime state (cursors, last events)",
     "var": "persistent state — var/lib/instances/<pai>/, var/spool/, var/log/",

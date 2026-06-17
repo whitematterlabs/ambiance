@@ -500,6 +500,14 @@ async def _nudge_body(
         "PAI_PID": str(pai_pid),
         "PAI_PARENT": parent_str or "",
     }
+    # Subagents hand durable artifacts back through the parent's home, which
+    # outlives the child's reaped /proc/<slug>/. Expose the path so prompts
+    # can name it.
+    if parent_pid is not None:
+        try:
+            env["PAI_PARENT_HOME"] = str(stitch.home_for(P.find_pai_slug(parent_pid)))
+        except ProcessNotFound:
+            pass
 
     def _set_status(reason: str) -> None:
         try:

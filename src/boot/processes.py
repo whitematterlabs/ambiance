@@ -162,6 +162,27 @@ def resolve(slug: str, new_status: str) -> None:
                 tab_file.write_text(yaml.safe_dump(data, sort_keys=False))
         except Exception as e:
             print(f"[kernel] browse-tab orphan mark failed for {slug}: {e!r}", flush=True)
+        # Hand the subagent's durable artifact to its parent before we reap
+        # /proc/<slug>/. `result.md` is the documented handoff file (see
+        # bootstrap.py), but it lives in the proc dir we're about to delete —
+        # so the parent's `proc completed` nudge would otherwise find it
+        # already gone (the bug that motivated this). Relocate it into the
+        # parent's workspace, where it outlives the child, under
+        # workspace/<slug>/. This is the safety net for subagents that wrote
+        # result.md into /proc out of habit; the prompts also steer them to
+        # write here directly.
+        try:
+            parent_pid = spec.get("parent")
+            result_md = proc / "result.md"
+            if parent_pid is not None and result_md.is_file():
+                parent_slug = find_pai_slug(int(parent_pid))
+                # Parent's home/workspace symlinks to its durable instance
+                # workspace, so this lands outside the reaped proc dir.
+                dest_dir = HOME_DIR / parent_slug / "workspace" / slug
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(result_md, dest_dir / "result.md")
+        except Exception as e:
+            print(f"[kernel] handoff: result.md relocate failed for {slug}: {e!r}", flush=True)
         shutil.rmtree(proc, ignore_errors=True)
 
 

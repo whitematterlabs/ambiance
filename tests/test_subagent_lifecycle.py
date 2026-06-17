@@ -338,3 +338,44 @@ def test_reply_requires_parent_env(live_dir: Path, monkeypatch: pytest.MonkeyPat
     rc = sub_bin.main(["reply", "--content", "no one to reply to"])
     assert rc == 1
     assert not list(P.EVENTS_DIR.iterdir())
+
+
+def test_result_md_relocated_to_parent_on_reap(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A subagent's report (result.md) lives in its /proc/<slug>/, which is
+    # reaped on resolve. The kernel relocates it into the parent's durable
+    # workspace first, so the parent's `proc completed` nudge can read it.
+    P.spawn_pai(pid=2, slug="pai", description="parent")
+    monkeypatch.setenv("PAI_PID", "2")
+    sub_bin.main(["spawn", "--slug", "scout", "--prompt", "find: x"])
+    [child_slug] = [s for s in P.list_procs() if s.startswith("scout-")]
+
+    # Subagent wrote its report into its own (ephemeral) proc dir.
+    (P.PROC_DIR / child_slug / "result.md").write_text("answer: see foo.py:42\n")
+
+    # Resolve → reap.
+    P.resolve(child_slug, "completed")
+    assert child_slug not in P.list_procs()
+    assert not (P.PROC_DIR / child_slug).exists()
+
+    # result.md survived in the parent's workspace.
+    handoff = P.HOME_DIR / "pai" / "workspace" / child_slug / "result.md"
+    assert handoff.is_file()
+    assert "foo.py:42" in handoff.read_text()
+
+
+def test_reap_without_result_md_is_clean(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A subagent that wrote no result.md reaps cleanly — no handoff dir,
+    # no error.
+    P.spawn_pai(pid=2, slug="pai", description="parent")
+    monkeypatch.setenv("PAI_PID", "2")
+    sub_bin.main(["spawn", "--slug", "scout", "--prompt", "find: x"])
+    [child_slug] = [s for s in P.list_procs() if s.startswith("scout-")]
+
+    P.resolve(child_slug, "completed")
+    assert child_slug not in P.list_procs()
+    handoff_dir = P.HOME_DIR / "pai" / "workspace" / child_slug
+    assert not handoff_dir.exists()
