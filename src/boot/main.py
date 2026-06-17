@@ -106,8 +106,8 @@ async def _handle_timer(entry: T.TimerEntry, heap: list[T.TimerEntry]) -> None:
     except P.ProcessNotFound:
         return
 
-    if status != "running":
-        return  # stale timer; process was resolved
+    if status not in P.ACTIVE_STATUSES:
+        return  # stale timer; process was resolved (an armed cron is `scheduled`)
 
     pai = int(spec.get("parent", 1))
     schedule = spec.get("schedule")
@@ -1017,9 +1017,11 @@ async def run() -> None:
         watcher.stop()
         try:
             remaining = P.list_procs(status_filter="running")
-            # Cron services (have schedule:) outlive kernel restarts by
-            # design — leave them running so rebuild_from_proc re-arms
-            # the timer on next boot.
+            # Armed timers already rest at `scheduled`, so they're not in the
+            # `running` set and survive this sweep untouched (rebuild_from_proc
+            # re-arms them on next boot). The only `running` proc that still
+            # carries a `schedule:` is a one-shot service mid-fire — keep it
+            # running so its restart policy applies on resume.
             survivors = []
             for slug in remaining:
                 try:

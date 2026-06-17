@@ -27,7 +27,7 @@ The v3 FHS migration is complete. Source of truth for layout is
 
 ## Runtime bugs — triage 2026-06-06
 
-Found by log/proc forensics while the kernel was down (stale pidfile, see B5).
+Found by log/proc forensics while the kernel was down (stale pidfile, see B4).
 Mail and subagent-reporting issues are tracked separately and excluded here.
 Severity: P0 = system-breaking now, P1 = actively degrading, P2 = contained.
 
@@ -54,15 +54,16 @@ Severity: P0 = system-breaking now, P1 = actively degrading, P2 = contained.
   (c) coalesce/backpressure so nudges don't stack to 30. Confirm in
   `src/boot/nudge.py` (already in working tree).
 
-- [ ] **B1 (P1) — triplicate identical `pai` instances amplify load 3×.**
-  Symptom: `config.yaml` declares `pai`, `pai-2`, `pai-3` — all `active`, all
-  `deepseek-v4-pro`, all "owner-facing catch-all for unclaimed events." Every
-  unclaimed event nudges all three → 3× nudges + context growth feeding B0.
-  Suspected cause: leftover experiment; three catch-alls with identical
-  `wake_on`.
-  Fix needs: decide intended fleet. If single catch-all → remove pai-2/pai-3
-  from config + `paidel`. If multi-pai intended → give them distinct
-  `wake_on`/routing so they don't all fire on every event.
+- [x] **B1 (P1) — clones amplified load by auto-inheriting wakes — FIXED.**
+  Root cause: `paiclone.plan_clone` shallow-copied the source entry, dragging
+  `wake_on` along — so `pai-2`/`pai-3` (clones of `pai`) inherited the
+  catch-all subscription and every unclaimed event nudged all three. Fix:
+  clones no longer inherit wakes — `plan_clone` drops `wake_on`, so a fresh
+  clone is inert until the owner assigns it routing explicitly. Covers both
+  surfaces (CLI `paiclone` + web "clone" button, both via `paiclone.clone`).
+  Test `test_web_clone.py` flipped to assert no inherited `wake_on`.
+  (Cleaning up the existing pai-2/pai-3 entries is owner action: `paidel`
+  them, or give them distinct `wake_on` if multi-pai is intended.)
 
 - [x] **B2 (P1) — nightly librarian cron broken + orphan accumulation — FIXED.**
   Root cause: the cron's job is to put `librarian:consolidate` on the event
@@ -102,12 +103,24 @@ Severity: P0 = system-breaking now, P1 = actively degrading, P2 = contained.
   considering: split the driver's lightweight pip deps into a paiman-managed
   manifest so a venv rebuild doesn't silently drop them.
 
-- [ ] **B4 (P2) — stale lifecycle state on shutdown.**
-  Symptom: `run/kernel.pid` = 3439 (dead) — stale pidfile not cleared on
-  SIGTERM; `librarian-nightly` + orphan still report `status: running` while
-  the kernel is down.
-  Fix needs: liveness-check/clear stale pidfile on boot; on shutdown reconcile
-  non-cron statuses to stopped; distinguish "preserved cron" from "running."
+- [x] **B4 (P2) — stale lifecycle state on shutdown — FIXED.**
+  Three sub-points, all resolved:
+  (1) *Stale pidfile* — non-issue (see the closed B4 above): `run/kernel.pid`
+  is an flock lock; liveness uses the lock, not the file contents.
+  (2) *Reconcile non-cron statuses to stopped on shutdown* — already done by
+  the shutdown sweep (`main.py`), verified live (root/pais → `stopped`,
+  drivers → `cancelled`).
+  (3) *Distinguish "preserved cron" from "running"* — DONE. Armed timers
+  (cron/deadline/one-shot) now rest at a new `scheduled` status instead of
+  masquerading as `running`. `scheduled` joins `running` as the kernel's
+  *active* set; re-arm (`timers.rebuild_from_proc`), fire (`_handle_timer`),
+  proc-watcher heap sync, and the shutdown sweep all key off the active set,
+  not `running` alone. Initial status is computed from the spec
+  (`processes.is_timer`); a deferred one-shot service flips `scheduled`→
+  `running` when the supervisor starts it. Surfaces (TUI/web) enumerate via
+  `list_active_procs()` so resting crons stay visible. `paicron`'s existing
+  `scheduled` half-stub is now actually produced. Tests in
+  `tests/test_cron_status.py`; docs in `KERNEL.md`.
 
 ## Deferred
 

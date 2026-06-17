@@ -98,6 +98,16 @@ async def start(slug: str, spec: dict) -> None:
 
     cmd = _spawn_args(run)
 
+    # A one-shot `schedule:`+`run:` service rests at `scheduled` until it
+    # fires; once it's actually a live subprocess it must read `running`, or
+    # `_await_exit`'s `status != "running"` guard would treat its exit as an
+    # external resolution and skip the restart/resolve policy.
+    try:
+        if P.read_status(slug) != "running":
+            P.mark_running(slug)
+    except P.ProcessNotFound:
+        pass
+
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -137,7 +147,8 @@ async def fire_once(slug: str, spec: dict) -> None:
     Cron services' per-fire subprocesses don't go through `start()` —
     we don't want to retain them as the proc's primary handle. They run,
     their output is tee'd into log.md, and their exit code is logged.
-    The parent proc stays `running`.
+    The parent cron proc stays `scheduled` — it's an armed timer, not a live
+    service; only the transient per-fire subprocess is "running".
     """
     run = spec.get("run")
     if not run:

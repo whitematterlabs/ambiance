@@ -68,9 +68,9 @@ How the owner sees and drives PAI:
 
 - **TTY** — the terminal; the current daily driver while the kernel's contract with the world is still moving.
 - **TUI** — `sbin/tui`, the in-terminal console.
-- **Web** — a Vite/React site (frontend in `src/usr/libexec/web`, plus its backend), a browser console mirroring the TUI.
-- **`.app`** *(in progress)* — a native macOS app; `paibuild` bundles kernel + embedded Python + web dist + the Swift app into a self-contained `PAI.app`.
-- **PWA** *(upcoming)* — a mobile surface for remote PAI activity.
+- **Web** — a Vite/React site (frontend in `src/usr/libexec/web`, backend `pai_web` alongside it), a browser console mirroring the TUI. Launched with `pai start --web` (loopback TCP, default port 8787). It ships a web manifest, so it installs as a PWA.
+- **`.app`** *(in progress)* — a native macOS app; `paibuild` bundles kernel + embedded Python + web dist + the Swift app into a self-contained `PAI.app`. It serves the web surface over a unix socket (WKWebView via a `pai://` scheme), not loopback TCP.
+- **Remote / PWA** *(WIP)* — the web surface can be reached from outside the machine over an opt-in ngrok tunnel: a separate TCP listener (distinct from the local owner surface) with bearer-token auth required on every `/api/*` route except `/api/health`; the ngrok authtoken is set up in-app (first-run or a toggle). The transport plumbing works, but the mobile/PWA interface itself is still rough and not ready for daily use.
 
 Surfaces attach to the runtime; they do not own it.
 

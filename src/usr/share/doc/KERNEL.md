@@ -140,7 +140,9 @@ restart: always                    # applies to each per-fire subprocess
 
 ### status
 
-Single word, no YAML. Read with `cat`, write with `echo >`. Values: `spawned | running | completed | expired | cancelled | failed`.
+Single word, no YAML. Read with `cat`, write with `echo >`. Values: `spawned | running | scheduled | completed | expired | cancelled | failed | stopped`.
+
+`running` and `scheduled` are the two *active* (non-terminal) statuses. `running` = a live background subprocess (or a PAI). `scheduled` = an armed timer resting in the kernel's heap with nothing executing — a cron between fires, or a deadline/one-shot waiting to fire. The kernel keys re-arm, fire, and shutdown-preserve decisions off the active set, not `running` alone, so an armed cron need not masquerade as a live process to stay scheduled.
 
 ### log.md
 
@@ -160,11 +162,11 @@ There is no `type:` field. Shape is determined by which fields are present:
 
 **Background service** — has `run:`, no `schedule:`. Kernel forks the command immediately, tees stdout/stderr into `log.md`, and supervises until exit or cancel. On exit, kernel resolves the proc (`completed` on rc=0, `failed` on non-zero) and emits an event that nudges PAI. Examples: research subagents, inbox watchers, long HTTP polls.
 
-**Reminder** — has `schedule:`, no `run:`. Kernel arms a timer. On fire: nudges PAI with `reason: schedule fired`. One-shot schedules resolve `completed` after firing; cron expressions keep running (the proc stays `running`, kernel re-arms the next fire).
+**Reminder** — has `schedule:`, no `run:`. Kernel arms a timer; the proc rests at `scheduled`. On fire: nudges PAI with `reason: schedule fired`. One-shot schedules resolve `completed` after firing; cron expressions stay `scheduled` (kernel re-arms the next fire).
 
-**Cron job** — has both `schedule:` and `run:`. On each fire, kernel launches a *transient* per-fire subprocess whose output is logged; the parent proc stays `running` across fires. Use for PAI's internal recurring jobs (nightly consolidation, stale-process sweep).
+**Cron job** — has both `schedule:` and `run:`. On each fire, kernel launches a *transient* per-fire subprocess whose output is logged; the parent proc stays `scheduled` across fires (it's an armed timer, not a live service). Use for PAI's internal recurring jobs (nightly consolidation, stale-process sweep).
 
-**Deferred background service** — `schedule:` is a one-shot ISO datetime and `run:` is set. At fire time, kernel starts the subprocess under supervision (same as a plain background service, just delayed).
+**Deferred background service** — `schedule:` is a one-shot ISO datetime and `run:` is set. The proc rests at `scheduled` until fire time, when the kernel starts the subprocess under supervision and flips it to `running` (same as a plain background service, just delayed).
 
 **Deadline-only** — has `deadline:`, no `schedule:`, no `run:`. The kernel auto-expires the proc at the deadline and nudges PAI. Deprecated shape — prefer `schedule:` with an ISO datetime for timed reminders; keep `deadline:` for capping the runtime of a running service.
 

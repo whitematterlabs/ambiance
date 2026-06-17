@@ -23,8 +23,16 @@ _METRICS_DIR = HOME_DIR / "sys" / "subagents"
 # duplicated here to avoid a circular import (config.py imports processes).
 _RESERVED_PIDS = (1, 2)
 
-VALID_STATUSES = {"spawned", "running", "completed", "expired", "cancelled", "failed", "stopped"}
+VALID_STATUSES = {"spawned", "running", "scheduled", "completed", "expired", "cancelled", "failed", "stopped"}
 TERMINAL_STATUSES = {"completed", "expired", "cancelled", "failed", "stopped"}
+
+# Non-terminal, kernel-alive statuses. `running` = a live background
+# subprocess (or PAI). `scheduled` = an armed timer resting in the heap with
+# nothing executing yet (a cron between fires, a deadline/one-shot waiting).
+# Everywhere the kernel decides what to re-arm, fire, or preserve across a
+# restart, it keys off this set — not `running` alone — so an armed cron
+# doesn't have to masquerade as a live process to stay in the heap.
+ACTIVE_STATUSES = {"running", "scheduled"}
 
 # Resolutions that wake PAI after the fact. "cancelled" is excluded because
 # cancellation is typically initiated by PAI or the owner — the initiating
@@ -89,6 +97,27 @@ def emit_ack(msg_id: str, payload: dict) -> Path:
     return path
 
 
+def is_timer(spec: dict) -> bool:
+    """A timer proc is an armed entry in the kernel's heap — a cron
+    (`schedule:`) or a deadline/one-shot (`deadline:`). It has no persistent
+    live subprocess: a cron's per-fire command runs transiently via
+    `fire_once`, a one-shot `schedule:`+`run:` service only goes live when it
+    fires. Such procs rest at `scheduled`; everything else is `running`.
+
+    A `run:` + `deadline:` proc (no `schedule:`) is NOT a timer — it's a live
+    background service whose runtime is merely *capped* by a deadline. It must
+    spawn `running` so `proc_watcher` supervises it (its `is_background` keys
+    off `run:` + no `schedule:`); the deadline still arms in the heap to expire
+    it if it overruns."""
+    if "schedule" in spec:
+        return True
+    return "deadline" in spec and "run" not in spec
+
+
+def initial_status(spec: dict) -> str:
+    return "scheduled" if is_timer(spec) else "running"
+
+
 def spawn(slug: str, spec: dict) -> Path:
     """Create a new process directory with spec.yaml, status, log.md."""
     proc = _proc_dir(slug)
@@ -101,7 +130,7 @@ def spawn(slug: str, spec: dict) -> Path:
     proc.mkdir(parents=True)
     with (proc / "spec.yaml").open("w") as f:
         yaml.safe_dump(spec, f, sort_keys=False)
-    (proc / "status").write_text("running\n")
+    (proc / "status").write_text(f"{initial_status(spec)}\n")
     (proc / "log.md").write_text(f"[{_now_hm()}] spawned\n")
     return proc
 
@@ -381,6 +410,18 @@ def read_status(slug: str) -> str:
     return (proc / "status").read_text().strip()
 
 
+def mark_running(slug: str) -> None:
+    """Flip a `scheduled` proc to `running` as it goes live (e.g. a deferred
+    one-shot service the supervisor is starting). Distinct from `resolve` —
+    this is an activation, not a resolution, so it logs accordingly and emits
+    no proc_resolved event."""
+    proc = _proc_dir(slug)
+    if not proc.exists():
+        raise ProcessNotFound(slug)
+    (proc / "status").write_text("running\n")
+    append_log(slug, "kernel: started")
+
+
 def append_log(slug: str, message: str) -> None:
     proc = _proc_dir(slug)
     if not proc.exists():
@@ -464,6 +505,16 @@ def list_procs(status_filter: str | None = None) -> list[str]:
                 continue
         slugs.append(child.name)
     return slugs
+
+
+def list_active_procs() -> list[str]:
+    """Slugs of every kernel-alive proc — `running` services and PAIs plus
+    `scheduled` armed timers. Surfaces use this so a resting cron stays visible
+    instead of vanishing the moment it stops masquerading as `running`."""
+    out: list[str] = []
+    for status in sorted(ACTIVE_STATUSES):
+        out.extend(list_procs(status_filter=status))
+    return out
 
 
 def show(slug: str) -> dict:

@@ -55,5 +55,10 @@ def test_write_config_emits_wildcard_yaml(tmp_path: Path, monkeypatch):
     assert data == {
         "model_list": [
             {"model_name": "*", "litellm_params": {"model": "openai/*"}}
-        ]
+        ],
+        "litellm_settings": {
+            # Opts OpenAI out of the Responses API path so the success/cost
+            # logger doesn't throw on a ResponsesAPIResponse (see _write_config).
+            "use_chat_completions_url_for_anthropic_messages": True,
+        },
     }

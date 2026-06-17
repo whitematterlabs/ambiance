@@ -86,12 +86,13 @@ def _proxy_argv(cfg: Path) -> list[str]:
 
     LiteLLM ships no `__main__`, so `python -m litellm` does not work. The
     supported entrypoint is the `litellm` console script (`litellm:run_server`),
-    which pip installs as a sibling of the venv python. We resolve it from
-    `sys.executable` so the proxy runs under the same interpreter/venv as the
-    kernel. If the script is missing (unusual layout), fall back to running the
-    proxy CLI module directly.
+    which pip installs alongside the venv python. We look for it next to
+    `sys.executable` (NOT its realpath — the venv's python is a symlink to the
+    base interpreter, whose dir does not hold the venv's console scripts) so the
+    proxy runs under the same venv as the kernel. If the script is missing
+    (unusual layout), fall back to running the proxy CLI module directly.
     """
-    script = Path(sys.executable).resolve().parent / "litellm"
+    script = Path(sys.executable).parent / "litellm"
     if script.exists():
         head: list[str] = [str(script)]
     else:
@@ -120,7 +121,19 @@ def _write_config() -> Path:
                 "model_name": "*",
                 "litellm_params": {"model": "openai/*"},
             }
-        ]
+        ],
+        # Route OpenAI's /v1/messages bridge through chat/completions, not the
+        # Responses API. LiteLLM's _should_route_to_responses_api() sends
+        # provider "openai" down the Responses path, but its success/cost
+        # logger then does AnthropicResponse.model_validate(result) on a
+        # ResponsesAPIResponse and throws a (non-blocking, but log-spamming)
+        # validation error on every call — and breaks cost tracking for gpt-5.x.
+        # The chat/completions bridge yields an Anthropic-shaped result the
+        # logger validates cleanly. This flag is the upstream-documented opt-out
+        # (litellm.use_chat_completions_url_for_anthropic_messages).
+        "litellm_settings": {
+            "use_chat_completions_url_for_anthropic_messages": True,
+        },
     }
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)

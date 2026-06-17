@@ -2,9 +2,12 @@
 """paiclone — fork an existing fleet entry as a new instance.
 
 Reads `/etc/config.yaml`, locates the entry by name, and appends a copy
-under a fresh name. The clone shares prompt/bundle/model/wake_on with
-the source; its instance state (`/var/lib/instances/<new>/`) starts
-empty. The kernel allocates a fresh pid on the next reconcile.
+under a fresh name. The clone shares prompt/bundle/model with the source
+but starts with **no `wake_on` subscriptions** — a fresh clone is inert
+until the owner gives it routing, so N identical catch-alls can't all
+fire on every event (the pai-2/pai-3 load-amplification trap). Its
+instance state (`/var/lib/instances/<new>/`) starts empty. The kernel
+allocates a fresh pid on the next reconcile.
 
 Usage:
 
@@ -86,6 +89,10 @@ def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
     entry: dict[str, Any] = dict(source)
     entry["name"] = new_name
     entry.pop("pid", None)  # let kernel allocate a fresh pid
+    # Clones do NOT auto-inherit wakes: a shared catch-all `wake_on` would make
+    # every clone fire on every matching event (the B1 3×-amplification trap).
+    # The clone is inert until the owner assigns it routing explicitly.
+    entry.pop("wake_on", None)
     # Behavior-free provenance marker: stamps this entry as a clone so surfaces
     # (the web "−" button, paidel guards) can tell clones from originals. It is
     # *not* the kernel's `parent` field — that flips a PAI into subagent identity.

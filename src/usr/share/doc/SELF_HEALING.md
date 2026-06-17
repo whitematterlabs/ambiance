@@ -94,6 +94,28 @@ and re-forks any proc whose `restart:` is `always` or `on-failure`
 — kernel death counts as failure. `restart: never` procs get a
 log line ("interrupted by kernel restart") and stay resolved.
 
+### Conversation-level recovery (context overflow)
+
+Domain 2 also covers a failure that is *not* a crash: a PAI's
+history growing past the provider's hard context limit. Once that
+happens every nudge 400s — and the soft `bin/compact` path can't
+help, because the compaction turn carries the same oversized
+history. Worse, each failed nudge used to re-nudge kernelPAI,
+snowballing into a backlog of cancelled nudges and a cascade of
+connection/timeout errors (the "nudge-failure storm").
+
+`src/boot/nudge.py` handles both:
+
+- **Reactive overflow recovery.** On an *observed* overflow it
+  archives the oversized history to `*-overflow.jsonl`, resets the
+  conversation, and retries the turn once. It self-calibrates to the
+  real provider limit (it fires only on an observed overflow, never a
+  guessed token count) and needs no cooperation from the model.
+- **Escalation gating.** Transient/systemic errors (connection,
+  timeout, rate limit, overflow) are logged and dropped instead of
+  re-nudging kernelPAI per failure. Only genuine, actionable
+  failures still escalate.
+
 ## Domain 3 — Drivers
 
 Drivers live in `/proc/<slug>/` like PAIs and use the same

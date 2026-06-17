@@ -24,6 +24,7 @@ from boot import config
 from boot.processes import (
     EVENTS_DIR,
     PROC_DIR,
+    list_active_procs,
     list_procs,
     read_busy,
     read_spec,
@@ -112,7 +113,7 @@ def _short_when(when: str) -> str:
 
 def read_proc_rows() -> list[dict]:
     specs: list[dict] = []
-    for slug in list_procs(status_filter="running"):
+    for slug in list_active_procs():
         try:
             spec = read_spec(slug)
             status = read_status(slug)

@@ -2,7 +2,7 @@
 
 Watches home/proc/ for new spec.yaml files and status file changes. On a
 new spec, parses its deadline or schedule and pushes to the heap. On a
-status flip away from "running", removes the entry.
+status flip out of the active set (running/scheduled), removes the entry.
 
 This replaces the old event-based `process_spawned` / `process_resolved`
 pathway. PAI (or anyone) can just write proc/{slug}/spec.yaml + status
@@ -101,7 +101,7 @@ def _schedule_spec(heap: list[T.TimerEntry], slug: str) -> None:
 
     T.remove(heap, slug)
 
-    if status != "running":
+    if status not in P.ACTIVE_STATUSES:
         return
 
     deadline = T._parse_iso(spec.get("deadline"))
@@ -159,10 +159,11 @@ async def run(heap: list[T.TimerEntry]) -> None:
                     T.remove(heap, slug)
                     await _maybe_supervise(slug)
                     continue
-                if status != "running":
+                if status not in P.ACTIVE_STATUSES:
                     T.remove(heap, slug)
                 else:
-                    # Transitioned into running — reschedule.
+                    # Transitioned into an active status (running/scheduled) —
+                    # reschedule against the heap.
                     _schedule_spec(heap, slug)
                 await _maybe_supervise(slug)
     except asyncio.CancelledError:

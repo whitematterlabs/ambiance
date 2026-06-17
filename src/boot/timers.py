@@ -13,7 +13,7 @@ from typing import Optional
 
 from croniter import croniter
 
-from .processes import PROC_DIR, read_spec, read_status
+from .processes import ACTIVE_STATUSES, PROC_DIR, read_spec, read_status
 
 
 @dataclass(order=True)
@@ -90,7 +90,12 @@ def _parse_iso(value) -> Optional[datetime]:
 
 
 def rebuild_from_proc() -> list[TimerEntry]:
-    """Scan home/proc/ and rebuild the timer heap from running processes."""
+    """Scan home/proc/ and rebuild the timer heap from active processes.
+
+    Both `running` and `scheduled` procs are eligible — an armed cron rests
+    at `scheduled` between fires, so keying off `running` alone would silently
+    drop every cron from the heap on the next boot.
+    """
     heap: list[TimerEntry] = []
     if not PROC_DIR.exists():
         return heap
@@ -101,7 +106,7 @@ def rebuild_from_proc() -> list[TimerEntry]:
             continue
         slug = child.name
         try:
-            if read_status(slug) != "running":
+            if read_status(slug) not in ACTIVE_STATUSES:
                 continue
             spec = read_spec(slug)
         except Exception:

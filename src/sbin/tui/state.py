@@ -25,7 +25,7 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from boot.processes import EVENTS_DIR, HOME_DIR, PAI_ROOT, PROC_DIR, list_procs, read_busy, read_spec, read_status
+from boot.processes import EVENTS_DIR, HOME_DIR, PAI_ROOT, PROC_DIR, list_active_procs, list_procs, read_busy, read_spec, read_status
 from boot.proctree import order_as_tree
 from boot.tokens import read_last_window
 
@@ -204,7 +204,7 @@ class ProcWatcher:
         # build ProcRows in tree order with box-drawing prefixes attached.
         # Drivers (no pid) end up as roots and render flat alongside.
         specs: list[dict] = []
-        for slug in list_procs(status_filter="running"):
+        for slug in list_active_procs():
             try:
                 spec = read_spec(slug)
                 status = read_status(slug)

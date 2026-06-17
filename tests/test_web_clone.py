@@ -64,7 +64,9 @@ def test_clone_pai_uses_shared_paiclone_flow(fhs: Path) -> None:
     clone = next(e for e in config["pais"] if e["name"] == "helper-2")
     assert clone["package"] == "helper"
     assert clone["description"] == "handles delegated work"
-    assert clone["wake_on"] == ["delegation:*"]
+    # Clones do NOT inherit wakes — they start inert so N identical catch-alls
+    # can't all fire on every event (B1 load-amplification trap).
+    assert "wake_on" not in clone
     assert "pid" not in clone
     # Behavior-free provenance marker stamped at clone time — gates deletion.
     assert clone["clone_of"] == "helper"
