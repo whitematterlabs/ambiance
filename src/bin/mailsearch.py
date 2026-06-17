@@ -4,9 +4,13 @@
 Queries the same SQLite index macmail-in watches for new mail, but does
 it on demand against the entire history Mail.app has cached. Each hit
 gets materialized into the canonical yaml tree under
-`var/spool/communication/email/{account}/{date}/...` (idempotent — uses
+`~/communication/email/{account}/{date}/...` (idempotent — uses
 `shared.write_message_yaml`'s Message-ID dedup), so future greps and
 PAI's reply flow "just work" on the result.
+
+Result `path`s are emitted in the home view (`communication/email/...`),
+matching what the email SKILL teaches and what the calling PAI can grep
+or read directly — not the FHS `var/spool/...` spelling.
 
 `--from` / `--to` match the address substring OR the contact's display
 name, so both `--from cjnewton@mit.edu` and `--from "Curt Newton"` hit.
@@ -38,6 +42,18 @@ from drivers.email.macmail import inbound as IN
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 200
+
+
+def _home_view(rel_path: str) -> str:
+    """Rewrite a PAI_ROOT-relative spool path into the home-view path a PAI
+    actually uses. `ingest_row` returns `var/spool/communication/email/...`
+    (FHS), but every email-capable PAI sees that tree through its home link
+    `communication/email -> var/spool/communication/email`, which the email
+    SKILL teaches as `~/communication/email/<account>/...`. Stripping the
+    `var/spool/` prefix yields exactly that home-relative path. Paths that
+    don't start with the prefix are returned unchanged."""
+    prefix = "var/spool/"
+    return rel_path[len(prefix):] if rel_path.startswith(prefix) else rel_path
 
 
 def _split_terms(value: Optional[str]) -> list[str]:
@@ -155,7 +171,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         prog="mailsearch",
         description="Lazy email search via Mail.app's Envelope Index. "
                     "Hits get materialized as canonical yamls under "
-                    "var/spool/communication/email/.",
+                    "~/communication/email/.",
     )
     p.add_argument("--from", dest="from_addr",
                    help="sender address OR display name contains (substring; "
@@ -247,7 +263,7 @@ def run_search(args: argparse.Namespace) -> int:
             continue
         ts = IN._mac_date_to_dt(int(row["date_received"] or 0))
         results.append({
-            "path": result["path"],
+            "path": _home_view(result["path"]),
             "date": ts.isoformat(timespec="seconds"),
             "account": result["account"],
             "from": result["from"],
