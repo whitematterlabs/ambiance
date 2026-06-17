@@ -8,10 +8,13 @@ gets materialized into the canonical yaml tree under
 `shared.write_message_yaml`'s Message-ID dedup), so future greps and
 PAI's reply flow "just work" on the result.
 
+`--from` / `--to` match the address substring OR the contact's display
+name, so both `--from cjnewton@mit.edu` and `--from "Curt Newton"` hit.
+
 Usage:
     mailsearch --from bob@example.com --limit 10
     mailsearch --subject "Q3 budget" --since 2025-01-01
-    mailsearch --to me@example.com --account me@icloud.com --unread
+    mailsearch --to me@example.com --account arda@icloud.com --unread
     mailsearch --flagged --since 2024-06-01
 
 At least one of --from, --to, --subject, --since is required so we
@@ -37,11 +40,21 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 200
 
 
+def _split_terms(value: Optional[str]) -> list[str]:
+    """Split a flag value on `|` so callers can pass alternations like
+    `--subject "shipped|tracking"`. Empty pieces are dropped. Returns
+    `[]` when value is None or only separators."""
+    if value is None:
+        return []
+    return [t for t in (p.strip() for p in value.split("|")) if t]
+
+
 def build_query(args: argparse.Namespace, cfg: A.AccountsConfig) -> tuple[str, list[Any]]:
     """Return (sql, params) honoring whichever flags the user supplied.
 
-    Single SELECT; absent filters drop out via parameterized `IS NULL OR`
-    so the SQL text is stable regardless of which flags were used.
+    `--subject`, `--from`, `--to`, and `--account` accept `|`-separated
+    alternations: each term becomes its own LIKE clause OR-joined together.
+    Absent filters are simply omitted from the WHERE clause.
 
     The mailbox-URL filter is built from `cfg.url_like_patterns()` so it
     matches whatever mailbox names Mail.app reports per account, in any
@@ -51,11 +64,61 @@ def build_query(args: argparse.Namespace, cfg: A.AccountsConfig) -> tuple[str, l
     if args.inbox_only:
         role_patterns = [(p, r) for p, r in role_patterns if r == "inbound"]
     mb_patterns = [pat for pat, _role in role_patterns]
+
+    where: list[str] = ["m.deleted = 0"]
+    params: list[Any] = []
+
     if not mb_patterns:
-        # No accounts known — match nothing.
-        mb_clause = "1 = 0"
+        where.append("1 = 0")
     else:
-        mb_clause = " OR ".join(["mb.url LIKE ?"] * len(mb_patterns))
+        where.append("(" + " OR ".join(["mb.url LIKE ?"] * len(mb_patterns)) + ")")
+        params.extend(mb_patterns)
+
+    def add_or_likes(column: str, terms: list[str]) -> None:
+        add_or_likes_cols([column], terms)
+
+    def add_or_likes_cols(columns: list[str], terms: list[str]) -> None:
+        """Match each term against any of `columns` (substring LIKE), with
+        the terms OR-joined. Used so an address filter matches both the
+        raw address and its display-name `comment` — `--from newton` finds
+        `cjnewton@mit.edu`, and `--from "Curt Newton"` finds it too."""
+        if not terms:
+            return
+        per_term = "(" + " OR ".join(f"{c} LIKE ?" for c in columns) + ")"
+        where.append("(" + " OR ".join([per_term] * len(terms)) + ")")
+        for t in terms:
+            params.extend(f"%{t}%" for _ in columns)
+
+    add_or_likes_cols(["sender.address", "sender.comment"],
+                      _split_terms(args.from_addr))
+    add_or_likes("s.subject", _split_terms(args.subject))
+
+    to_terms = _split_terms(args.to_addr)
+    if to_terms:
+        ors = " OR ".join(
+            ["(ra.address LIKE ? OR ra.comment LIKE ?)"] * len(to_terms)
+        )
+        where.append(
+            "EXISTS (SELECT 1 FROM recipients r "
+            "JOIN addresses ra ON ra.ROWID = r.address "
+            f"WHERE r.message = m.ROWID AND ({ors}))"
+        )
+        for t in to_terms:
+            params.append(f"%{t}%")
+            params.append(f"%{t}%")
+
+    add_or_likes("mb.url", _split_terms(args.account))
+
+    if args.since_ts is not None:
+        where.append("m.date_received >= ?")
+        params.append(args.since_ts)
+    if args.until_ts is not None:
+        where.append("m.date_received <= ?")
+        params.append(args.until_ts)
+    if args.unread:
+        where.append("m.read = 0")
+    if args.flagged:
+        where.append("m.flagged = 1")
 
     sql = f"""
 SELECT
@@ -67,44 +130,11 @@ FROM messages m
 JOIN mailboxes mb ON mb.ROWID = m.mailbox
 LEFT JOIN subjects s ON s.ROWID = m.subject
 LEFT JOIN addresses sender ON sender.ROWID = m.sender
-WHERE m.deleted = 0
-  AND ({mb_clause})
-  AND (? IS NULL OR sender.address LIKE ?)
-  AND (? IS NULL OR s.subject LIKE ?)
-  AND (? IS NULL OR EXISTS (
-      SELECT 1 FROM recipients r
-      JOIN addresses ra ON ra.ROWID = r.address
-      WHERE r.message = m.ROWID AND ra.address LIKE ?
-  ))
-  AND (? IS NULL OR mb.url LIKE ?)
-  AND (? IS NULL OR m.date_received >= ?)
-  AND (? IS NULL OR m.date_received <= ?)
-  AND (? IS NULL OR m.read = 0)
-  AND (? IS NULL OR m.flagged = 1)
+WHERE {" AND ".join(where)}
 ORDER BY m.date_received DESC
 LIMIT ?
 """
-    params: list[Any] = list(mb_patterns)
-
-    def like_or_null(value: Optional[str]) -> tuple[Any, Any]:
-        if value is None:
-            return (None, None)
-        return (1, f"%{value}%")
-
-    fr_marker, fr_pat = like_or_null(args.from_addr)
-    su_marker, su_pat = like_or_null(args.subject)
-    to_marker, to_pat = like_or_null(args.to_addr)
-    ac_marker, ac_pat = like_or_null(args.account)
-
-    params += [fr_marker, fr_pat]
-    params += [su_marker, su_pat]
-    params += [to_marker, to_pat]
-    params += [ac_marker, ac_pat]
-    params += [args.since_ts, args.since_ts]
-    params += [args.until_ts, args.until_ts]
-    params += [1 if args.unread else None]
-    params += [1 if args.flagged else None]
-    params += [args.limit]
+    params.append(args.limit)
     return sql, params
 
 
@@ -127,11 +157,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                     "Hits get materialized as canonical yamls under "
                     "var/spool/communication/email/.",
     )
-    p.add_argument("--from", dest="from_addr", help="sender address contains")
+    p.add_argument("--from", dest="from_addr",
+                   help="sender address OR display name contains (substring; "
+                        "`|` = OR, e.g. 'ups|fedex' or 'Curt Newton')")
     p.add_argument("--to", dest="to_addr",
-                   help="any recipient address contains (To/Cc/Bcc)")
-    p.add_argument("--subject", help="subject substring (case-insensitive via SQLite NOCASE)")
-    p.add_argument("--account", help="restrict to one of your mailbox URLs (substring)")
+                   help="any recipient address OR display name contains, "
+                        "To/Cc/Bcc (substring; `|` = OR)")
+    p.add_argument("--subject",
+                   help="subject substring, ASCII case-insensitive; "
+                        "`|` = OR (e.g. 'shipped|tracking|delivered'). "
+                        "Not a regex — only `|` is special.")
+    p.add_argument("--account",
+                   help="restrict to mailbox URLs containing this substring; "
+                        "`|` = OR")
     p.add_argument("--since", help="YYYY-MM-DD lower bound on date_received")
     p.add_argument("--until", help="YYYY-MM-DD upper bound on date_received")
     p.add_argument("--unread", action="store_true", help="only unread messages")
