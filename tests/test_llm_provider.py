@@ -34,3 +34,15 @@ def test_resolve_openai_targets_proxy(monkeypatch):
 def test_resolve_unknown_provider_raises():
     with pytest.raises(ValueError, match="unknown provider"):
         L._resolve("not-a-provider", None)
+
+
+def test_openai_carries_proxy_upstream_descriptor():
+    spec = L.PROVIDERS["openai"]
+    assert spec.via_proxy is True
+    assert spec.proxy_prefix == "openai"
+    assert spec.proxy_api_base is None  # defaults to api.openai.com
+
+
+def test_direct_providers_have_no_proxy_prefix():
+    for key in ("anthropic", "deepseek"):
+        assert L.PROVIDERS[key].proxy_prefix is None

@@ -63,6 +63,14 @@ class ProviderSpec:
     default_model: str
     extra_body: dict = field(default_factory=dict)
     via_proxy: bool = False
+    # Only meaningful when via_proxy=True: how the LiteLLM proxy reaches the
+    # real upstream. proxy_prefix is LiteLLM's provider id (e.g. "openai");
+    # proxy_api_base overrides the upstream URL (None = LiteLLM's default for
+    # that prefix). _resolve namespaces the wire model with proxy_prefix so the
+    # proxy's per-provider model_list row can route it; _write_config emits one
+    # row per proxied provider from these fields.
+    proxy_prefix: Optional[str] = None
+    proxy_api_base: Optional[str] = None
 
 
 # provider key -> ProviderSpec
@@ -89,6 +97,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         "gpt-5.5",
         {},
         via_proxy=True,
+        proxy_prefix="openai",
     ),
 }
 DEFAULT_PROVIDER = "anthropic"
