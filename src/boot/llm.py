@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -41,18 +42,53 @@ def _append_narration_to_me_thread(pai_pid: str, line: str) -> None:
     with path.open("a", encoding="utf-8") as f:
         f.write(f"[{hm}] pai: » {line}\n")
 
-# provider key -> (base_url or None, api_key env var, default model, extra_body)
-PROVIDERS: dict[str, tuple[Optional[str], str, str, dict]] = {
-    "anthropic": (None, "ANTHROPIC_API_KEY", "claude-sonnet-4-6", {}),
+# TCP port the kernel-supervised LiteLLM proxy listens on (loopback only).
+# Shared source of truth: the `openai` provider row below builds its base_url
+# from it, and boot/litellm_proxy.py binds + polls readiness against it.
+PROXY_PORT = 4000
+
+
+@dataclass(frozen=True)
+class ProviderSpec:
+    """How to reach one LLM provider over the Anthropic Messages wire.
+
+    `via_proxy` is *not* read by `_resolve` — the hot tool loop stays
+    branch-free: a proxied provider just carries a loopback `base_url` like
+    any Anthropic-compatible endpoint. It is read only by the kernel
+    (boot/litellm_proxy.py) to decide whether to spawn the LiteLLM proxy.
+    """
+
+    base_url: Optional[str]
+    api_key_env: str
+    default_model: str
+    extra_body: dict = field(default_factory=dict)
+    via_proxy: bool = False
+
+
+# provider key -> ProviderSpec
+PROVIDERS: dict[str, ProviderSpec] = {
+    "anthropic": ProviderSpec(None, "ANTHROPIC_API_KEY", "claude-sonnet-4-6", {}),
     # Deepseek's Anthropic-compatible endpoint defaults thinking=enabled.
     # Thinking blocks are stripped from replies (text-only extraction at line
     # ~200) and preserved in tool-call history via model_dump(), so no extra
     # body override is needed.
-    "deepseek": (
+    "deepseek": ProviderSpec(
         "https://api.deepseek.com/anthropic",
         "DEEPSEEK_API_KEY",
         "deepseek-v4-pro",
         {},
+    ),
+    # OpenAI is not Anthropic-wire-compatible, so it routes through the
+    # kernel-supervised LiteLLM proxy, which exposes a native Anthropic
+    # /v1/messages endpoint on loopback. The client still speaks Anthropic;
+    # the proxy translates to the OpenAI API and back. via_proxy=True tells
+    # the kernel to spawn that proxy when an openai PAI is in the fleet.
+    "openai": ProviderSpec(
+        f"http://127.0.0.1:{PROXY_PORT}",
+        "OPENAI_API_KEY",
+        "gpt-5.5",
+        {},
+        via_proxy=True,
     ),
 }
 DEFAULT_PROVIDER = "anthropic"
@@ -74,7 +110,11 @@ def _resolve(provider: Optional[str], model: Optional[str]) -> tuple[AsyncAnthro
     key = provider or DEFAULT_PROVIDER
     if key not in PROVIDERS:
         raise ValueError(f"unknown provider: {key!r}")
-    base_url, api_key_env, default_model, extra_body = PROVIDERS[key]
+    spec = PROVIDERS[key]
+    base_url = spec.base_url
+    api_key_env = spec.api_key_env
+    default_model = spec.default_model
+    extra_body = spec.extra_body
     if model and "/" in model:
         model = model.split("/", 1)[1]
     client = _clients.get(key)

@@ -9,6 +9,10 @@ dependencies = [
     "croniter>=6.2.2",
     "google-auth>=2.35",
     "google-auth-oauthlib>=1.2",
+    # Kernel-supervised proxy that exposes a native Anthropic /v1/messages
+    # endpoint translating to OpenAI (boot/litellm_proxy.py). Kernel runtime
+    # infra spawned as a child — not a userspace package — so it belongs here.
+    "litellm[proxy]>=1.0",
     "openai>=1.0",
     "python-dotenv>=1.0",
     "pyobjc-framework-Contacts>=10.0",

@@ -361,6 +361,28 @@ def package_for(slug: str, path: Path | None = None) -> str | None:
     return None
 
 
+def clone_of(slug: str, path: Path | None = None) -> str | None:
+    """Return the source name `slug` was cloned from, or None if it is an
+    original (or absent). Read-only and tolerant: missing/malformed config → None.
+
+    `clone_of` is a behavior-free provenance marker stamped by paiclone; it is
+    not a CONFIG_MANAGED_FIELD and never reaches /proc/<slug>/spec.yaml, so this
+    reads the config directly — the only source of truth for the marker."""
+    if path is None:
+        path = CONFIG_PATH
+    if not path.exists():
+        return None
+    try:
+        raw = _load_yaml(path)
+    except ConfigError:
+        return None
+    for entry in raw.get("pais") or []:
+        if isinstance(entry, dict) and entry.get("name") == slug:
+            src = entry.get("clone_of")
+            return src if isinstance(src, str) and src else None
+    return None
+
+
 def _spec_diff(desired: dict, actual: dict) -> list[str]:
     """Return list of CONFIG_MANAGED_FIELDS that differ."""
     changed: list[str] = []

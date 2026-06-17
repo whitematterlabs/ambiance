@@ -8,14 +8,18 @@ export function FleetTabs({
   procs,
   onSelect,
   onClone,
+  onDelete,
   cloningSlugs,
+  deletingSlugs,
 }: {
   fleet: FleetMember[];
   activePid: number | null;
   procs: ProcRow[];
   onSelect: (pid: number) => void;
   onClone: (member: FleetMember) => void;
+  onDelete: (member: FleetMember) => void;
   cloningSlugs: Set<string>;
+  deletingSlugs: Set<string>;
 }) {
   if (!fleet.length) {
     return <div className="fleet-strip empty">No running PAIs</div>;
@@ -26,10 +30,18 @@ export function FleetTabs({
       {fleet.map((m) => {
         const busy = busyPids.has(String(m.pid));
         const cloning = cloningSlugs.has(m.slug);
+        const deleting = deletingSlugs.has(m.slug);
+        // Only clones (those stamped with clone_of) get a "−". Originals are
+        // protected — no delete affordance, and the backend refuses them too.
+        const deletable = Boolean(m.clone_of);
         const label = m.title || m.slug;
         const style = { "--pai-color": paiColor(m.slug || m.pid) } as CSSProperties;
         return (
-          <div key={m.pid} className="fleet-tab-shell" style={style}>
+          <div
+            key={m.pid}
+            className={`fleet-tab-shell ${deletable ? "has-delete" : ""}`}
+            style={style}
+          >
             <button
               type="button"
               role="tab"
@@ -44,22 +56,42 @@ export function FleetTabs({
                 {m.fallback ? " / Default" : ""}
               </span>
             </button>
-            <button
-              type="button"
-              className="fleet-clone-button"
-              onClick={() => onClone(m)}
-              disabled={cloning}
-              aria-label={`Clone ${label}`}
-              title="Clone this PAI"
-            >
-              {cloning ? (
-                <span className="fleet-clone-spinner" aria-hidden="true" />
-              ) : (
-                <span className="fleet-clone-plus" aria-hidden="true">
-                  +
-                </span>
+            <div className="fleet-tab-actions">
+              {deletable && (
+                <button
+                  type="button"
+                  className="fleet-delete-button"
+                  onClick={() => onDelete(m)}
+                  disabled={deleting}
+                  aria-label={`Delete ${label}`}
+                  title="Delete this clone (permanent)"
+                >
+                  {deleting ? (
+                    <span className="fleet-action-spinner" aria-hidden="true" />
+                  ) : (
+                    <span className="fleet-action-glyph" aria-hidden="true">
+                      −
+                    </span>
+                  )}
+                </button>
               )}
-            </button>
+              <button
+                type="button"
+                className="fleet-clone-button"
+                onClick={() => onClone(m)}
+                disabled={cloning}
+                aria-label={`Clone ${label}`}
+                title="Clone this PAI"
+              >
+                {cloning ? (
+                  <span className="fleet-action-spinner" aria-hidden="true" />
+                ) : (
+                  <span className="fleet-clone-plus fleet-action-glyph" aria-hidden="true">
+                    +
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
         );
       })}

@@ -14,8 +14,8 @@ import Combine
 @MainActor
 final class ModelSetup: ObservableObject {
     /// A selectable provider. `model` and `envVar` mirror install.sh's menu
-    /// (`anthropic`→`claude-opus-4-7`, `deepseek`→`deepseek-v4-pro`) and
-    /// `llm.PROVIDERS`' key-var mapping.
+    /// (`anthropic`→`claude-opus-4-7`, `deepseek`→`deepseek-v4-pro`,
+    /// `openai`→`gpt-5.5`) and `llm.PROVIDERS`' key-var mapping.
     struct Provider: Identifiable, Equatable {
         let id: String        // provider key written to config.yaml
         let label: String     // shown in the picker
@@ -31,6 +31,8 @@ final class ModelSetup: ObservableObject {
                  model: "claude-opus-4-7", envVar: "ANTHROPIC_API_KEY"),
         Provider(id: "deepseek", label: "DeepSeek", blurb: "Open-weight, lower cost.",
                  model: "deepseek-v4-pro", envVar: "DEEPSEEK_API_KEY"),
+        Provider(id: "openai", label: "GPT-5.5", blurb: "OpenAI — via the LiteLLM proxy.",
+                 model: "gpt-5.5", envVar: "OPENAI_API_KEY"),
     ]
 
     /// The provider the user has selected in the picker (defaults to the first).

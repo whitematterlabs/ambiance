@@ -20,6 +20,7 @@ from typing import Callable, Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+from boot import config
 from boot.processes import (
     EVENTS_DIR,
     PROC_DIR,
@@ -162,6 +163,10 @@ def read_fleet() -> list[dict]:
                 "pid": pid,
                 "slug": slug,
                 "fallback": spec.get("fallback") is True,
+                # clone_of is a behavior-free marker that lives only in
+                # /etc/config.yaml (not the proc spec), so read it from there —
+                # it's what gates the "−" delete button on the frontend.
+                "clone_of": config.clone_of(slug),
                 "title": f"{slug} #{pid}",
             }
         )

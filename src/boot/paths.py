@@ -115,6 +115,13 @@ def var_log() -> Path:
     return PAI_ROOT / "var" / "log"
 
 
+def run() -> Path:
+    """The runtime scratch dir ($PAI_ROOT/run/). Holds ephemeral, non-committed
+    state: the event/ack spool, per-PAI run dirs, and generated config the
+    kernel writes for the children it supervises (e.g. the LiteLLM proxy)."""
+    return PAI_ROOT / "run"
+
+
 def proc(name: str) -> Path:
     return PAI_ROOT / "proc" / name
 

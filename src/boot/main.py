@@ -24,6 +24,7 @@ from pathlib import Path
 import yaml
 
 from . import config as C
+from . import litellm_proxy
 from . import outbound_echo
 from . import paths
 from . import processes as P
@@ -729,6 +730,9 @@ async def _handle_reload_config() -> None:
                         stitch.stitch_home(slug)
                     except Exception as e:
                         print(f"[kernel] reload_config: stitch persub {slug} failed: {e!r}", flush=True)
+            # Start/stop the LiteLLM proxy if adding/removing a proxied PAI
+            # changed whether the fleet needs it — no reboot required.
+            await litellm_proxy.reconcile()
             print("[kernel] reload_config: done", flush=True)
         except Exception as e:
             tb = traceback.format_exc()
@@ -966,6 +970,7 @@ async def run() -> None:
         name="proc-watcher",
     )
     await _reconcile_drivers()
+    await litellm_proxy.reconcile()
 
     try:
         while True:

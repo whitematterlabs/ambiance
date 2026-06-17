@@ -143,6 +143,26 @@ pais:
         C.load_config()
 
 
+def test_provider_openai_accepted(repo_root, live_dir):
+    # Regression guard for the openai row: config must accept `provider: openai`
+    # now that it exists in L.PROVIDERS, and persist it to spec.yaml.
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+    provider: openai
+    model: gpt-5.5
+""",
+    )
+    C.reconcile_from_config()
+    spec = P.read_spec("root")
+    assert spec["provider"] == "openai"
+    assert spec["model"] == "gpt-5.5"
+
+
 def test_provider_persisted(repo_root, live_dir):
     _write_config(
         repo_root,

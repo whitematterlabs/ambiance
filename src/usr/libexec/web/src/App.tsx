@@ -21,6 +21,7 @@ import { StatusBar } from "./components/StatusBar";
 import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
 import { CommandPalette } from "./components/CommandPalette";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 
 const CAP = 500; // ring-buffer cap for log/activity/events
 
@@ -44,6 +45,9 @@ export function App() {
   const [kernel, setKernel] = useState<KernelStatus>({ running: false, pid: null });
   const [kernelBusy, setKernelBusy] = useState(false);
   const [cloningSlugs, setCloningSlugs] = useState<Set<string>>(() => new Set());
+  const [deletingSlugs, setDeletingSlugs] = useState<Set<string>>(() => new Set());
+  const [confirmDelete, setConfirmDelete] = useState<FleetMember | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [authNeeded, setAuthNeeded] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
@@ -402,6 +406,41 @@ export function App() {
     }
   }, []);
 
+  // Delete is a two-step affordance: the "−" opens a confirm dialog; only on
+  // confirm do we purge. The fleet SSE drops the tab when its pid disappears,
+  // and applyFleet/ensureActive auto-selects another tab if it was active.
+  const handleDelete = useCallback((member: FleetMember) => {
+    setConfirmDelete(member);
+  }, []);
+
+  const runDelete = useCallback(async () => {
+    const member = confirmDelete;
+    if (!member) return;
+    const slug = member.slug;
+    setDeleteBusy(true);
+    setDeletingSlugs((prev) => {
+      const next = new Set(prev);
+      next.add(slug);
+      return next;
+    });
+    setStatus(`deleting ${slug}...`);
+    try {
+      const res = await api.deletePai(slug);
+      if (!res.ok) throw new Error(res.error || "delete failed");
+      setStatus(`deleted ${slug}`);
+    } catch (e) {
+      setStatus(`delete failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setConfirmDelete(null);
+      setDeleteBusy(false);
+      setDeletingSlugs((prev) => {
+        const next = new Set(prev);
+        next.delete(slug);
+        return next;
+      });
+    }
+  }, [confirmDelete]);
+
   const handleTranscribeAudio = useCallback(async (audio: Blob) => {
     const res = await api.transcribeAudio(audio);
     if (!res.ok) throw new Error(res.error || "transcription failed");
@@ -459,7 +498,9 @@ export function App() {
         procs={procs}
         onSelect={setActivePid}
         onClone={handleClone}
+        onDelete={handleDelete}
         cloningSlugs={cloningSlugs}
+        deletingSlugs={deletingSlugs}
       />
       <main className="main">
         <section className="chat-col">
@@ -524,6 +565,20 @@ export function App() {
           provider={provider}
           onPick={onPickProvider}
           onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete clone?"
+          body={
+            <>
+              Permanently delete <strong>{confirmDelete.title || confirmDelete.slug}</strong>{" "}
+              and all its memory? This can't be undone.
+            </>
+          }
+          busy={deleteBusy}
+          onConfirm={runDelete}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
       {authNeeded && (

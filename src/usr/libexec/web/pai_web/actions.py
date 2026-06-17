@@ -20,6 +20,10 @@ import requests
 import yaml
 
 from bin import paiclone
+from bin import paictl
+from bin import paidel
+from boot import config
+from boot import paths
 from boot.init import check_layout
 from boot.paths import PAI_ROOT
 from boot.nudge import apply_pending_history_action
@@ -30,7 +34,7 @@ from sbin.tui.state import HOME_DIR, today_file
 
 
 PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
-PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek")]
+PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek"), ("OpenAI", "openai")]
 _VALID_PROVIDERS = {k for _, k in PROVIDER_OPTIONS}
 _KERNEL_LOCK_FILE = PAI_ROOT / "run" / "kernel.pid"
 
@@ -339,6 +343,62 @@ def clone_pai(source: str) -> dict:
         "name": result.name,
         "instance": str(result.instance),
         "home": str(result.home),
+    }
+
+
+def delete_pai(name: str, *, stop_timeout: float = 10.0) -> dict:
+    """Hard-purge a cloned fleet member: stop it, wait for it to drain, purge.
+
+    A PAI is not an OS process — "running" is just `/proc/<name>/status`, and
+    `paidel` refuses to delete a running PAI. Every PAI in the web UI is running,
+    so delete is a *stop-then-purge* sequence: flip `active: false`, let the
+    kernel resolve the proc, then tear it down (mirrors `paidel --purge`).
+
+    Defense-in-depth: only clones are deletable. An entry without a `clone_of`
+    marker is an original and is refused, matching the frontend which only shows
+    the "−" button on clones.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("missing PAI name")
+    if config.clone_of(name) is None:
+        raise ValueError(f"{name!r} is not a clone; refusing to delete")
+
+    # Stop: flip active:false and ask the kernel to reconcile (resolves the
+    # running proc). Same shape as `paictl stop`.
+    try:
+        paictl._set_active(name, False)
+    except SystemExit as e:
+        raise ValueError(str(e) or "failed to stop PAI") from e
+    emit_event(
+        {"kind": "kernel:reload_config", "source": "web", "action": "stop", "name": name}
+    )
+
+    # Wait for in-flight turns to drain — status flips off "running" once the
+    # kernel resolves it. Idle PAIs flip sub-second; the timeout is a backstop.
+    status_file = paths.proc(name) / "status"
+    deadline = time.monotonic() + stop_timeout
+    while time.monotonic() < deadline:
+        try:
+            running = status_file.read_text().strip().startswith("running")
+        except FileNotFoundError:
+            running = False
+        if not running:
+            break
+        time.sleep(0.1)
+    else:
+        raise ValueError(f"{name!r} did not stop within {stop_timeout:.0f}s; try again")
+
+    # Purge: drop the entry, rmtree home/proc/run + instance, final reload.
+    try:
+        result = paidel.delete(name, purge=True)
+    except SystemExit as e:
+        raise ValueError(str(e) or "paidel failed") from e
+    return {
+        "name": result.name,
+        "home": str(result.home),
+        "instance": str(result.instance),
+        "purged": result.purged,
     }
 
 

@@ -66,6 +66,8 @@ def test_clone_pai_uses_shared_paiclone_flow(fhs: Path) -> None:
     assert clone["description"] == "handles delegated work"
     assert clone["wake_on"] == ["delegation:*"]
     assert "pid" not in clone
+    # Behavior-free provenance marker stamped at clone time — gates deletion.
+    assert clone["clone_of"] == "helper"
 
     events = list((fhs / "run" / "pai" / "events").iterdir())
     assert len(events) == 1

@@ -500,16 +500,32 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.fleet-clone-button {
+/* Overlay action cluster pinned to the tab's right edge. Holds the clone "+"
+   and (clones only) the delete "−"; both fade in on tab hover. */
+.fleet-tab-actions {
   position: absolute;
   top: 50%;
   right: 9px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+/* Extra right padding when a tab carries two buttons, so the name/meta text
+   clears both glyphs rather than sliding under them. */
+.fleet-tab-shell.has-delete .fleet-tab {
+  padding-right: 70px;
+}
+
+.fleet-clone-button,
+.fleet-delete-button {
   display: grid;
   place-items: center;
   width: 27px;
   height: 27px;
   padding: 0;
-  transform: translateY(-50%) scale(0.85);
+  transform: scale(0.85);
   border: 1px solid transparent;
   border-radius: 50%;
   background: transparent;
@@ -523,10 +539,16 @@ button {
     border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
 
+.fleet-delete-button {
+  color: var(--fail);
+}
+
 .fleet-tab-shell:hover .fleet-clone-button,
-.fleet-clone-button:focus-visible {
+.fleet-tab-shell:hover .fleet-delete-button,
+.fleet-clone-button:focus-visible,
+.fleet-delete-button:focus-visible {
   opacity: 1;
-  transform: translateY(-50%) scale(1);
+  transform: scale(1);
 }
 
 .fleet-clone-button:hover:not(:disabled),
@@ -536,22 +558,31 @@ button {
   outline: none;
 }
 
-.fleet-clone-button:disabled {
+.fleet-delete-button:hover:not(:disabled),
+.fleet-delete-button:focus-visible:not(:disabled) {
+  border-color: color-mix(in srgb, var(--fail) 42%, var(--border));
+  background: color-mix(in srgb, var(--fail) 14%, transparent);
+  outline: none;
+}
+
+.fleet-clone-button:disabled,
+.fleet-delete-button:disabled {
   cursor: wait;
   opacity: 1;
 }
 
-/* The "+" glyph's metrics sit a hair low; nudge it onto the optical center. */
+/* The "+"/"−" glyph metrics sit a hair low; nudge onto the optical center. */
+.fleet-action-glyph,
 .fleet-clone-plus {
   display: block;
   margin-top: -2px;
 }
 
-.fleet-clone-spinner {
+.fleet-action-spinner {
   width: 13px;
   height: 13px;
-  border: 2px solid color-mix(in srgb, var(--pai-color) 22%, transparent);
-  border-top-color: var(--pai-color);
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -1849,6 +1880,99 @@ button {
   cursor: default;
 }
 
+/* ---------- Confirm dialog (destructive actions) ---------- */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  background: rgba(43, 41, 38, 0.5);
+  backdrop-filter: blur(6px);
+  z-index: 220;
+  animation: fade-in 0.2s var(--ease) both;
+}
+
+.confirm-card {
+  width: 360px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 40px 90px -30px rgba(43, 41, 38, 0.55);
+  padding: 22px 20px;
+  animation: palette-in 0.32s var(--ease-out) both;
+}
+
+.confirm-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.confirm-copy {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.confirm-copy strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.confirm-cancel,
+.confirm-delete {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.14s var(--ease), background 0.14s var(--ease),
+    border-color 0.14s var(--ease);
+}
+
+.confirm-cancel {
+  background: var(--surface-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.confirm-cancel:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.confirm-delete {
+  background: var(--fail);
+  color: var(--accent-ink);
+  border: 1px solid var(--fail);
+}
+
+.confirm-delete:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fail) 88%, #000);
+}
+
+.confirm-cancel:disabled,
+.confirm-delete:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar {
   width: 11px;
@@ -2056,12 +2180,21 @@ button {
     padding: 7px 38px 7px 14px;
   }
 
-  .fleet-clone-button {
+  /* No hover on touch: pin the cluster and keep both buttons always visible. */
+  .fleet-tab-actions {
     right: 7px;
+  }
+
+  .fleet-tab-shell.has-delete .fleet-tab {
+    padding-right: 64px;
+  }
+
+  .fleet-clone-button,
+  .fleet-delete-button {
     width: 25px;
     height: 25px;
     opacity: 1;
-    transform: translateY(-50%) scale(1);
+    transform: scale(1);
   }
 
   .main {

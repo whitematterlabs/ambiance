@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -56,8 +57,22 @@ def _drop_entry(config_path: Path, name: str) -> bool:
     return True
 
 
-def cmd_del(args: argparse.Namespace) -> int:
-    name: str = args.name
+@dataclass(frozen=True)
+class DeleteResult:
+    name: str
+    home: Path
+    proc_dir: Path
+    instance: Path
+    purged: bool
+
+
+def delete(name: str, *, purge: bool = False) -> DeleteResult:
+    """Tear down a fleet member: drop the config entry, rmtree home/proc/run,
+    optionally purge instance state, then emit `kernel:reload_config`.
+
+    Raises SystemExit (the CLI's error channel) if the PAI is still running or
+    nothing matching `name` exists. Callers that want a softer error (the web
+    surface) translate SystemExit into their own exception type."""
     home = stitch.home_for(name)
     instance = paths.var_lib_instance(name)
     proc_dir = paths.proc(name)
@@ -68,7 +83,7 @@ def cmd_del(args: argparse.Namespace) -> int:
 
     dropped = _drop_entry(C.CONFIG_PATH, name)
     targets = [home, proc_dir, run_dir]
-    if args.purge:
+    if purge:
         targets.append(instance)
     touched = dropped or any(t.exists() or t.is_symlink() for t in targets)
     if not touched:
@@ -84,17 +99,26 @@ def cmd_del(args: argparse.Namespace) -> int:
     if run_dir.exists():
         shutil.rmtree(run_dir)
 
-    if args.purge and instance.exists():
+    purged = purge and instance.exists()
+    if purged:
         shutil.rmtree(instance)
-        print(f"purged instance state at {instance}")
 
     P.emit_event({"kind": "kernel:reload_config", "source": "paidel", "removed": name})
 
-    print(f"removed fleet entry: {name}")
-    print(f"removed home:        {home}")
-    print(f"removed proc dir:    {proc_dir}")
+    return DeleteResult(
+        name=name, home=home, proc_dir=proc_dir, instance=instance, purged=purged
+    )
+
+
+def cmd_del(args: argparse.Namespace) -> int:
+    result = delete(args.name, purge=args.purge)
+    if result.purged:
+        print(f"purged instance state at {result.instance}")
+    print(f"removed fleet entry: {result.name}")
+    print(f"removed home:        {result.home}")
+    print(f"removed proc dir:    {result.proc_dir}")
     if not args.purge:
-        print(f"instance preserved:  {instance}")
+        print(f"instance preserved:  {result.instance}")
     return 0
 
 

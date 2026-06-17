@@ -45,10 +45,12 @@ elif [ "$interactive" -eq 1 ]; then
   echo "Which model should PAI use by default?"
   echo "  1) Claude Opus   (Anthropic)"
   echo "  2) DeepSeek"
-  printf "Choose [1/2] (default 1): "
+  echo "  3) GPT-5.5       (OpenAI)"
+  printf "Choose [1/2/3] (default 1): "
   read -r choice
   case "$choice" in
     2) PROVIDER=deepseek;  MODEL=deepseek-v4-pro ;;
+    3) PROVIDER=openai;    MODEL=gpt-5.5 ;;
     *) PROVIDER=anthropic; MODEL=claude-opus-4-7 ;;
   esac
   echo "    default model: $MODEL ($PROVIDER)"
@@ -72,6 +74,7 @@ ensure_api_key() {
   case "$provider" in
     anthropic) var=ANTHROPIC_API_KEY ;;
     deepseek)  var=DEEPSEEK_API_KEY ;;
+    openai)    var=OPENAI_API_KEY ;;
     *) return 0 ;;
   esac
   if [ -n "${!var:-}" ]; then

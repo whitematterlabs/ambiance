@@ -3,6 +3,10 @@ export interface FleetMember {
   slug: string;
   fallback: boolean;
   title: string;
+  // Source PAI this was cloned from, or null/undefined for originals. Consumed
+  // straight off the wire (snake_case, like the other server-sourced fields);
+  // gates the "−" delete button — only clones are deletable.
+  clone_of?: string | null;
 }
 
 export interface ProcRow {

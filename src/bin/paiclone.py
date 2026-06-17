@@ -86,6 +86,10 @@ def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
     entry: dict[str, Any] = dict(source)
     entry["name"] = new_name
     entry.pop("pid", None)  # let kernel allocate a fresh pid
+    # Behavior-free provenance marker: stamps this entry as a clone so surfaces
+    # (the web "−" button, paidel guards) can tell clones from originals. It is
+    # *not* the kernel's `parent` field — that flips a PAI into subagent identity.
+    entry["clone_of"] = source_name
 
     return ClonePlan(source=source_name, name=new_name, entry=entry)
 

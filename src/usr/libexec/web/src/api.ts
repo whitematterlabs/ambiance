@@ -52,6 +52,16 @@ export const clonePai = (source: string) =>
     error?: string;
   }>;
 
+export const deletePai = (name: string) =>
+  post("/api/delete", { name }) as Promise<{
+    ok: boolean;
+    name?: string;
+    home?: string;
+    instance?: string;
+    purged?: boolean;
+    error?: string;
+  }>;
+
 export const runShell = (pid: number, cmd: string) =>
   post("/api/shell", { pid, cmd }) as Promise<{
     ok: boolean;

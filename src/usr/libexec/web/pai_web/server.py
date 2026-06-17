@@ -196,6 +196,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/clone":
                 result = actions.clone_pai(str(body["source"]))
                 return self._json({"ok": True, **result})
+            if path == "/api/delete":
+                result = actions.delete_pai(str(body["name"]))
+                return self._json({"ok": True, **result})
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))
                 return self._json({"ok": True, **result})
