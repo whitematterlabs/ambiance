@@ -135,8 +135,17 @@ def spawn(slug: str, spec: dict) -> Path:
     return proc
 
 
-def resolve(slug: str, new_status: str) -> None:
-    """Update a process's status and log the transition."""
+def resolve(slug: str, new_status: str, notify_parent: bool = True) -> None:
+    """Update a process's status and log the transition.
+
+    `notify_parent` controls whether the emitted `proc_resolved` event
+    carries the parent pid (the only thing that turns it into a parent
+    nudge). It defaults to True. A subagent ending via `reply --done` has
+    already handed its result to the parent through the `subagent:response`
+    event, so it resolves with notify_parent=False to suppress the
+    otherwise-redundant "proc completed" nudge that would arrive right
+    behind the response.
+    """
     if new_status not in VALID_STATUSES:
         raise ValueError(
             f"invalid status {new_status!r}, expected one of {sorted(VALID_STATUSES)}"
@@ -157,7 +166,7 @@ def resolve(slug: str, new_status: str) -> None:
             spec = read_spec(slug)
         except ProcessNotFound:
             spec = {}
-        if "parent" in spec:
+        if "parent" in spec and notify_parent:
             payload["parent"] = spec["parent"]
         emit_event(payload)
     else:

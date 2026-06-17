@@ -84,10 +84,19 @@ def _full_slug_suffix() -> str:
     return dt.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
 
+# A trailing date the caller already baked into the slug, in either ISO
+# (2026-06-17) or compact (20260617) form. Used to avoid double-dating.
+_DATE_TAIL = re.compile(r"-?\d{4}-?\d{2}-?\d{2}$")
+
+
 def _allocate_slug(base: str) -> str:
-    candidate = f"{base}-{_today_slug_suffix()}"
+    # If the caller already ended the slug with a date (e.g.
+    # "market-check-20260617"), don't tack a second one on — that is what
+    # produced double-dated slugs like "market-check-20260617-2026-06-17".
+    candidate = base if _DATE_TAIL.search(base) else f"{base}-{_today_slug_suffix()}"
     if not (P.PROC_DIR / candidate).exists():
         return candidate
+    # Collision: fall back to a full timestamp for guaranteed uniqueness.
     return f"{base}-{_full_slug_suffix()}"
 
 
@@ -197,7 +206,19 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             "text": kickoff_text,
         })
 
-    print(f"{final_slug} (pid {child_pid})")
+    if args.persistent:
+        print(
+            f"{final_slug} (pid {child_pid}) — persistent subagent, booted idle. "
+            f"Message it with `bin/send-message --to {child_pid} --content ...`; "
+            f"it replies as a 'subagent response' message you'll be woken for."
+        )
+    else:
+        print(
+            f"{final_slug} (pid {child_pid}) — running. Its result arrives as a "
+            f"'subagent response' message that wakes you; end your turn and wait "
+            f"for it. Do NOT poll /proc/{final_slug} — the child reaps its own "
+            f"/proc the instant it finishes, so a poll loop just races the reap."
+        )
     return 0
 
 
@@ -251,9 +272,12 @@ def cmd_reply(args: argparse.Namespace) -> int:
         # Emit-then-resolve ordering matters: the response event lands
         # before the proc_resolved event, so the parent's wake-up nudge
         # sees the reply with a (now-dead) child slug — no race window
-        # for the parent to send-message a reaped pid.
+        # for the parent to send-message a reaped pid. The response above is
+        # the parent's notification, so resolve quietly: notify_parent=False
+        # drops the parent pid from proc_resolved, suppressing a redundant
+        # "proc completed" nudge that would land right behind the response.
         try:
-            P.resolve(done_slug, "completed")
+            P.resolve(done_slug, "completed", notify_parent=False)
         except P.ProcessNotFound:
             print(f"error: own proc {done_slug!r} not found", file=sys.stderr)
             return 1

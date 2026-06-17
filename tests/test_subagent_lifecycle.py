@@ -115,7 +115,10 @@ def test_reply_done_emits_response_and_resolves(
     assert resolved["kind"] == "proc_resolved"
     assert resolved["slug"] == child_slug
     assert resolved["status"] == "completed"
-    assert resolved["parent"] == 1
+    # The `subagent:response` above is the parent's notification, so the
+    # proc_resolved event resolves quietly: no `parent` pid means the kernel
+    # won't fire a redundant "proc completed" nudge right behind the response.
+    assert "parent" not in resolved
 
 
 def test_persub_reply_done_is_rejected_without_event(
