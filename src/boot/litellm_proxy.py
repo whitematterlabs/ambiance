@@ -42,6 +42,14 @@ PROXY_SLUG = "litellm-proxy"
 _READINESS_TIMEOUT = 30.0
 _READINESS_POLL = 0.25
 
+# Upstream guards baked into the generated proxy config. request_timeout bounds
+# a single proxy→upstream call; num_retries lets the proxy abandon+retry a
+# stalled upstream itself. Kept below boot/llm._CLIENT_TIMEOUT.read so LiteLLM
+# returns a clean error before the kernel's raw client timeout fires; this is
+# the backstop that turns a wedged upstream into a ~5-min failure, not ~10.
+_REQUEST_TIMEOUT = 120
+_NUM_RETRIES = 1
+
 
 def _provider_is_proxied(provider: str | None) -> bool:
     """True iff the effective provider routes through the proxy. Unknown
@@ -51,18 +59,17 @@ def _provider_is_proxied(provider: str | None) -> bool:
     return bool(spec and spec.via_proxy)
 
 
-def fleet_needs_proxy(config: dict[str, dict] | None = None) -> bool:
-    """Does any fleet member — or any dependency persub — use a proxied provider?
-
-    Mirrors config._reconcile_persubs' provider-resolution chain for deps
-    (dep override → bundle → parent) so a dependency that only inherits its
-    provider from a packaged bundle is still counted.
-    """
+def _proxied_providers(config: dict[str, dict] | None = None) -> set[str]:
+    """Set of provider keys in the fleet (incl. dependency persubs) that route
+    through the proxy. Mirrors config._reconcile_persubs' provider chain
+    (dep override → bundle → parent)."""
     if config is None:
         config = C.load_config()
+    found: set[str] = set()
     for parent_spec in config.values():
-        if _provider_is_proxied(parent_spec.get("provider")):
-            return True
+        parent_provider = parent_spec.get("provider")
+        if _provider_is_proxied(parent_provider):
+            found.add(parent_provider or L.DEFAULT_PROVIDER)
         for dep in parent_spec.get("dependencies") or []:
             bundle: dict = {}
             pkg = dep.get("package")
@@ -77,8 +84,13 @@ def fleet_needs_proxy(config: dict[str, dict] | None = None) -> bool:
                 or parent_spec.get("provider")
             )
             if _provider_is_proxied(provider):
-                return True
-    return False
+                found.add(provider or L.DEFAULT_PROVIDER)
+    return found
+
+
+def fleet_needs_proxy(config: dict[str, dict] | None = None) -> bool:
+    """Does any fleet member — or any dependency persub — use a proxied provider?"""
+    return bool(_proxied_providers(config))
 
 
 def _proxy_argv(cfg: Path) -> list[str]:
@@ -112,27 +124,33 @@ def _config_path() -> Path:
 
 
 def _write_config() -> Path:
-    """Generate LiteLLM's own config under run/ (ephemeral, not committed —
-    honors the no-arbitrary-scaffolding rule). Wildcard routing means any
-    OpenAI model name works with zero per-model maintenance."""
+    """Generate LiteLLM's own config under run/ (ephemeral, not committed).
+
+    One model_list row per proxied provider in the fleet, namespaced by the
+    provider's proxy_prefix so a request the kernel sends as "<prefix>/<model>"
+    (see boot/llm._resolve) routes to that provider's upstream — not blanket
+    OpenAI. Per-provider wildcard keeps zero per-model maintenance while
+    differentiating endpoints.
+    """
+    model_list = []
+    for key in sorted(_proxied_providers()):
+        spec = L.PROVIDERS[key]
+        prefix = spec.proxy_prefix or key
+        params: dict = {
+            "model": f"{prefix}/*",
+            "api_key": f"os.environ/{spec.api_key_env}",
+        }
+        if spec.proxy_api_base:
+            params["api_base"] = spec.proxy_api_base
+        model_list.append({"model_name": f"{prefix}/*", "litellm_params": params})
     cfg = {
-        "model_list": [
-            {
-                "model_name": "*",
-                "litellm_params": {"model": "openai/*"},
-            }
-        ],
-        # Route OpenAI's /v1/messages bridge through chat/completions, not the
-        # Responses API. LiteLLM's _should_route_to_responses_api() sends
-        # provider "openai" down the Responses path, but its success/cost
-        # logger then does AnthropicResponse.model_validate(result) on a
-        # ResponsesAPIResponse and throws a (non-blocking, but log-spamming)
-        # validation error on every call — and breaks cost tracking for gpt-5.x.
-        # The chat/completions bridge yields an Anthropic-shaped result the
-        # logger validates cleanly. This flag is the upstream-documented opt-out
-        # (litellm.use_chat_completions_url_for_anthropic_messages).
+        "model_list": model_list,
         "litellm_settings": {
+            # See original note: bridge /v1/messages through chat/completions so
+            # the cost logger validates cleanly for gpt-5.x.
             "use_chat_completions_url_for_anthropic_messages": True,
+            "request_timeout": _REQUEST_TIMEOUT,
+            "num_retries": _NUM_RETRIES,
         },
     }
     path = _config_path()
