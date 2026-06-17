@@ -14,6 +14,8 @@ Quick sanity check before editing anything under `src/`:
 - Is it kernel code or a privileged wrapper of the kernel? → edit here.
 - Is it a driver, skill, lib, prompt (beyond the three seeds), or PAI bundle? → edit `~/Projects/pairegistry/`.
 
+**pairegistry is upstream — update it first and foremost.** The privileged bins (`paictl`, `paicron`, `paiman`, `paiadd`, `paidel`, `paifs_init`, `pai`, `subagent`, `send-message`, …) are *dual-homed*: the dev source is here in `src/bin/`, but `pairegistry/bin/<name>/` holds the canonical installable copy. When you edit a dual-homed bin in `src/bin/`, immediately sync the file into `pairegistry/bin/<name>/<file>.py` so the registry is never behind. Drift here is real and bidirectional — an audit on 2026-06-17 found `src/bin` ahead on ~12 tools and the registry ahead on `paictl`/`edit_file`. Never assume the `src/bin` copy is current without checking the registry.
+
 ## Project
 
 PAI (Personal AI) — an always-on AI agent that uses the filesystem as its primary data structure.

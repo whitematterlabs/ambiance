@@ -73,7 +73,58 @@ def _browse_orphan_tabs_block() -> str:
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")
 
+# Last-resort fallback only — used when neither the spawning PAI's spec nor
+# the fleet default in config.yaml yield a provider/model. In practice the
+# cascade in `_inherited_model` resolves first, so a subagent inherits the
+# model the owner picked at install time rather than this hardcoded one.
 DEFAULT_MODEL = "deepseek/deepseek-v4-pro"
+
+
+def _fleet_default_model() -> tuple[str | None, str | None]:
+    """The owner-chosen default provider/model, read from config.yaml.
+
+    install.sh seeds the fleet's provider/model into config.yaml; this returns
+    the default (`fallback:` PAI, else the reserved `pai` entry) so subagents
+    track that choice instead of a hardcoded preset."""
+    try:
+        cfg = C.load_config()
+    except (C.ConfigError, OSError):
+        return None, None
+    for spec in cfg.values():
+        if spec.get("fallback"):
+            return spec.get("provider"), spec.get("model")
+    pai = cfg.get("pai")
+    if pai:
+        return pai.get("provider"), pai.get("model")
+    return None, None
+
+
+def _inherited_model(parent_pid: int) -> tuple[str, str]:
+    """The provider/model a subagent should inherit when nothing pins it.
+
+    Cascade: the spawning PAI's own spec (reconcile writes its provider/model
+    from config.yaml) → the fleet default in config.yaml → DEFAULT_MODEL. The
+    parent's spec is the direct answer to "run me on whatever my parent runs
+    on", which is the owner's install-time choice for the top-level PAI."""
+    spec: dict | None = None
+    parent_slug = os.environ.get("PAI_SLUG")
+    if parent_slug:
+        try:
+            spec = P.read_spec(parent_slug)
+        except P.ProcessNotFound:
+            spec = None
+    if spec is None:
+        try:
+            spec = P.read_spec(P.find_pai_slug(parent_pid))
+        except P.ProcessNotFound:
+            spec = None
+    if spec and spec.get("provider") and spec.get("model"):
+        return spec["provider"], spec["model"]
+    fp, fm = _fleet_default_model()
+    if fp and fm:
+        return fp, fm
+    provider, _, model = DEFAULT_MODEL.partition("/")
+    return provider, model
 
 
 def _today_slug_suffix() -> str:
@@ -124,17 +175,22 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 1
 
-    # Resolution: explicit --model wins; else bundle's provider/model;
-    # else DEFAULT_MODEL.
+    # Resolution per-field so a bundle can pin just one (e.g. scout pins
+    # provider only). Each field cascades: explicit --model > bundle pin >
+    # inherited (parent PAI spec → fleet default → DEFAULT_MODEL). A subagent
+    # with no pins runs on the owner's install-time model, not a preset.
     if args.model:
-        model_str = args.model
-    elif bundle.get("provider") and bundle.get("model"):
-        model_str = f"{bundle['provider']}/{bundle['model']}"
+        cli_provider, _, cli_model = args.model.partition("/")
+        if not cli_provider or not cli_model:
+            print(f"error: --model must be 'provider/model-tag' (got {args.model!r})", file=sys.stderr)
+            return 1
     else:
-        model_str = DEFAULT_MODEL
-    provider, _, model = model_str.partition("/")
+        cli_provider = cli_model = ""
+    inh_provider, inh_model = _inherited_model(parent_pid)
+    provider = cli_provider or bundle.get("provider") or inh_provider
+    model = cli_model or bundle.get("model") or inh_model
     if not provider or not model:
-        print(f"error: --model must be 'provider/model-tag' (got {model_str!r})", file=sys.stderr)
+        print(f"error: could not resolve provider/model (got {provider!r}/{model!r})", file=sys.stderr)
         return 1
 
     if args.persistent:
@@ -426,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument(
         "--model",
         default=None,
-        help=f"provider/model-tag (overrides --package; default: {DEFAULT_MODEL})",
+        help="provider/model-tag (overrides --package; default: inherit the spawning PAI's model / fleet default)",
     )
     sp.add_argument(
         "--persistent",
