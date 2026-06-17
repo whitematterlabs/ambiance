@@ -570,6 +570,20 @@ def _memory_index_block(home: Path) -> str:
     )
 
 
+def _owner_profile_block(home: Path) -> str:
+    """Inject the canonical owner profile, if present, into the system prompt.
+
+    Resolves off the module-global PAI_ROOT (not `home`): the profile is a
+    single canonical file shared by the whole fleet. The `home` param is kept
+    for signature symmetry with the other block helpers. Mirrors
+    `_read_or_empty` (not `_read_index`) so the block vanishes entirely when
+    the file is absent or empty — no empty shell."""
+    body = _read_or_empty(PAI_ROOT / "var/lib/owner/profile.md").strip()
+    if not body:
+        return ""
+    return f"<owner-profile>\n{body}\n</owner-profile>\n\n"
+
+
 def _subagent_block(parent: int, persub: bool) -> str:
     tmpl_name = "subagent-persistent.md" if persub else "subagent.md"
     tmpl = _read_or_empty(PAI_ROOT / "usr/share/prompts" / tmpl_name)
@@ -740,6 +754,7 @@ def build_system_prompt(
         _custom_block(prompt_dir, prompt_path)
         + _boilerplate_blocks(boilerplate)
         + _memory_index_block(home)
+        + _owner_profile_block(home)
         + _runtime_blocks(pai, parent, home, persub)
         + "~ $ "
     )

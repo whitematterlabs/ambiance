@@ -27,7 +27,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from . import bootstrap, debugger, llm, stitch, tokens
+from . import bootstrap, config, debugger, llm, stitch, tokens
 from . import paths as paths_mod
 from . import processes as P
 from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
@@ -68,6 +68,18 @@ _COMPACT_INSTRUCTION = (
     "decisions, who said what — not verbatim transcripts. After this "
     "turn the kernel will archive the full history and replace the live "
     "conversation with your summary."
+)
+
+
+_ONBOARDING_INSTRUCTION = (
+    "First-run onboarding: you have not yet built the owner profile. Briefly "
+    "tell the owner you're going to skim their last month of mail, messages, "
+    "contacts, and calendar to get to know them, then follow the "
+    "`operating/onboard-owner` skill: read those sources, write the owner "
+    "profile to the path the skill documents (var/lib/owner/profile.md under "
+    "the PAI root), and end your turn with a short digest the owner can "
+    "correct. If there's almost nothing to read, say so and ask them to tell "
+    "you about themselves instead."
 )
 
 
@@ -464,6 +476,17 @@ async def _nudge_body(
     # not their full lifetime. Only ephemeral subagents resolve on turn end.
     is_ephemeral = parent_str is not None and not pai_spec.get("persistent")
 
+    # First-wake owner profiling. The fallback PAI gets a one-time onboarding
+    # instruction appended to its turn until the profile artifact exists.
+    # Keying on the artifact (not just the flag) makes retry idempotent: an
+    # interrupted/partial pass leaves the flag set and re-injects next wake.
+    profile_path = paths_mod.PAI_ROOT / "var/lib/owner/profile.md"
+    do_onboarding = (
+        bool(pai_spec.get("fallback"))
+        and config.onboarding_pending()
+        and not profile_path.exists()
+    )
+
     home = stitch.home_for(pai_slug)
     system = bootstrap.build_system_prompt(
         pai=pai_pid,
@@ -476,6 +499,8 @@ async def _nudge_body(
     )
     sender = f"{from_kind}:{from_}" if from_ is not None else None
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)
+    if do_onboarding:
+        user += f"\n\n{_ONBOARDING_INSTRUCTION}"
 
     history_path = _history_path(pai_slug)
     history = _load_history(history_path)
@@ -604,6 +629,19 @@ async def _nudge_body(
                 pass
 
     _save_history(history_path, new_history)
+
+    # Onboarding completes when the profile artifact exists. Clearing keyed on
+    # the produced file (not merely "we ran the turn") gives idempotent retry:
+    # a partial pass leaves the flag set and re-injects next wake. Config
+    # mutation stays kernel-side — no PAI-called privileged bin.
+    if do_onboarding and profile_path.exists():
+        try:
+            config.clear_onboarding_pending()
+            append_log(pai_slug, "kernel: onboarding complete — cleared onboarding_pending")
+        except ProcessNotFound:
+            pass
+        except Exception as e:
+            print(f"[kernel] clear_onboarding_pending failed: {e!r}", flush=True)
 
     # Announce turn end. Subscribers (e.g. memory PAI) re-read the
     # last line of messages_path themselves — payload is a pointer,

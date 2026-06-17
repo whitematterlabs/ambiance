@@ -176,6 +176,12 @@ def default_config_yaml(provider: str = DEFAULT_SEED_PROVIDER,
 #   wake_on      list of fnmatch globs over event-kind; matching PAIs are nudged
 #   fallback     if true, this PAI is nudged only when no wake_on pattern matched
 
+# First-wake owner profiling. While true, the fallback PAI's first nudge gets a
+# one-time instruction to skim the owner's last month of mail/messages/contacts/
+# calendar and write var/lib/owner/profile.md. The kernel clears this to false
+# once that file exists (idempotent retry until it does).
+onboarding_pending: true
+
 pais:
   - name: root
     pid: 1

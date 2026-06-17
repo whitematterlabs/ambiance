@@ -175,6 +175,45 @@ def test_build_system_prompt_no_custom_when_missing(
     assert "<custom>" not in out_missing
 
 
+def test_owner_profile_block_present_for_fleet_and_subagent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The canonical owner profile is injected into every PAI's prompt — fleet
+    # members and subagents alike (both flow through build_system_prompt).
+    profile = tmp_path / "var" / "lib" / "owner" / "profile.md"
+    profile.parent.mkdir(parents=True)
+    profile.write_text("# Owner\nName: Sam\nTimezone: PT\n")
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
+
+    out_fleet = bootstrap.build_system_prompt(pai=2, prompt_path=None, boilerplate=[])
+    assert "<owner-profile>" in out_fleet
+    assert "Name: Sam" in out_fleet
+
+    out_subagent = bootstrap.build_system_prompt(
+        pai=7, parent=2, prompt_path=None, boilerplate=[]
+    )
+    assert "<owner-profile>" in out_subagent
+    assert "Name: Sam" in out_subagent
+
+
+def test_owner_profile_block_absent_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No file → the block vanishes entirely (no empty shell).
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
+    out = bootstrap.build_system_prompt(pai=2, prompt_path=None, boilerplate=[])
+    assert "<owner-profile>" not in out
+
+    # An empty/whitespace-only file is also treated as absent.
+    profile = tmp_path / "var" / "lib" / "owner" / "profile.md"
+    profile.parent.mkdir(parents=True)
+    profile.write_text("   \n\n")
+    out_empty = bootstrap.build_system_prompt(pai=2, prompt_path=None, boilerplate=[])
+    assert "<owner-profile>" not in out_empty
+
+
 def _block(out: str, tag: str) -> str:
     start = out.index(f"<{tag}>")
     end = out.index(f"</{tag}>", start)

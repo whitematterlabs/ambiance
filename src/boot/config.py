@@ -345,6 +345,42 @@ def is_fallback(slug: str, path: Path | None = None) -> bool:
     return False
 
 
+def onboarding_pending(path: Path | None = None) -> bool:
+    """Return True iff the top-level `onboarding_pending` key is truthy in
+    /etc/config.yaml. Read-only and tolerant: missing/malformed config →
+    False. The flag is a top-level key (not under `pais`), so it is inert to
+    `load_config`/`reconcile_from_config` and never leaks into a spec.yaml."""
+    if path is None:
+        path = CONFIG_PATH
+    if not path.exists():
+        return False
+    try:
+        raw = _load_yaml(path)
+    except ConfigError:
+        return False
+    return bool(raw.get("onboarding_pending"))
+
+
+def clear_onboarding_pending(path: Path | None = None) -> None:
+    """Set the top-level `onboarding_pending` key to False, preserving the
+    rest of the config (round-trips the whole dict). Atomic: .tmp + rename,
+    mirroring `paiadd._append_entry`. Tolerant of a missing/malformed file —
+    nothing to clear, so it's a no-op."""
+    if path is None:
+        path = CONFIG_PATH
+    if not path.exists():
+        return
+    try:
+        raw = _load_yaml(path)
+    except ConfigError:
+        return
+    raw["onboarding_pending"] = False
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(raw, f, sort_keys=False)
+    tmp.rename(path)
+
+
 def package_for(slug: str, path: Path | None = None) -> str | None:
     """Return the bundle name declared for `slug` in /etc/config.yaml, or
     None if the slug is bundleless (or absent). Read-only — does not

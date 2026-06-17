@@ -49,9 +49,17 @@ for correction.
 ## Architecture
 
 ### 1. Trigger
-First wake after OOBE completes, before any owner message. Runs once; sets a
-sentinel (e.g. a flag file) so it never re-runs on subsequent boots. If the
-sentinel exists, the pass is a no-op.
+A single boolean gate in `/etc/config.yaml` (source of truth, greppable):
+`onboarding_pending: true`.
+
+- `paisetup` sets it `true` at the end of OOBE.
+- On wake, `pai_default` checks it. If `true`, run the pass, then set it
+  `false`. If `false`/absent, the pass is a no-op.
+
+This is the run-once gate expressed as a bool. Side benefit: if the pass is
+interrupted partway (crash, owner says stop, partial read), the flag stays
+`true` and the pass simply re-runs on the next wake — idempotent retry, no
+separate "in progress" state needed.
 
 ### 2. The profiling pass (pairegistry skill/bin, run by `pai_default`)
 1. **Announce** in owner chat: roughly *"I'm going to skim your recent mail,
