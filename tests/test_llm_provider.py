@@ -21,14 +21,37 @@ def test_openai_base_url_built_from_proxy_port():
 
 
 def test_resolve_openai_targets_proxy(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    # _resolve caches clients per provider; clear so this test builds fresh.
-    monkeypatch.setattr(L, "_clients", {}, raising=True)
-
+    monkeypatch.setattr(L, "_clients", {})
     client, model, extra_body = L._resolve("openai", None)
-    assert model == "gpt-5.5"  # provider default
+    assert model == "openai/gpt-5.5"  # provider-namespaced for proxy routing
     assert f"127.0.0.1:{L.PROXY_PORT}" in str(client.base_url)
     assert extra_body == {}
+
+
+def test_resolve_proxied_namespaces_explicit_model(monkeypatch):
+    monkeypatch.setattr(L, "_clients", {})
+    _, model, _ = L._resolve("openai", "gpt-5.5-mini")
+    assert model == "openai/gpt-5.5-mini"
+
+
+def test_resolve_proxied_normalizes_incoming_prefix(monkeypatch):
+    # An incoming OpenRouter-style prefix is normalized to bare, then
+    # re-namespaced with the provider's proxy_prefix.
+    monkeypatch.setattr(L, "_clients", {})
+    _, model, _ = L._resolve("openai", "anthropic/gpt-5.5")
+    assert model == "openai/gpt-5.5"
+
+
+def test_resolve_direct_provider_stays_bare(monkeypatch):
+    monkeypatch.setattr(L, "_clients", {})
+    _, model, _ = L._resolve("deepseek", "deepseek-v4-pro")
+    assert model == "deepseek-v4-pro"
+
+
+def test_resolve_sets_client_timeout(monkeypatch):
+    monkeypatch.setattr(L, "_clients", {})
+    client, _, _ = L._resolve("anthropic", None)
+    assert client.timeout.read == L._CLIENT_TIMEOUT.read
 
 
 def test_resolve_unknown_provider_raises():

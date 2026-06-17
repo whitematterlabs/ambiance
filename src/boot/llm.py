@@ -18,6 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from anthropic import AsyncAnthropic
 
 from . import tokens
@@ -46,6 +47,13 @@ def _append_narration_to_me_thread(pai_pid: str, line: str) -> None:
 # Shared source of truth: the `openai` provider row below builds its base_url
 # from it, and boot/litellm_proxy.py binds + polls readiness against it.
 PROXY_PORT = 4000
+
+# Wall-clock guard on a single model HTTP call. The loopback hop (kernel→proxy)
+# is fast; the real risk is the proxy→upstream hop stalling. read=300s sits
+# above LiteLLM's own request_timeout*(num_retries+1) (see litellm_proxy.py) so
+# the proxy returns a clean error/retry before this raw timeout fires; this is
+# the backstop that turns a wedged upstream into a ~5-min failure, not ~10.
+_CLIENT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
 
 
 @dataclass(frozen=True)
@@ -124,19 +132,26 @@ def _resolve(provider: Optional[str], model: Optional[str]) -> tuple[AsyncAnthro
     api_key_env = spec.api_key_env
     default_model = spec.default_model
     extra_body = spec.extra_body
+    # Normalize any incoming OpenRouter-style prefix to a bare model id.
     if model and "/" in model:
         model = model.split("/", 1)[1]
     client = _clients.get(key)
     if client is None:
         api_key = os.environ.get(api_key_env)
-        kwargs: dict = {}
+        kwargs: dict = {"timeout": _CLIENT_TIMEOUT}
         if api_key:
             kwargs["api_key"] = api_key
         if base_url:
             kwargs["base_url"] = base_url
         client = AsyncAnthropic(**kwargs)
         _clients[key] = client
-    return client, model or default_model, extra_body
+    wire_model = model or default_model
+    # Proxied providers share one loopback endpoint; the proxy disambiguates by
+    # the LiteLLM provider namespace, so send "<prefix>/<model>" (e.g.
+    # "openai/gpt-5.5"). Direct providers send the bare model unchanged.
+    if spec.via_proxy and spec.proxy_prefix:
+        wire_model = f"{spec.proxy_prefix}/{wire_model}"
+    return client, wire_model, extra_body
 
 
 class TurnCancelled(Exception):
@@ -264,7 +279,7 @@ async def _loop(
             messages=_with_cache_control(messages),
             extra_body=extra_body,
         )
-        tokens.record((env or {}).get("PAI_SLUG"), model, response.usage)
+        tokens.record((env or {}).get("PAI_SLUG"), short_model, response.usage)
 
         # Anthropic SDK returns content blocks as objects; serialize for
         # on-disk history so we can round-trip via JSON.
