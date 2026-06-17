@@ -351,7 +351,23 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-class ThreadingUnixHTTPServer(ThreadingHTTPServer):
+class _QuietHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that doesn't dump a traceback when a client hangs up.
+
+    Browsers routinely reset a connection mid-request (closed tab, aborted
+    fetch, HTTP/1.1 keep-alive teardown). The default `handle_error` prints the
+    full stack trace to stderr, which buries real errors. Swallow the connection
+    teardown family quietly; let anything genuinely unexpected fall through.
+    """
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, BrokenPipeError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
+class ThreadingUnixHTTPServer(_QuietHTTPServer):
     """ThreadingHTTPServer over AF_UNIX, for the in-app `pai://` surface.
 
     BaseHTTPServer is AF_INET by default; flip the address_family and let it
@@ -411,7 +427,7 @@ def run(
         descriptor = f"unix:{unix_socket}"
         url = None
     else:
-        server = ThreadingHTTPServer((host, port), Handler)
+        server = _QuietHTTPServer((host, port), Handler)
         server.daemon_threads = True
         url = f"http://{host}:{port}"
         descriptor = url
