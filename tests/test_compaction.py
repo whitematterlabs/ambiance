@@ -42,6 +42,7 @@ def _reset_compaction_state(live_dir: Path, monkeypatch: pytest.MonkeyPatch):
     # don't bleed state.
     monkeypatch.setattr(N, "_pai_locks", {}, raising=True)
     monkeypatch.setattr(N, "_recently_compacted", {}, raising=True)
+    monkeypatch.setattr(N, "_TRANSIENT_RETRY_DELAY", 0, raising=True)  # no real sleep
     # nudge.py imports HOME_DIR by name at module load — re-bind it so
     # _apply_history_action looks at the test tree, not the real ~/.pai.
     monkeypatch.setattr(N, "HOME_DIR", P.HOME_DIR, raising=True)
