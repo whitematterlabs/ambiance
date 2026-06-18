@@ -318,3 +318,56 @@ def test_genuine_error_still_escalates_to_root(live_dir: Path) -> None:
     # A genuine, actionable bug IS surfaced to root (pid 1 gets nudged).
     assert "33" in seen_pids
     assert "1" in seen_pids
+
+
+def test_onboarding_completion_clears_history(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The fallback PAI runs the one-time owner-profiling pass inline in its
+    # primary conversation, leaving ~30K of exploration in messages.jsonl.
+    # Once the durable profile artifact is written, the kernel archives and
+    # empties that history so steady-state turns start lean.
+    from boot import config as C
+    from boot import paths as paths_mod
+
+    monkeypatch.setattr(paths_mod, "PAI_ROOT", live_dir, raising=True)
+    config_path = live_dir / "etc" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("onboarding_pending: true\n")
+    monkeypatch.setattr(C, "CONFIG_PATH", config_path, raising=True)
+
+    _spawn("pai", pid=2, fallback=True)
+    _write_tokens("pai", 30_000)
+    history_path = _write_history("pai", 4)
+    proc_dir = P.HOME_DIR / "proc" / "pai"
+    profile_path = live_dir / "var" / "lib" / "owner" / "profile.md"
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        # Simulate the onboarding skill distilling and persisting the profile.
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        profile_path.write_text("# Owner profile\n\nDistilled.\n")
+        return ("got it", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "got it"},
+        ])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=2, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    # (a) Live history is emptied.
+    live = [ln for ln in history_path.read_text().splitlines() if ln.strip()]
+    assert live == []
+    # (b) Exactly one onboarding archive, holding the complete pre-clear history.
+    archives = list((proc_dir / "history").glob("*-onboarding.jsonl"))
+    assert len(archives) == 1
+    archived = [json.loads(ln) for ln in archives[0].read_text().splitlines() if ln.strip()]
+    assert len(archived) == 6  # 4 seeded + the onboarding turn's 2 messages
+    assert archived[-1]["content"] == "got it"
+    # (c) onboarding_pending flipped false.
+    assert C.onboarding_pending(config_path) is False
+    # (d) tokens window gauge reset.
+    tokens = json.loads((proc_dir / "tokens").read_text())
+    assert tokens["last_window_tokens"] == 0

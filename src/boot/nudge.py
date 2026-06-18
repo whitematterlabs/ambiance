@@ -143,6 +143,31 @@ def apply_pending_history_action(pai_slug: str) -> bool:
     return _apply_history_action(pai_slug, _history_path(pai_slug))
 
 
+def _clear_history(pai_slug: str, history_path: Path, label: str = "clear") -> Optional[Path]:
+    """Archive the live history jsonl, reset it to empty, and zero the token
+    rollup's window gauge. Shared by the bin/clear action and kernel-driven
+    resets (onboarding completion). Returns the archive path, or None if there
+    was no history to archive."""
+    proc_dir = PROC_DIR / pai_slug
+    archive_dir = proc_dir / "history"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+    archive_path = archive_dir / f"{ts}-{label}.jsonl"
+    archived = history_path.exists()
+    if archived:
+        shutil.copy(history_path, archive_path)
+    _save_history(history_path, [])
+    tokens_path = proc_dir / "tokens"
+    if tokens_path.exists():
+        try:
+            data = json.loads(tokens_path.read_text())
+            data["last_window_tokens"] = 0
+            tokens_path.write_text(json.dumps(data))
+        except Exception:
+            pass
+    return archive_path if archived else None
+
+
 def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     """If PAI queued a clear/compact via `bin/clear` or `bin/compact` during
     the turn, apply it now: archive the just-saved history and rewrite the
@@ -157,31 +182,22 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     lines = raw.splitlines()
     action = lines[0].strip() if lines else ""
 
-    archive_dir = proc_dir / "history"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
-    archive_path = archive_dir / f"{ts}-{action or 'unknown'}.jsonl"
-    if history_path.exists():
-        shutil.copy(history_path, archive_path)
-
-    rel_archive = archive_path.relative_to(PROC_DIR.parent)
-
     if action == "clear":
-        _save_history(history_path, [])
-        tokens_path = proc_dir / "tokens"
-        if tokens_path.exists():
-            try:
-                data = json.loads(tokens_path.read_text())
-                data["last_window_tokens"] = 0
-                tokens_path.write_text(json.dumps(data))
-            except Exception:
-                pass
+        archive_path = _clear_history(pai_slug, history_path, "clear")
+        rel_archive = (archive_path or proc_dir / "history").relative_to(PROC_DIR.parent)
         try:
             append_log(pai_slug, f"context cleared — archived to {rel_archive}")
         except ProcessNotFound:
             pass
         print(f"[kernel] cleared pai={pai_slug} context — archived to {rel_archive}", flush=True)
     elif action == "compact":
+        archive_dir = proc_dir / "history"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+        archive_path = archive_dir / f"{ts}-{action}.jsonl"
+        if history_path.exists():
+            shutil.copy(history_path, archive_path)
+        rel_archive = archive_path.relative_to(PROC_DIR.parent)
         summary = "\n".join(lines[1:]).strip() or "(no summary provided)"
         compacted = [
             {"role": "user", "content": f"[compacted prior context]\n{summary}"},
@@ -638,6 +654,14 @@ async def _nudge_body(
         try:
             config.clear_onboarding_pending()
             append_log(pai_slug, "kernel: onboarding complete — cleared onboarding_pending")
+            # The profiling pass leaves ~30K of exploration in the live buffer.
+            # The durable distillation is in var/lib/owner/profile.md (re-injected
+            # into every system prompt), so the raw exploration is pure scaffolding
+            # — archive and empty it so steady-state turns start lean.
+            archived = _clear_history(pai_slug, history_path, "onboarding")
+            if archived:
+                append_log(pai_slug, f"kernel: onboarding context cleared — archived to "
+                                     f"{archived.relative_to(PROC_DIR.parent)}")
         except ProcessNotFound:
             pass
         except Exception as e:
