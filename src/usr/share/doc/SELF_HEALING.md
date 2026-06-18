@@ -24,7 +24,7 @@ any peer PAI, does not take the system down.
 The kernel does not self-restart on crash. There is no watchdog
 above PID 1 inside `~/.pai`. If `src/boot/main.py` raises an
 uncaught exception, the process exits and the OS reaps it; whatever
-started it (a TTY shell, `launchctl`, `PAI.app`) is responsible for
+started it (a TTY shell or `launchctl`) is responsible for
 respawning. That outer layer is intentionally thin and outside the
 kernel's contract.
 
@@ -64,9 +64,8 @@ The path:
    returns and `os.execvp`s the same argv `/sbin/init` uses. PID 1
    is preserved.
 
-The same path runs whether the trigger is `/sbin/reboot`, the
-`PAI.app` menu, or a kernelPAI skill that emits `kernel:restart`
-directly.
+The same path runs whether the trigger is `/sbin/reboot` or a
+kernelPAI skill that emits `kernel:restart` directly.
 
 ## Domain 2 — PAI processes
 

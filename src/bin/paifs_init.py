@@ -222,10 +222,10 @@ SYMLINK_TARGETS = {p for p, _ in SYMLINKS}
 PROVISION_SCHEMA = 1
 
 # Content slots bundle mode COPIES (not symlinks) out of the bundled seed dir.
-# Each entry is (link_path_under_root, seed_relative_path). The app ships
-# `src/etc/` -> Resources/seed/etc and `src/usr/share/doc/` -> Resources/seed/doc
-# (see macos/bundle-runtime.sh); these mappings mirror the content entries in
-# SYMLINKS above, sourced from the seed instead of the repo.
+# Each entry is (link_path_under_root, seed_relative_path). A bundled build is
+# expected to ship `src/etc/` and `src/usr/share/doc/` under its seed dir as
+# `etc/` and `doc/`; these mappings mirror the content entries in SYMLINKS
+# above, sourced from the seed instead of the repo.
 BUNDLE_SEED_CONTENT: tuple[tuple[str, str], ...] = (
     ("usr/share/doc", "doc"),
     ("etc/owner.md", "etc/owner.md"),

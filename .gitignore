@@ -36,9 +36,4 @@ wheels/
 /src/etc/owner.md
 /src/usr/share/doc/built/
 
-# macOS app — Xcode user state and build artifacts (sources under macos/PAI/ stay tracked).
-/macos/PAI.xcodeproj/xcuserdata/
-/macos/PAI.xcodeproj/project.xcworkspace/xcuserdata/
-/macos/build/
-/macos/DerivedData/
 .gstack/

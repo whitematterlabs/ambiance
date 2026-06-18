@@ -28,17 +28,14 @@ spawns, drives, or owns the kernel or its runtime.
 
 Because the surface only *attaches* to the kernel, it does **not** install
 itself into the kernel runtime (`~/.pai`). In dev, the server resolves the built
-frontend from the repo (`src/usr/libexec/web/dist/`). In a `./paibuild` app, the
-frontend is bundled next to the Python package and also mirrored under app
-resources. `~/.pai` stays untouched.
+frontend from the repo (`src/usr/libexec/web/dist/`). `~/.pai` stays untouched.
 
 The browser→kernel direction is plain `POST /api/*`; the kernel→browser
 direction is one long-lived `GET /api/stream` SSE feed.
 
 ## Run
 
-One-time frontend build for repo/dev use (also done by `install.sh`; `paibuild`
-does this automatically when frontend inputs change):
+One-time frontend build for repo/dev use (also done by `install.sh`):
 
 ```bash
 cd src/usr/libexec/web

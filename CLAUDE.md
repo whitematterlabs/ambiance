@@ -60,20 +60,15 @@ Four tools, one layer each: `paiman` (bundles) / `paiadd`+`paidel` (configure in
 - **Tests**: `uv run python -m pytest`.
 - **Run kernel from FHS root**: `cd ~/.pai && usr/bin/python -m boot run`.
 - **Run kernel from repo (dev)**: `uv run python -m boot run`.
-- **Build final app**: `./paibuild` from the repo root. It is repo-only dev
-  tooling, defaults to a Release `macos/build/PAI.app`, and must never be added
-  to `pyproject.toml` scripts or installed into `~/.pai`.
 
 `paifs-init` provisions `~/.pai/` from the repo: creates the FHS skeleton, symlinks `/usr/src/`/`/usr/lib/drivers/`/`/usr/share/prompts/` at the live repo, builds a self-contained venv at `/usr/lib/venv/`, and generates console-script shims at `/usr/bin/` and `/sbin/`. Idempotent and non-destructive — safe to re-run after `git pull` to refresh shims/venv. To wipe runtime state, use `reset` (destructive).
 
-`paibuild` is the opposite side of that boundary: it packages the repo into a
-self-contained `.app` under ignored `macos/build/`, validates first-run registry
-seeds by default, and may rebuild the web dist, Swift app, embedded Python
-runtime, seed content, wheel install, signatures, and optional DMG. It must not
-write or rely on the real `$PAI_ROOT` runtime except for explicit read-only
-checks.
-
 ## Graduating from TTY to .app
+
+> A SwiftUI `PAI.app` (the `macos/` dir + `paibuild`) once lived in this repo but
+> was removed: it required Xcode to build, which broke setup on machines with only
+> the Command Line Tools. The notes below are the forward plan for re-introducing a
+> native surface, not a description of existing code.
 
 PAI runs in a terminal today. That is deliberate while the kernel's contract with the world is still moving (driver layout, FHS semantics, prompt assembly, send_message shape). An `.app` adds a second surface to keep in sync — window lifecycle, dock, notifications, Sparkle-style updates, code signing, and Location/Contacts/Calendar entitlements as a *bundled identity* instead of borrowed from Terminal — and doing that before the kernel is stable means re-doing it.
 

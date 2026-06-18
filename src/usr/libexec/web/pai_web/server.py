@@ -50,7 +50,7 @@ def _frontend_dist() -> Path:
         if parent.name == "Resources":
             app_resource_dist = parent / "usr" / "libexec" / "web" / "dist"
             break
-    candidates = [package_dist]  # wheel: bundled by paibuild
+    candidates = [package_dist]  # wheel: dist bundled next to the package
     if app_resource_dist is not None:
         candidates.append(app_resource_dist)
     candidates.extend([
