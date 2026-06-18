@@ -259,12 +259,34 @@ def ensure_dir(path: Path) -> None:
 
 
 def ensure_symlink(link: Path, target: Path) -> None:
+    # Resolve a relative target (only `bin -> usr/bin`) the way the symlink
+    # itself will — relative to the link's own directory. Everything else is
+    # an absolute repo path.
+    src = target if target.is_absolute() else (link.parent / target)
+    # Only the absolute repo-source links are checked for existence. The one
+    # relative target (`bin -> usr/bin`) is a deliberate forward ref — usr/bin
+    # is provisioned later by install_bin_shims — so it legitimately points at
+    # a not-yet-existing slot.
+    if target.is_absolute() and not src.exists():
+        # The source this slot must point at is gone: an incomplete checkout,
+        # or paifs-init running from the wrong tree (e.g. a ~/.pai copied off
+        # another machine, whose links reference a repo path that doesn't
+        # exist here). Fail loud and specific *now* instead of letting the
+        # kernel abort three boot phases later with an opaque config error
+        # like "boilerplate `owner` not found". We exit before touching the
+        # existing link, so any dangling link is left in place and the next
+        # run self-heals once the source is restored.
+        sys.exit(
+            f"paifs-init: symlink source missing: {src}\n"
+            f"  needed by: {link}\n"
+            f"  fix: re-run paifs-init from this machine's complete pai checkout."
+        )
     # In-tree case: PAI_ROOT == REPO_ROOT means the link IS the target.
     # Nothing to wire — the FHS slot already holds the canonical content.
     try:
-        if link.resolve() == target.resolve():
+        if link.resolve() == src.resolve():
             return
-    except FileNotFoundError:
+    except OSError:
         pass
     if link.is_symlink():
         if link.readlink() == target:
