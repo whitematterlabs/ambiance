@@ -45,11 +45,17 @@ the parent and resolves the subagent proc.
 
 ## Execution model
 
-**One mode: CDP attach to the owner's real Chrome.** No bundled
-Chromium, no separate profile. Chrome launches lazily on the owner's
-real `~/Library/Application Support/Google/Chrome` profile with
-`--remote-debugging-port=9222`. WAFs see a returning logged-in human,
-not a bot.
+**One mode: CDP against PAI's own dedicated Chrome.** No bundled Chromium.
+Chrome launches lazily against a PAI-owned profile under `PAI_ROOT`
+(`var/chrome/profile`), seeded once from the owner's real
+`~/Library/Application Support/Google/Chrome` profile so logged-in sessions
+carry over — WAFs still see a returning logged-in human, not a bot. It runs
+on a PAI-dedicated debug port (`--remote-debugging-port=9333`, deliberately
+**not** the conventional 9222) so PAI never attaches to the owner's everyday
+Chrome; `_ensure_chrome` verifies the process answering the port is PAI's own
+profile before driving it, and refuses otherwise. Chrome 136+ also blocks
+remote debugging when `--user-data-dir` resolves to the default profile path,
+which the dedicated profile sidesteps.
 
 ## Verbs
 
@@ -169,8 +175,8 @@ is open.
 
 ## Long-running browser daemon
 
-Today each spawn either reuses an existing CDP Chrome (port 9222
-alive) or launches one. There is no supervisor managing tabs, sessions,
+Today each spawn either reuses PAI's existing CDP Chrome (the dedicated
+port 9333 alive *and* owned by PAI's profile) or launches one. There is no supervisor managing tabs, sessions,
 or concurrent spawns across the fleet. Tab handoff via the orphan
 mechanism is the minimal version of this; a real daemon is deferred.
 
