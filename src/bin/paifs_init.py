@@ -95,8 +95,10 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("usr/src", REPO_ROOT / "src"),
     ("usr/libexec/web", REPO_ROOT / "src" / "usr" / "libexec" / "web"),
     ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
-    ("etc/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
-    ("etc/boilerplate/owner.md", REPO_ROOT / "src" / "etc" / "owner.md"),
+    # owner.md is intentionally NOT here: it holds per-owner PII and is
+    # gitignored ("not shipped"), so a fresh clone has no source to point at.
+    # It is generated in the FHS by ensure_default_owner() and the boilerplate
+    # slot is a relative link to it (both wired in lay_out).
     ("etc/boilerplate/memory-usage.md", REPO_ROOT / "src" / "etc" / "boilerplate" / "memory-usage.md"),
     ("etc/boilerplate/capability-escalation.md", REPO_ROOT / "src" / "etc" / "boilerplate" / "capability-escalation.md"),
 )
@@ -228,8 +230,8 @@ PROVISION_SCHEMA = 1
 # above, sourced from the seed instead of the repo.
 BUNDLE_SEED_CONTENT: tuple[tuple[str, str], ...] = (
     ("usr/share/doc", "doc"),
-    ("etc/owner.md", "etc/owner.md"),
-    ("etc/boilerplate/owner.md", "etc/owner.md"),
+    # owner.md is generated (ensure_default_owner), not copied from the seed —
+    # it carries per-owner PII and is never shipped in a bundle.
     ("etc/boilerplate/memory-usage.md", "etc/boilerplate/memory-usage.md"),
     ("etc/boilerplate/capability-escalation.md", "etc/boilerplate/capability-escalation.md"),
 )
@@ -310,6 +312,42 @@ def ensure_default_config(root: Path, *, provider: str = DEFAULT_SEED_PROVIDER,
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(default_config_yaml(provider, model))
+
+
+DEFAULT_OWNER_MD = """\
+Owner metadata. Use these when filling forms, addressing mail, scheduling
+deliveries, drafting replies that need contact details, etc. Don't volunteer
+them unprompted.
+
+Fill in the owner's real details below. This file is per-owner and is never
+committed (it's gitignored as "not shipped"); it lives in the FHS, not the
+repo. After editing, the values are picked up via the `owner` boilerplate.
+
+- Name:
+- Address:
+- Phone:
+- Email:
+"""
+
+
+def ensure_default_owner(root: Path) -> None:
+    """Write a placeholder etc/owner.md on first install. Never overwrites.
+
+    owner.md carries per-owner PII and is deliberately kept out of git, so a
+    fresh clone or bundle ships no source for it. Mirroring ensure_default_config,
+    we generate a template here so the `owner` boilerplate source always exists
+    and the kernel boots; the owner fills in real values afterward. A leftover
+    *dangling* symlink (from the pre-generate layout, where owner.md pointed at
+    an absent repo file) is replaced so the broken state self-heals."""
+    dest = root / "etc" / "owner.md"
+    if dest.exists():
+        # Real file or a live symlink to the owner's data — keep it untouched.
+        return
+    if dest.is_symlink():
+        # Dangling link left by an older layout; drop it and seed the template.
+        dest.unlink()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(DEFAULT_OWNER_MD)
 
 
 SHARED_MEMORY_INDEX_HEADER = (
@@ -530,6 +568,10 @@ def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None,
     # holds the kernel-only ones.
     ensure_symlink(root / "bin", Path("usr/bin"))
     ensure_default_config(root, provider=default_provider, model=default_model)
+    # owner.md is generated (PII, not shipped) and the boilerplate slot is a
+    # relative link to it — same in both dev and bundle mode.
+    ensure_default_owner(root)
+    ensure_symlink(root / "etc" / "boilerplate" / "owner.md", Path("../owner.md"))
     ensure_shared_memory_index(root)
     if bundle_mode:
         # No dev venv: the embedded interpreter already has the package, and the

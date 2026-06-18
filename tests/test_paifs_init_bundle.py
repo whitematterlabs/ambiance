@@ -23,7 +23,8 @@ def seed(tmp_path: Path) -> Path:
     """A faithful (tiny) stand-in for Resources/seed: etc/ + doc/."""
     s = tmp_path / "seed"
     (s / "etc" / "boilerplate").mkdir(parents=True)
-    (s / "etc" / "owner.md").write_text("# owner\n")
+    # owner.md is intentionally absent: it's PII, gitignored, never shipped in
+    # a bundle — paifs_init generates it instead of copying from the seed.
     (s / "etc" / "boilerplate" / "memory-usage.md").write_text("# memory-usage\n")
     (s / "etc" / "boilerplate" / "capability-escalation.md").write_text("# cap-esc\n")
     (s / "doc").mkdir()
@@ -62,12 +63,19 @@ def test_bundle_copies_seed_content_not_symlinks(
     assert doc.is_dir() and not doc.is_symlink()
     assert (doc / "FILESYSTEM_v3.md").read_text() == "# fs v3\n"
 
+    # owner.md is GENERATED (PII, never shipped in a bundle), not copied from
+    # the seed — a real file holding the placeholder template.
     owner = root / "etc" / "owner.md"
     assert owner.is_file() and not owner.is_symlink()
-    assert owner.read_text() == "# owner\n"
+    assert owner.read_text() == paifs_init.DEFAULT_OWNER_MD
+
+    # The boilerplate `owner` slot is a relative link to ../owner.md so the
+    # source always resolves regardless of how owner.md got there.
+    bp_owner = root / "etc" / "boilerplate" / "owner.md"
+    assert bp_owner.is_symlink() and bp_owner.readlink() == Path("../owner.md")
+    assert bp_owner.read_text() == paifs_init.DEFAULT_OWNER_MD
 
     for rel in (
-        "etc/boilerplate/owner.md",
         "etc/boilerplate/memory-usage.md",
         "etc/boilerplate/capability-escalation.md",
     ):
