@@ -298,6 +298,33 @@ def test_parent_prompt_lists_persub_pid(
     )
 
 
+def test_fleet_prompt_uses_compact_fhs_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "pai"
+    home = root / "home" / "pai"
+    home.mkdir(parents=True)
+    (root / "proc").mkdir(parents=True)
+    (root / "usr" / "lib" / "skills").mkdir(parents=True)
+    (root / "usr" / "lib" / "subagents").mkdir(parents=True)
+
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", root, raising=True)
+    monkeypatch.setattr(bootstrap, "PROC_DIR", root / "proc", raising=True)
+
+    out = bootstrap.build_system_prompt(
+        pai=2,
+        parent=None,
+        home_dir=str(home),
+        boilerplate=[],
+    )
+
+    assert "<fhs-reference>" in out
+    assert str(home) in _block(out, "fhs-reference")
+    assert "<home-fhs>" not in out
+    assert "<system-fhs>" not in out
+
+
 def test_subagent_prompt_keeps_bin_that_collides_with_system_subagent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

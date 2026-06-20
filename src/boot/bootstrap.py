@@ -6,7 +6,6 @@ lifetime; restart the kernel to pick up edits to the role prompt.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import time
@@ -28,6 +27,8 @@ sentence, present tense) saying what you're about to do and why — e.g.
 surfaced live to the owner (TUI activity pane + `/proc/<your-slug>/log.md`);
 your final assistant text remains your reply. Skip narration only for
 trivial single-step turns where the action is obvious from the event.
+Interim narration is not a final reply: after a quiet background wake,
+you may still end with no assistant text.
 
 Your world is the filesystem — an FHS layout (`/etc/`, `/usr/`,
 `/var/`, `/proc/`, `/run/`, `/sys/`, `/boot/`, `/sbin/`, `/bin/`,
@@ -118,26 +119,26 @@ To act, write to files or invoke tools:
 ### Delegating to a subagent
 
 `bin/subagent spawn --slug NAME --prompt "what you want it to do"`.
-The call returns immediately with `{slug} (pid {N})`. The subagent
-runs in the background; it is *persistent* — it stays alive across
-turns and does not resolve on its own. Conversation is non-blocking:
-- To talk to your subagent: `bin/send-message --to {child pid} --content "..."`
-  (this is the same generic peer messaging channel you'd use for any PAI).
-- When the subagent has something for you, you'll be nudged with
-  `reason: subagent response` and `from: subagent:{child pid}` —
-  that's your signal it's one of your own children, not a PAI peer.
-  (Generic peer messages arrive as `from: pai:{pid}`.)
+The call returns immediately with `{slug} (pid {N})`; the child runs
+in the background and replies asynchronously.
+- Ephemeral subagents end by calling `bin/subagent reply --done --content "..."`
+  and are reaped after the response lands.
+- Persistent subagents stay alive across turns; talk to them with
+  `bin/send-message --to {child pid} --content "..."`.
+- Child replies wake you with `reason: subagent response` and
+  `from: subagent:{child pid}`. Generic peer PAI messages arrive as
+  `from: pai:{pid}`.
 - If you ARE a subagent and need to respond to your parent, run
-  `bin/subagent reply --content "..."` (it knows your parent from
-  `$PAI_PARENT`).
+  `bin/subagent reply --content "..."` or `bin/subagent reply --done
+  --content "..."` when your task is complete.
+
+After spawning or messaging async work, end your turn. Do not sleep-loop
+or poll `/proc/<child>/`; the reply is delivered as a fresh nudge.
 
 ### Terminating subagents
 
-`bin/subagent kill --slug NAME` — that resolves the child and you'll
-be nudged once more with `proc completed`. Read
-`proc/<slug>/messages.jsonl` for the full transcript and
-`proc/<slug>/log.md` for the shell commands it ran. You can run
-many subagents concurrently; each is independent.
+`bin/subagent kill --slug NAME` aborts a child you own. You can run many
+subagents concurrently; each is independent.
 
 ### Managing Context & Runtime
 
@@ -316,87 +317,18 @@ def _system_subagent_names(path: Path) -> set[str]:
     return names
 
 
-# One-line gloss per top-level FHS slot. Anything not listed here is
-# omitted from the rendered tree (keeps it tight; the spec at
-# /usr/share/doc/FILESYSTEM_v3.md is authoritative).
-_FHS_GLOSS: dict[str, str] = {
-    "boot": "kernel image (supervisor + linked libs); avoid editing",
-    "sbin": "owner-only tools that mutate /etc/ or fleet state (init, paiman, paiadd, paictl)",
-    "bin": "PAI-callable tools (paictl, paicron, send-message, subagent, nudge, ...)",
-    "etc": "control plane: config.yaml declares the fleet",
-    "home": "stitched per-PAI home views",
-    "root": "root's stitched home",
-    "proc": "running PAIs/drivers — spec.yaml, log.md per slug (a finished subagent's result.md is relocated to its parent's workspace/<slug>/)",
-    "run": "transient runtime state (event queue, sockets)",
-    "sys": "driver-internal runtime state (cursors, last events)",
-    "var": "persistent state — var/lib/instances/<pai>/, var/spool/, var/log/",
-    "usr": "userspace: lib/drivers, lib/skills, lib/subagents, lib/pais, share/doc, share/prompts, src",
-    "opt": "released bundle versions (paiman-managed)",
-    "tmp": "scratch",
-    "mnt": "external mounts",
-    "dev": "device-like endpoints",
-}
-
-
-def _render_system_fhs(pai_root: Path) -> str:
-    """Render the top level of $PAI_ROOT with a one-line gloss per slot."""
-    if not pai_root.exists():
-        return ""
-    lines: list[str] = [f"{pai_root}/"]
-    try:
-        names = sorted(p.name for p in pai_root.iterdir() if p.is_dir())
-    except OSError:
-        return ""
-    for name in names:
-        if name.startswith("."):
-            continue
-        gloss = _FHS_GLOSS.get(name, "")
-        lines.append(f"├── {name}/" + (f"  — {gloss}" if gloss else ""))
-
-    lines.append("")
-    lines.append("Spec: /usr/share/doc/FILESYSTEM_v3.md (authoritative).")
-    return "\n".join(lines)
-
-
-def _readlink_display(p: Path) -> str:
-    """For a symlink p, return its target rendered as `/<rel>` against
-    PAI_ROOT when it lands inside the FHS, else the raw target string."""
-    try:
-        raw = os.readlink(p)
-    except OSError:
-        return "?"
-    try:
-        resolved = p.resolve()
-    except OSError:
-        return raw
-    try:
-        rel = resolved.relative_to(PAI_ROOT)
-        return f"/{rel}"
-    except ValueError:
-        return raw
-
-
-def _render_home_fhs(home: Path) -> str:
-    """List the immediate contents of the PAI's home dir. Symlinks are
-    annotated with their target (rendered relative to PAI_ROOT when
-    possible, since most home entries are stitched-in views of /var)."""
-    if not home.exists():
-        return ""
-    try:
-        entries = sorted(home.iterdir(), key=lambda p: p.name)
-    except OSError:
-        return ""
-    lines: list[str] = [f"{home}/"]
-    for p in entries:
-        if p.name.startswith("."):
-            continue
-        if p.is_symlink():
-            lines.append(f"├── {p.name} → {_readlink_display(p)}")
-        elif p.is_dir():
-            lines.append(f"├── {p.name}/")
-        else:
-            lines.append(f"├── {p.name}")
-    return "\n".join(lines)
+def _render_fhs_reference(home: Path) -> str:
+    """Small prompt-resident FHS hint. Detailed trees are available on demand."""
+    return "\n".join(
+        [
+            f"home: {home}",
+            f"root: {PAI_ROOT}",
+            "cwd starts at home; absolute FHS prefixes rewrite under root.",
+            "common paths: ~/bin, ~/memory, ~/workspace, /proc/<slug>/log.md, /etc/config.yaml.",
+            "Communication views live in ~/communication or /var/spool/communication when mounted.",
+            "Inspect paths with ls/readlink when needed; full map: /usr/share/doc/FILESYSTEM_v3.md.",
+        ]
+    )
 
 
 def _runtime_status_safe(slug: str) -> str:
@@ -626,12 +558,11 @@ def _common_listings(bins: str, skills: str, system_skills: str) -> str:
 
 def _fleet_extras(pai: int, home: Path) -> str:
     """Blocks every fleetPAI (root and non-root) gets but subagents don't:
-    system-subagents, runtime, my-persubs, home-fhs, system-fhs."""
+    system-subagents, runtime, my-persubs, fhs-reference."""
     system_subagents = _list_system_subagents(usr_lib_subagents())
     runtime = _render_runtime(pai)
     my_persubs = _render_my_persubs(pai)
-    home_fhs = _render_home_fhs(home)
-    fhs_tree = _render_system_fhs(PAI_ROOT)
+    fhs_reference = _render_fhs_reference(home)
 
     out = ""
     if system_subagents:
@@ -652,19 +583,7 @@ def _fleet_extras(pai: int, home: Path) -> str:
             f"Talk to them via `bin/send-message --to <pid> --content '...'`.\n"
             f"{my_persubs}\n</my-persubs>\n\n"
         )
-    if home_fhs:
-        out += (
-            f"<home-fhs>\nYour home dir contents (`~/`). Most entries are "
-            f"symlinks into shared state under /var/ — follow the arrows "
-            f"to see where the bytes really live.\n"
-            f"{home_fhs}\n</home-fhs>\n\n"
-        )
-    if fhs_tree:
-        out += (
-            f"<system-fhs>\nLive PAI FHS layout (your world; the shell "
-            f"rewrites these prefixes automatically):\n"
-            f"{fhs_tree}\n</system-fhs>\n\n"
-        )
+    out += f"<fhs-reference>\n{fhs_reference}\n</fhs-reference>\n\n"
     return out
 
 
