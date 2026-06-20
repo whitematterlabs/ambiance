@@ -458,6 +458,41 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
                 continue
             if rc != 0:
                 print(f"  hook[install]: rc={rc}")
+
+    # Run interactive setup hooks — login/QR/OAuth steps the headless install
+    # hook can't do. Only in a TTY: a non-interactive install (CI, piped,
+    # paifs-init) silently skips them, leaving the bundle installed but not yet
+    # linked. Each is offered default-yes and skippable, inherits the terminal
+    # so a tool can render a QR and block on a phone scan, and gets a generous
+    # timeout the 120s install cap is too tight for.
+    if isinstance(hooks, dict) and sys.stdin.isatty() and sys.stdout.isatty():
+        setup_cmds = hooks.get("setup") or []
+        if isinstance(setup_cmds, str):
+            setup_cmds = [setup_cmds]
+        for cmd in setup_cmds:
+            if not isinstance(cmd, str) or not cmd.strip():
+                continue
+            try:
+                ans = input(f"  Run interactive setup for {name!r} now? [Y/n] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                ans = "n"
+            if ans in ("n", "no"):
+                print(f"  hook[setup]: skipped — run later: {cmd}")
+                continue
+            print(f"  hook[setup]: {cmd}")
+            try:
+                rc = subprocess.run(
+                    cmd, shell=True, cwd=str(paths.PAI_ROOT), timeout=300
+                ).returncode
+            except KeyboardInterrupt:
+                print(f"\n  hook[setup]: cancelled — run later: {cmd}")
+                continue
+            except (OSError, subprocess.TimeoutExpired) as e:
+                print(f"  hook[setup]: FAILED — {e}")
+                continue
+            if rc != 0:
+                print(f"  hook[setup]: rc={rc} — run later: {cmd}")
     return name
 
 
