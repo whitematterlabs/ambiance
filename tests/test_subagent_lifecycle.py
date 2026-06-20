@@ -184,6 +184,39 @@ def test_spawn_package_resolves_bundle_prompt(
     assert spec["prompt"] == str(pkg / "prompt.md")
 
 
+def test_spawn_refuses_slug_that_implies_omitted_package(
+    live_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    root = tmp_path / "pairoot"
+    subagents = root / "usr" / "lib" / "subagents"
+    pkg = subagents / "browse"
+    pkg.mkdir(parents=True)
+    (pkg / "package.yaml").write_text(
+        "name: browse\n"
+        "kind: subagent\n"
+        "description: CDP browser operator\n"
+    )
+
+    monkeypatch.setattr(C, "SUBAGENTS_DIR", subagents, raising=True)
+
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    monkeypatch.setenv("PAI_PID", "1")
+
+    rc = sub_bin.main(
+        [
+            "spawn",
+            "--slug",
+            "sf-apt-search-browse",
+            "--prompt",
+            "open Chrome and search Craigslist",
+        ]
+    )
+
+    assert rc == 1
+    assert not [s for s in P.list_procs() if s.startswith("sf-apt-search-browse")]
+    assert "--package browse" in capsys.readouterr().err
+
+
 def test_reply_without_done_does_not_resolve(
     live_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

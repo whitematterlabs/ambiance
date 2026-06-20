@@ -151,6 +151,37 @@ def _allocate_slug(base: str) -> str:
     return f"{base}-{_full_slug_suffix()}"
 
 
+def _installed_subagent_package_names() -> set[str]:
+    """Installed subagent bundle names, best-effort for spawn guardrails."""
+    root = C.SUBAGENTS_DIR
+    if not root.is_dir():
+        return set()
+    names: set[str] = set()
+    for entry in root.iterdir():
+        if entry.name.startswith(".") or not entry.is_dir():
+            continue
+        if (entry / "package.yaml").is_file():
+            names.add(entry.name)
+    return names
+
+
+def _package_hint_from_slug(slug: str, packages: set[str]) -> str | None:
+    """Return the installed package name implied by a slug tail, if any.
+
+    A parent can still choose any neutral slug for a generic subagent, but a
+    slug like `sf-apt-search-browse` while `browse` is installed is almost
+    certainly a missing `--package browse`.
+    """
+    for package in sorted(packages, key=len, reverse=True):
+        if (
+            slug.endswith(f"-{package}")
+            or slug.endswith(f".{package}")
+            or slug.endswith(f"_{package}")
+        ):
+            return package
+    return None
+
+
 def cmd_spawn(args: argparse.Namespace) -> int:
     parent_pid_raw = os.environ.get("PAI_PID")
     if not parent_pid_raw:
@@ -164,6 +195,20 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     if not args.slug:
         print("error: --slug is required", file=sys.stderr)
         return 1
+    if not args.package:
+        hinted_package = _package_hint_from_slug(
+            args.slug,
+            _installed_subagent_package_names(),
+        )
+        if hinted_package:
+            print(
+                f"error: slug {args.slug!r} looks like it names installed "
+                f"subagent package {hinted_package!r}, but --package was "
+                f"omitted. Use `--package {hinted_package}` or choose a "
+                f"neutral slug for a generic subagent.",
+                file=sys.stderr,
+            )
+            return 1
     if not args.persistent and not args.prompt:
         print("error: --prompt is required (omit only with --persistent)", file=sys.stderr)
         return 1
@@ -496,8 +541,9 @@ def main(argv: list[str] | None = None) -> int:
         "--package",
         default=None,
         help=(
-            "(with --persistent) name of a /usr/lib/subagents/<name>/ bundle "
-            "to pull prompt/provider/model from"
+            "name of a /usr/lib/subagents/<name>/ bundle to pull "
+            "prompt/provider/model from; works for ephemeral and persistent "
+            "subagents"
         ),
     )
     sp.set_defaults(func=cmd_spawn)
