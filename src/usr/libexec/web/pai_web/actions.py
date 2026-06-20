@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import os
 import fcntl
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -37,6 +40,12 @@ PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
 PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek"), ("OpenAI", "openai")]
 _VALID_PROVIDERS = {k for _, k in PROVIDER_OPTIONS}
 _KERNEL_LOCK_FILE = PAI_ROOT / "run" / "kernel.pid"
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechAudio:
+    data: bytes
+    content_type: str
 
 
 def _kernel_python() -> str:
@@ -188,10 +197,10 @@ def stop_kernel() -> dict:
 
 # --- text-to-speech (voice mode) ---
 #
-# The single server-side swap point for voice mode. Replacing ElevenLabs with
-# another engine (an audio LLM, the system voice) means editing only this
-# function — no ElevenLabs detail leaks into server.py. The API key stays here
-# and never reaches the browser; the frontend POSTs text to /api/tts.
+# The single server-side swap point for voice mode. ElevenLabs remains the
+# preferred backend when ELEVENLABS_API_KEY is configured; otherwise macOS `say`
+# writes AAC/M4A with the system default voice. The API key stays here and never
+# reaches the browser; the frontend POSTs text to /api/tts.
 
 _ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 _DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
@@ -220,24 +229,25 @@ def synthesize_speech(
     *,
     voice_id: str | None = None,
     speed: float | None = None,
-) -> bytes:
-    """Swap point: turn text into mp3 bytes. v1 = ElevenLabs.
+) -> SpeechAudio:
+    """Swap point: turn text into playable audio bytes.
 
-    Reads ELEVENLABS_API_KEY (required), ELEVENLABS_VOICE_ID and
-    ELEVENLABS_MODEL_ID (optional) from the environment (loaded from
-    ~/.pai/.env.local by boot/__init__.py). Raises RuntimeError if the key is
-    missing so the route can return 400.
+    Reads ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID and ELEVENLABS_MODEL_ID from
+    the environment (loaded from ~/.pai/.env.local by boot/__init__.py). When no
+    ElevenLabs key is available, falls back to macOS `say` using the system
+    default voice.
 
     Per-call ``voice_id`` and ``speed`` overrides come from the browser so the
     user can pick a voice without restarting; both fall back to env / defaults.
-    ElevenLabs clamps ``speed`` to [0.7, 1.2].
+    They apply only to ElevenLabs; the macOS fallback intentionally leaves voice
+    selection to System Settings.
     """
     api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
         _reload_dotenv()
         api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
-        raise RuntimeError("ELEVENLABS_API_KEY is not set")
+        return _synthesize_speech_macos_say(text)
     chosen_voice = voice_id or os.environ.get("ELEVENLABS_VOICE_ID") or _DEFAULT_VOICE_ID
     model_id = os.environ.get("ELEVENLABS_MODEL_ID") or _DEFAULT_MODEL_ID
     payload: dict = {"text": text, "model_id": model_id}
@@ -252,7 +262,76 @@ def synthesize_speech(
         timeout=30,
     )
     resp.raise_for_status()
-    return resp.content
+    return SpeechAudio(resp.content, "audio/mpeg")
+
+
+def _synthesize_speech_macos_say(text: str) -> SpeechAudio:
+    """Use macOS `say` with the user's default system voice."""
+    say_path = shutil.which("say")
+    if not say_path:
+        raise RuntimeError("ELEVENLABS_API_KEY is not set and macOS 'say' is unavailable")
+    afconvert_path = shutil.which("afconvert")
+    if not afconvert_path:
+        raise RuntimeError("ELEVENLABS_API_KEY is not set and macOS 'afconvert' is unavailable")
+
+    with tempfile.TemporaryDirectory(prefix="pai-tts-") as tmp:
+        aiff_output = Path(tmp) / "speech.aiff"
+        m4a_output = Path(tmp) / "speech.m4a"
+        _run_macos_audio_command(
+            [say_path, "-o", str(aiff_output), "-f", "-"],
+            input_text=text,
+            label="macOS 'say'",
+            timeout=60,
+        )
+        _run_macos_audio_command(
+            [
+                afconvert_path,
+                "-f",
+                "m4af",
+                "-d",
+                "aac",
+                str(aiff_output),
+                str(m4a_output),
+            ],
+            input_text=None,
+            label="macOS 'afconvert'",
+            timeout=30,
+        )
+
+        try:
+            data = m4a_output.read_bytes()
+        except FileNotFoundError as e:
+            raise RuntimeError("macOS 'say' did not produce playable audio") from e
+
+    if not data:
+        raise RuntimeError("macOS 'say' produced empty playable audio")
+    return SpeechAudio(data, "audio/mp4")
+
+
+def _run_macos_audio_command(
+    args: list[str],
+    *,
+    input_text: str | None,
+    label: str,
+    timeout: float,
+) -> None:
+    try:
+        subprocess.run(
+            args,
+            input=input_text,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"{label} timed out") from e
+    except subprocess.CalledProcessError as e:
+        detail = (e.stderr or e.stdout or "").strip()
+        message = f"{label} failed"
+        if detail:
+            message += f": {detail}"
+        raise RuntimeError(message) from e
 
 
 def transcribe_speech(

@@ -27,7 +27,8 @@ from email import policy
 from email.parser import BytesParser
 import json
 import sys
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer as _StdlibThreadingHTTPServer
 from pathlib import Path
 
 from boot.paths import REPO_ROOT, usr_libexec
@@ -284,11 +285,13 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- text-to-speech (voice mode) --
     def _tts(self, text: str, *, voice_id: str | None = None, speed: float | None = None):
-        """Proxy text → mp3 bytes via actions.synthesize_speech (ElevenLabs).
+        """Proxy text to playable audio via actions.synthesize_speech.
 
-        Keeps the API key server-side. A missing key is a config problem (400);
-        an upstream/network failure is a gateway problem (502). The frontend
-        treats both as "fail quietly" so the speech queue never wedges.
+        Keeps ElevenLabs credentials server-side. With no ElevenLabs key,
+        synthesize_speech falls back to macOS `say`; an unavailable local voice
+        backend is a config problem (400), while upstream/network failures are
+        gateway problems (502). The frontend treats both as "fail quietly" so
+        the speech queue never wedges.
         """
         text = text.strip()
         if not text:
@@ -299,7 +302,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "error": str(e)}, status=400)
         except Exception as e:  # noqa: BLE001 — upstream / network
             return self._json({"ok": False, "error": str(e)}, status=502)
-        return self._binary(audio, "audio/mpeg")
+        return self._binary(audio.data, audio.content_type)
 
     # -- SSE --
     def _stream(self):
@@ -351,7 +354,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-class _QuietHTTPServer(ThreadingHTTPServer):
+class ThreadingHTTPServer(_StdlibThreadingHTTPServer):
     """ThreadingHTTPServer that doesn't dump a traceback when a client hangs up.
 
     Browsers routinely reset a connection mid-request (closed tab, aborted
@@ -367,7 +370,7 @@ class _QuietHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-class ThreadingUnixHTTPServer(_QuietHTTPServer):
+class ThreadingUnixHTTPServer(ThreadingHTTPServer):
     """ThreadingHTTPServer over AF_UNIX, for the in-app `pai://` surface.
 
     BaseHTTPServer is AF_INET by default; flip the address_family and let it
@@ -427,7 +430,7 @@ def run(
         descriptor = f"unix:{unix_socket}"
         url = None
     else:
-        server = _QuietHTTPServer((host, port), Handler)
+        server = ThreadingHTTPServer((host, port), Handler)
         server.daemon_threads = True
         url = f"http://{host}:{port}"
         descriptor = url

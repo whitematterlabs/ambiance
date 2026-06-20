@@ -81,7 +81,7 @@ cd src/usr/libexec/web && pnpm dev         # UI on :5173, proxies /api → :8787
 | POST | `/api/shell` | `{pid, cmd}` → run `!cmd`, returns `{lines, rc, ctx_applied}` |
 | POST | `/api/provider` | `{key}` → write `provider.yaml` |
 | POST | `/api/kernel` | `{action: "start" \| "stop"}` → start/stop the kernel |
-| POST | `/api/tts` | `{text}` → server-side TTS proxy; requires `ELEVENLABS_API_KEY` |
+| POST | `/api/tts` | `{text}` → server-side TTS proxy; uses ElevenLabs with `ELEVENLABS_API_KEY`, otherwise macOS `say` |
 | POST | `/api/stt` | `multipart/form-data` with `audio` → server-side STT proxy; requires `OPENAI_API_KEY` |
 
 Voice input defaults to `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`.

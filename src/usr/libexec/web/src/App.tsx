@@ -9,7 +9,7 @@ import type {
   ThreadMessage,
 } from "./types";
 import { ActivityEntry, ActivityState, ingest, initialActivity } from "./activity";
-import { ElevenLabsBackend, SpeechQueue } from "./speech";
+import { ServerSpeechBackend, SpeechQueue } from "./speech";
 import { deriveStatus } from "./status";
 import * as api from "./api";
 import { onUnauthorized, setAuthToken, withTokenParam } from "./auth";
@@ -75,15 +75,15 @@ export function App() {
   const voiceEnabledRef = useRef(voiceEnabled);
   const lastSpokenLen = useRef<Record<number, number>>({});
   const pendingCloneSlug = useRef<string | null>(null);
-  const voiceBackend = useRef<ElevenLabsBackend | null>(null);
-  if (voiceBackend.current === null) voiceBackend.current = new ElevenLabsBackend();
+  const voiceBackend = useRef<ServerSpeechBackend | null>(null);
+  if (voiceBackend.current === null) voiceBackend.current = new ServerSpeechBackend();
   const voiceQueue = useRef<SpeechQueue | null>(null);
   if (voiceQueue.current === null) voiceQueue.current = new SpeechQueue(voiceBackend.current);
   // Apply current prefs to the backend on every render — cheap, and keeps the
   // next utterance honest after the user tweaks the dialog mid-session.
   voiceBackend.current.voiceId = voiceId;
   voiceBackend.current.speed = voiceSpeed;
-  // Route TTS failures (missing key, ElevenLabs 4xx/5xx, playback blocked) to
+  // Route TTS failures (unavailable backend, upstream 4xx/5xx, playback blocked) to
   // the status bar — otherwise voice mode looks like a no-op when it errors.
   voiceQueue.current.setErrorReporter((msg) => setStatus(msg));
   activePidRef.current = activePid;

@@ -1,12 +1,14 @@
 // Voice mode's frontend swap point: a speech backend behind a small interface,
-// plus a sequential queue so utterances never overlap. Swapping engines later
-// (an audio LLM, the browser's SpeechSynthesis) means writing another
-// SpeechBackend and constructing the queue with it — the queue, the toggle, and
-// the watermark logic in App.tsx never change.
+// plus a sequential queue so utterances never overlap. The server chooses the
+// actual TTS engine; today that is ElevenLabs when configured, otherwise macOS
+// `say`. Swapping the browser-side transport later still means writing another
+// SpeechBackend and constructing the queue with it.
 
 // Curated subset of the ElevenLabs public voice library. The dialog in Header
 // shows these; users with ELEVENLABS_VOICE_ID set in .env can still hit "Server
-// default" to ignore the per-session pick.
+// default" to ignore the per-session pick. If the server falls back to macOS
+// `say`, these per-session voice IDs are ignored and the system default voice is
+// used.
 export interface VoiceOption {
   id: string;
   name: string;
@@ -36,9 +38,9 @@ export interface SpeechBackend {
 // the backend constructor — the queue owns this.
 export type SpeechErrorReporter = (message: string) => void;
 
-// v1 backend: POST text to the local /api/tts proxy (which holds the ElevenLabs
-// key), play the returned mp3 through a single reused <audio> element.
-export class ElevenLabsBackend implements SpeechBackend {
+// v1 backend: POST text to the local /api/tts proxy, play the returned audio
+// blob through a single reused <audio> element.
+export class ServerSpeechBackend implements SpeechBackend {
   private audio: HTMLAudioElement;
   private currentUrl: string | null = null;
   onError: SpeechErrorReporter | null = null;
@@ -128,7 +130,7 @@ export class SpeechQueue {
   }
 
   setErrorReporter(reporter: SpeechErrorReporter | null): void {
-    // Duck-typed: forwarded to backends that expose `onError` (ElevenLabsBackend
+    // Duck-typed: forwarded to backends that expose `onError` (ServerSpeechBackend
     // does). Keeps SpeechBackend itself minimal.
     (this.backend as { onError?: SpeechErrorReporter | null }).onError = reporter;
   }
