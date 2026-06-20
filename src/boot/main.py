@@ -656,6 +656,12 @@ _restart_requested: bool = False
 
 
 _RESTART_DRAIN_TIMEOUT = 5.0
+# reload_config drains the same per-PAI locks, but unlike restart it must NOT
+# block the kernel's single-threaded event loop on a busy PAI: a mid-turn PAI
+# (e.g. one running a long install in its bash tool) holds its lock for minutes,
+# and the main loop awaits one event handler before consuming the next, so an
+# unbounded drain starves every queued event behind it (the 2026-06-18 wedge).
+_RELOAD_DRAIN_TIMEOUT = 5.0
 
 
 async def _drain_pai_locks() -> None:
@@ -710,8 +716,23 @@ async def _handle_reload_config() -> None:
 
     print("[kernel] reload_config: draining nudges", flush=True)
     async with AsyncExitStack() as stack:
-        for lock in list(_pai_locks.values()):
-            await stack.enter_async_context(lock)
+        async def _acquire_locks() -> None:
+            for lock in list(_pai_locks.values()):
+                await stack.enter_async_context(lock)
+
+        # Best-effort, bounded drain. On timeout we proceed holding whatever
+        # subset we acquired (the cancelled acquire never enters the stack, so
+        # nothing leaks); the stack releases them all at scope exit. A busy PAI
+        # must never wedge the loop — mirrors _handle_restart's drain.
+        try:
+            await asyncio.wait_for(_acquire_locks(), timeout=_RELOAD_DRAIN_TIMEOUT)
+        except asyncio.TimeoutError:
+            print(
+                f"[kernel] reload_config: drain timed out after "
+                f"{_RELOAD_DRAIN_TIMEOUT}s; reloading with best-effort locks "
+                f"(a busy PAI must not starve queued events)",
+                flush=True,
+            )
         try:
             C.reconcile_from_config()
             # Re-stitch every running PAI's home view so newly-installed
