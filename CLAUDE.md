@@ -82,6 +82,15 @@ Graduate when **2 of 3** hit — specifically when per-PAI native notifications 
 
 **Intermediate step before a full `.app`:** package the kernel + TUI as a launchd-managed background agent + a thin SwiftUI menubar app that attaches to the running kernel over the existing send_message channel. Native notifications and proper entitlements without rewriting the kernel or committing to a windowed app. The TTY still works for dev.
 
+## Reporting back
+
+Be terse. When you finish (or pause) work, surface exactly three things and nothing else:
+- **Did** — what changed (files/behavior), in a line or two.
+- **Bugs/unhandled** — anything broken, skipped, or not covered. Don't bury it.
+- **Status** — done / blocked / needs-decision, and the single next step if any.
+
+No preamble, no re-explaining the request, no option menus unless a decision is genuinely blocked.
+
 ## Design principles
 
 - Plain text over databases — everything should be greppable, tailable, appendable.
