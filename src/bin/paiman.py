@@ -419,15 +419,22 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
     # Activate.
     slot, target = _activation_slot(kind, name, entrypoint, topic=topic)
     if kind == "bin":
-        # Write a shell shim that execs the entrypoint via the interpreter
-        # paiman itself runs under: the kernel venv python in dev, the embedded
-        # python in a bundled PAI.app. A bare symlink would fall back to the
-        # bin's own shebang (`#!/usr/bin/env python`), which can't portably
-        # reference either interpreter and breaks when no `python` is on PATH.
+        # Write a shell shim that execs the entrypoint via the FHS venv
+        # python (paths.venv_python()) — NOT sys.executable. The FHS venv is
+        # the one interpreter that holds both pyproject runtime deps and the
+        # per-package deps that install hooks add (e.g. `uv pip install qrcode`
+        # for whatsapp). sys.executable is whatever interpreter paiman happens
+        # to run under: on a fresh install that's the throwaway clone venv
+        # (e.g. /tmp/pai/.venv), which lacks those hook-installed deps and is
+        # deleted once install finishes — leaving every shim pointing at a
+        # missing python. A bare symlink is no good either: it falls back to
+        # the bin's `#!/usr/bin/env python` shebang, which breaks when no
+        # `python` is on PATH.
+        venv_py = paths.venv_python()
         slot.parent.mkdir(parents=True, exist_ok=True)
         if slot.is_symlink() or slot.exists():
             slot.unlink()
-        slot.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{target}" "$@"\n')
+        slot.write_text(f'#!/bin/sh\nexec "{venv_py}" "{target}" "$@"\n')
         slot.chmod(0o755)
     else:
         _atomic_symlink(target, slot)

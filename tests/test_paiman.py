@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,12 @@ def test_install_bin(fhs_root: Path) -> None:
     bundle_entry = fhs_root / "opt" / "paiman" / "bin" / "testbin" / "bin" / "testbin.py"
     assert str(bundle_entry) in shim
     assert bundle_entry.is_file()
+    # The shim MUST exec via the FHS venv python — the one interpreter that
+    # holds hook-installed deps — never sys.executable (which on a fresh
+    # install is a throwaway clone venv lacking those deps). Regression guard
+    # for the whatsapp_pair `ModuleNotFoundError: qrcode` bug.
+    assert f'exec "{paths.venv_python()}"' in shim
+    assert sys.executable not in shim or sys.executable == str(paths.venv_python())
 
 
 def test_install_driver(fhs_root: Path) -> None:

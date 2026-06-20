@@ -142,6 +142,15 @@ def usr_lib() -> Path:
     return PAI_ROOT / "usr" / "lib"
 
 
+def venv_python() -> Path:
+    """The FHS venv interpreter — the single runtime python that holds both
+    pyproject runtime deps (provisioned by paifs-init) and per-package deps
+    installed by `paiman` hooks. Bin shims must target this, not
+    `sys.executable`, which on a fresh install is a throwaway clone venv that
+    lacks hook-installed deps and vanishes when the clone is removed."""
+    return PAI_ROOT / "usr" / "lib" / "venv" / "bin" / "python"
+
+
 def usr_libexec() -> Path:
     return PAI_ROOT / "usr" / "libexec"
 
