@@ -24,6 +24,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 
 const CAP = 500; // ring-buffer cap for log/activity/events
+type MobileView = "chat" | "activity";
 
 function cap<T>(arr: T[], extra: T[]): T[] {
   const next = arr.concat(extra);
@@ -49,6 +50,7 @@ export function App() {
   const [confirmDelete, setConfirmDelete] = useState<FleetMember | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<MobileView>("chat");
   const [authNeeded, setAuthNeeded] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearMarkers, setClearMarkers] = useState<Record<number, string>>({});
@@ -496,13 +498,34 @@ export function App() {
         fleet={fleet}
         activePid={activePid}
         procs={procs}
-        onSelect={setActivePid}
+        onSelect={(pid) => {
+          setActivePid(pid);
+          setMobileView("chat");
+        }}
         onClone={handleClone}
         onDelete={handleDelete}
         cloningSlugs={cloningSlugs}
         deletingSlugs={deletingSlugs}
       />
-      <main className="main">
+      <nav className="mobile-view-switch" aria-label="Mobile view">
+        <button
+          className={`mobile-view-tab ${mobileView === "chat" ? "active" : ""}`}
+          type="button"
+          aria-pressed={mobileView === "chat"}
+          onClick={() => setMobileView("chat")}
+        >
+          Chat
+        </button>
+        <button
+          className={`mobile-view-tab ${mobileView === "activity" ? "active" : ""}`}
+          type="button"
+          aria-pressed={mobileView === "activity"}
+          onClick={() => setMobileView("activity")}
+        >
+          Activity
+        </button>
+      </nav>
+      <main className="main" data-mobile-view={mobileView}>
         <section className="chat-col">
           <section className="conversation">
             <header className="chat-head">

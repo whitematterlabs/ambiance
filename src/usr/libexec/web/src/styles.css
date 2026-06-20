@@ -593,6 +593,31 @@ button {
   }
 }
 
+/* ---------- Mobile view switch ---------- */
+.mobile-view-switch {
+  display: none;
+}
+
+.mobile-view-tab {
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease),
+    border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+.mobile-view-tab.active {
+  background: var(--surface-raised);
+  border-color: var(--border);
+  color: var(--accent-deep);
+  box-shadow: var(--shadow-soft);
+}
+
 /* ---------- Main layout ---------- */
 .main {
   flex: 1;
@@ -1088,7 +1113,7 @@ button {
 
 .composer {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 9px;
   margin: 14px 16px 16px;
   padding: 8px;
@@ -1118,11 +1143,16 @@ button {
 .composer-input {
   flex: 1;
   min-width: 0;
-  height: 36px;
+  min-height: 36px;
+  max-height: 140px;
+  padding: 7px 0;
   border: none;
   background: transparent;
   color: var(--text);
   outline: none;
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
 }
 
 .composer-input::placeholder {
@@ -2137,16 +2167,23 @@ button {
   .app {
     height: 100dvh;
     min-height: 100dvh;
+    overflow: hidden;
   }
 
   .header {
     gap: 8px;
-    padding: 11px 18px;
+    min-height: auto;
+    padding: max(10px, env(safe-area-inset-top)) 14px 10px;
   }
 
   .brand {
     flex: 1;
-    gap: 10px;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .header .spacer {
+    display: none;
   }
 
   .brand-name {
@@ -2154,30 +2191,56 @@ button {
   }
 
   .conn-status {
+    width: 14px;
     padding-left: 14px;
+    overflow: hidden;
+    text-indent: 999px;
   }
 
   .kernel-toggle {
-    max-width: 110px;
+    max-width: 98px;
+    min-height: 32px;
+    padding: 0 9px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .ghost-button {
-    min-height: 34px;
-    padding: 0 13px;
+    min-height: 32px;
+    padding: 0 11px;
+  }
+
+  .ghost-label {
+    font-size: 12px;
+  }
+
+  .voice-split {
+    flex: 0 0 auto;
+  }
+
+  .voice-split .voice-toggle {
+    padding-right: 9px;
+  }
+
+  .voice-split .voice-chevron {
+    padding: 0 8px;
+  }
+
+  .voice-popover {
+    width: min(280px, calc(100vw - 24px));
+    max-height: calc(100dvh - 86px);
+    overflow-y: auto;
   }
 
   .fleet-strip {
     gap: 8px;
-    padding-left: 18px;
-    padding-right: 18px;
+    padding: 8px 14px 6px;
   }
 
   .fleet-tab {
-    min-height: 46px;
-    min-width: 148px;
-    padding: 7px 38px 7px 14px;
+    min-height: 44px;
+    min-width: 136px;
+    padding: 7px 36px 7px 13px;
   }
 
   /* No hover on touch: pin the cluster and keep both buttons always visible. */
@@ -2197,15 +2260,35 @@ button {
     transform: scale(1);
   }
 
+  .mobile-view-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px;
+    margin: 0 14px 8px;
+    flex: 0 0 auto;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
   .main {
     flex: 1;
+    display: grid;
+    grid-template-columns: 1fr;
     min-height: 0;
     overflow: hidden;
-    padding: 12px 0 0;
+    padding: 0;
   }
 
   .chat-col {
     min-height: 0;
+    height: 100%;
+    animation: none;
+  }
+
+  .main[data-mobile-view="activity"] .chat-col {
+    display: none;
   }
 
   .conversation {
@@ -2220,13 +2303,22 @@ button {
   }
 
   .chat-head {
-    align-items: center;
+    align-items: flex-start;
     flex-direction: row;
-    padding: 12px 18px;
+    padding: 11px 14px;
+  }
+
+  .chat-head-copy {
+    flex: 1;
+    min-width: 0;
   }
 
   .chat-title {
     font-size: 19px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .chat-meta {
@@ -2236,6 +2328,13 @@ button {
   .head-action {
     padding: 4px 8px;
     font-size: 12px;
+  }
+
+  .chat-head-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 2px;
+    max-width: 164px;
   }
 
   .chat-head-actions .state-label {
@@ -2259,7 +2358,9 @@ button {
   }
 
   .composer-input {
-    height: 40px;
+    min-height: 40px;
+    max-height: 128px;
+    padding: 8px 0;
     font-size: 16px;
   }
 
@@ -2276,5 +2377,34 @@ button {
 
   .side-panel {
     display: none;
+    height: 100%;
+    min-height: 0;
+    padding: 0 10px 10px;
+    overflow: hidden;
+    animation: none;
+  }
+
+  .main[data-mobile-view="activity"] .side-panel {
+    display: flex;
+  }
+
+  .side-body {
+    min-height: 0;
+  }
+
+  .system-body {
+    grid-template-rows: minmax(180px, 1fr) minmax(96px, 0.55fr) minmax(150px, 0.85fr);
+  }
+
+  .sys-block {
+    border-radius: var(--radius);
+  }
+
+  .activity-feed {
+    min-height: 0;
+  }
+
+  .proc-list .slug {
+    max-width: 150px;
   }
 }

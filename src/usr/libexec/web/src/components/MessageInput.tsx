@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 export function MessageInput({
   disabled,
@@ -16,7 +23,7 @@ export function MessageInput({
   prefill?: { text: string; nonce: number } | null;
 }) {
   const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "transcribing">(
     "idle",
   );
@@ -38,6 +45,13 @@ export function MessageInput({
     setValue("");
     onSubmit(text);
   };
+
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [value]);
 
   useEffect(() => {
     return () => {
@@ -61,6 +75,12 @@ export function MessageInput({
     requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill?.nonce]);
+
+  const handleInputKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    submit();
+  };
 
   const startRecording = async () => {
     if (!canRecord || disabled || recordingState !== "idle") return;
@@ -147,16 +167,19 @@ export function MessageInput({
       >
         ◼
       </button>
-      <input
+      <textarea
         ref={inputRef}
         className="composer-input"
+        rows={1}
         placeholder={
           disabled ? "No active PAI" : "Message your PAI...  (start with ! for shell)"
         }
         value={value}
         disabled={disabled || recordingState === "transcribing"}
         autoFocus
+        enterKeyHint="send"
         onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleInputKeyDown}
       />
       {isShell && <span className="composer-tag">shell</span>}
       <button
