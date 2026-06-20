@@ -369,19 +369,71 @@ def _load_pyproject() -> dict:
         return tomllib.load(f)
 
 
+def _python_major_minor(py: Path) -> tuple[int, int] | None:
+    """Return the interpreter's major/minor version, or None if it is broken."""
+    try:
+        out = subprocess.run(
+            [
+                str(py),
+                "-c",
+                (
+                    "import sys; "
+                    "print(str(sys.version_info[0]) + '.' + str(sys.version_info[1]))"
+                ),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    try:
+        major, minor = out.stdout.strip().split(".", 1)
+        return int(major), int(minor)
+    except ValueError:
+        return None
+
+
 def ensure_venv(root: Path) -> Path:
     """Create a real venv at usr/lib/venv/ with runtime deps installed.
 
     Idempotent: skips creation if the venv's python already exists, and
     `uv pip install` itself no-ops when deps are satisfied. We replace
-    any pre-existing symlink (legacy: pointed at repo `.venv`)."""
+    any pre-existing symlink (legacy: pointed at repo `.venv`).
+
+    The FHS venv is separate from the checkout's `.venv`, but it must be
+    created from the same Python version that satisfied this repo. `install.sh`
+    runs paifs-init through `uv run`, so `sys.executable` is the checkout
+    interpreter; pass that explicitly instead of letting a bare `uv venv`
+    choose a different default Python.
+    """
     venv_dir = root / "usr" / "lib" / "venv"
     if venv_dir.is_symlink():
         venv_dir.unlink()
     py = venv_dir / "bin" / "python"
+    source_python = Path(sys.executable)
+    expected_version = tuple(sys.version_info[:2])
+    if py.exists():
+        actual_version = _python_major_minor(py)
+        if actual_version != expected_version:
+            actual = (
+                f"{actual_version[0]}.{actual_version[1]}"
+                if actual_version is not None
+                else "unreadable"
+            )
+            expected = f"{expected_version[0]}.{expected_version[1]}"
+            print(
+                f"rebuilding FHS venv at {venv_dir}: "
+                f"Python {actual} does not match {expected}",
+                file=sys.stderr,
+            )
+            shutil.rmtree(venv_dir)
     if not py.exists():
         venv_dir.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["uv", "venv", str(venv_dir)], check=True)
+        subprocess.run(
+            ["uv", "venv", "--python", str(source_python), str(venv_dir)],
+            check=True,
+        )
     deps = _load_pyproject().get("project", {}).get("dependencies", [])
     if deps:
         subprocess.run(
