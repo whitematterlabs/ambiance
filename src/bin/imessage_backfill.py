@@ -14,8 +14,8 @@ ingest() would re-send years of texts. So:
      sent. Pass --no-seed to skip (only safe if the driver will never run
      against this filesystem again).
 
-Does NOT touch the imessage_in cursor — backfill is independent of the
-live ROWID stream.
+Also advances the imessage-in ROWID cursor past replayed rows so the live
+inbound stream does not nudge again for history that backfill already wrote.
 
 Usage:
     imessage-backfill 2026-04-22                  # single day
@@ -119,12 +119,12 @@ def backfill(start_d: date, end_d: date, seed: bool = True) -> int:
         print(f"end {end_d} is before start {start_d}", file=sys.stderr)
         return 2
     if seed:
-        blockers = [s for s in (OUT_DRIVER_SLUG, IN_DRIVER_SLUG) if _proc_running(s)]
-        if blockers:
-            stop_cmd = " && ".join(f"bin/paicron stop {s}" for s in blockers)
+        # Only the outbound tailer can turn replayed history into real sends.
+        # Inbound is made quiet by advancing its ROWID cursor after replay.
+        if _proc_running(OUT_DRIVER_SLUG):
             print(
-                f"refusing: {', '.join(blockers)} running. Stop them so backfill "
-                f"stays silent (no replays, no nudges):\n  {stop_cmd}",
+                f"refusing: {OUT_DRIVER_SLUG} running. Stop it so backfill "
+                f"stays silent (no replays):\n  bin/paicron stop {OUT_DRIVER_SLUG}",
                 file=sys.stderr,
             )
             return 3
@@ -217,7 +217,8 @@ def main(argv: list[str] | None = None) -> int:
         "--no-seed",
         action="store_true",
         help=(
-            "skip seeding imessage-out cursors and skip the running-driver guard "
+            "skip seeding imessage-out/imessage-in cursors and skip the "
+            "outbound running-driver guard "
             "(only safe if the outbound driver will not run against this filesystem)"
         ),
     )

@@ -8,8 +8,12 @@ import pytest
 
 @pytest.fixture
 def laid_out_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    from bin.paifs_init import lay_out
-    lay_out(tmp_path)
+    from bin import paifs_init
+
+    # These phase tests only need the base FHS skeleton. Avoid installing
+    # kernel-essential bundles from the external paiman registry during setup.
+    monkeypatch.setattr(paifs_init, "seed_kernel_essentials", lambda _root: None)
+    paifs_init.lay_out(tmp_path)
     monkeypatch.setenv("PAI_ROOT", str(tmp_path))
     # Re-import paths so PAI_ROOT picks up the env var.
     import importlib
@@ -75,6 +79,33 @@ def test_clean_removes_symlink_not_target(laid_out_root: Path, tmp_path_factory:
     clean.run()
     assert not stray.exists()
     assert (outside / "precious.txt").exists()
+
+
+def test_clean_resets_stale_running_driver_status(laid_out_root: Path) -> None:
+    import yaml
+
+    driver = laid_out_root / "proc" / "imessage-in"
+    driver.mkdir()
+    (driver / "spec.yaml").write_text(
+        yaml.safe_dump({"kind": "driver", "active": True}, sort_keys=False)
+    )
+    (driver / "status").write_text("running\n")
+    (driver / "log.md").write_text("[00:00] spawned\n")
+
+    pai = laid_out_root / "proc" / "pai"
+    pai.mkdir()
+    (pai / "spec.yaml").write_text(
+        yaml.safe_dump({"kind": "pai", "pid": 2, "slug": "pai"}, sort_keys=False)
+    )
+    (pai / "status").write_text("running\n")
+    (pai / "log.md").write_text("[00:00] spawned\n")
+
+    from boot.phases import clean
+    clean.run()
+
+    assert (driver / "status").read_text() == "stopped\n"
+    assert "cleared stale running status" in (driver / "log.md").read_text()
+    assert (pai / "status").read_text() == "running\n"
 
 
 def test_probe_logs_each_driver(laid_out_root: Path, capsys) -> None:
