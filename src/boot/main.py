@@ -1115,8 +1115,11 @@ def _reap_pgrp(grace: float = 2.0) -> None:
     if pgid != my_pid:
         return
     try:
+        ps = paths.host_executable("ps")
+        if ps is None:
+            return
         out = subprocess.check_output(
-            ["ps", "-eo", "pid=,pgid="],
+            [ps, "-eo", "pid=,pgid="],
             text=True,
             stderr=subprocess.DEVNULL,
         )
@@ -1165,8 +1168,11 @@ def _reap_descendants(grace: float = 2.0) -> None:
     """
     my_pid = os.getpid()
     try:
+        ps = paths.host_executable("ps")
+        if ps is None:
+            return
         out = subprocess.check_output(
-            ["ps", "-eo", "pid=,ppid="],
+            [ps, "-eo", "pid=,ppid="],
             text=True,
             stderr=subprocess.DEVNULL,
         )

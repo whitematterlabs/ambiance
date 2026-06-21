@@ -41,8 +41,11 @@ def _acquire_pid_lock() -> bool:
         # who holds the fd; fall back to file contents only if that fails.
         holder = "?"
         try:
+            lsof = paths.host_executable("lsof")
+            if lsof is None:
+                raise FileNotFoundError("lsof")
             out = subprocess.run(
-                ["lsof", "-t", str(_LOCK_FILE)],
+                [lsof, "-t", str(_LOCK_FILE)],
                 capture_output=True,
                 text=True,
                 timeout=2,

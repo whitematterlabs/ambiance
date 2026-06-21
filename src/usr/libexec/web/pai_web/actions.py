@@ -61,17 +61,7 @@ def _kernel_python() -> str:
 def _kernel_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PAI_ROOT"] = str(PAI_ROOT)
-
-    prefix = os.pathsep.join(
-        [
-            str(PAI_ROOT / "usr" / "lib" / "venv" / "bin"),
-            str(PAI_ROOT / "usr" / "bin"),
-            str(PAI_ROOT / "sbin"),
-        ]
-    )
-    current_path = env.get("PATH", "")
-    if current_path != prefix and not current_path.startswith(prefix + os.pathsep):
-        env["PATH"] = prefix + (os.pathsep + current_path if current_path else "")
+    env["PATH"] = paths.build_pai_path(env.get("PATH", ""), root=PAI_ROOT)
 
     python_roots = [str(PAI_ROOT / "usr" / "lib"), str(PAI_ROOT / "usr" / "src")]
     current_pythonpath = env.get("PYTHONPATH")
@@ -489,8 +479,9 @@ def run_shell(pid: int, cmd: str) -> dict:
     """
     slug = _slug_for_pid(pid)
     env = os.environ.copy()
-    pai_path = f"{PAI_ROOT / 'bin'}:{PAI_ROOT / 'usr' / 'bin'}"
-    env["PATH"] = f"{pai_path}:{env.get('PATH', '')}"
+    env["PATH"] = paths.build_pai_path(
+        env.get("PATH", ""), root=PAI_ROOT, host_first=True
+    )
     env["PAI_SLUG"] = slug
     env["PAI_ROOT"] = str(PAI_ROOT)
 

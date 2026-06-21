@@ -17,7 +17,7 @@ from typing import Optional
 
 from . import stitch
 from ._shell_common import ShellResult, rewrite_fhs_paths
-from .paths import PAI_ROOT, pai_path_prefix
+from .paths import PAI_ROOT, build_pai_path
 from .processes import HOME_DIR
 
 
@@ -32,7 +32,9 @@ TOOL_DESCRIPTION = (
     "PAI's filesystem is rooted at an FHS layout — `/etc/`, `/usr/`, "
     "`/var/`, `/proc/`, `/run/`, `/sys/`, `/boot/`, `/sbin/`, `/bin/`, "
     "`/opt/`, `/home/`, `/root/`, `/tmp/` all refer to PAI's world; "
-    "FHS prefixes are rewritten to PAI's root before exec.\n\n"
+    "FHS prefixes are rewritten to PAI's root before exec. Bare Unix "
+    "commands resolve to host macOS binaries first; invoke PAI tools as "
+    "`bin/<name>` when names collide (`bin/ps`, `bin/cal`, `bin/clear`).\n\n"
     "Defaults: cwd is PAI's HOME; pass `cwd` to override (must exist). "
     "`timeout_ms` defaults to 120000 (2 min), max 600000 (10 min). On "
     "timeout the process is sent SIGTERM, then SIGKILL after a brief "
@@ -89,7 +91,7 @@ def _build_env(extra: Optional[dict]) -> dict:
     a persistent PTY session — the tool is fully isolated by design.
     """
     base_env = {**os.environ}
-    base_env["PATH"] = pai_path_prefix() + os.pathsep + base_env.get("PATH", "")
+    base_env["PATH"] = build_pai_path(base_env.get("PATH", ""), host_first=True)
     base_env["TERM"] = "dumb"
     base_env.pop("PS1", None)
     if extra:

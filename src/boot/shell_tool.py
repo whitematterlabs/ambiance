@@ -45,7 +45,7 @@ import pyte
 
 from . import stitch
 from ._shell_common import ShellResult, rewrite_fhs_paths
-from .paths import PAI_ROOT, pai_path_prefix
+from .paths import PAI_ROOT, build_pai_path
 from .processes import HOME_DIR
 
 TOOL_NAME = "shell"
@@ -58,7 +58,9 @@ TOOL_DESCRIPTION = (
     "PAI's filesystem is rooted at an FHS layout — `/etc/`, `/usr/`, "
     "`/var/`, `/proc/`, `/run/`, `/sys/`, `/boot/`, `/sbin/`, `/bin/`, "
     "`/opt/`, `/home/`, `/root/`, `/tmp/` all refer to PAI's world; "
-    "FHS prefixes are rewritten to PAI's root before exec.\n\n"
+    "FHS prefixes are rewritten to PAI's root before exec. Bare Unix "
+    "commands resolve to host macOS binaries first; invoke PAI tools as "
+    "`bin/<name>` when names collide (`bin/ps`, `bin/cal`, `bin/clear`).\n\n"
     "Two modes (exactly one of `command` or `keys` must be set):\n"
     "  - `command` — run a bash command to completion in the persistent "
     "shell; returns combined stdout+stderr and exit code.\n"
@@ -662,7 +664,7 @@ async def run(
     cwd.mkdir(parents=True, exist_ok=True)
 
     base_env = {**os.environ}
-    base_env["PATH"] = pai_path_prefix() + os.pathsep + base_env.get("PATH", "")
+    base_env["PATH"] = build_pai_path(base_env.get("PATH", ""), host_first=True)
     base_env["TERM"] = "xterm-256color"
     proc_env = {**base_env, **env} if env else base_env
 

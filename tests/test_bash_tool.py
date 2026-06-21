@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from boot import bash_tool
+from boot import paths
 
 
 def _run(coro):
@@ -74,6 +75,13 @@ def test_fhs_rewrite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     res = _run(bash_tool.run({"command": "cat /etc/marker", "cwd": str(tmp_path)}))
     assert res.exit_code == 0
     assert res.stdout.strip() == "present"
+
+
+def test_host_ps_wins_in_user_shell_path(tmp_path: Path):
+    res = _run(bash_tool.run({"command": "command -v ps", "cwd": str(tmp_path)}))
+
+    assert res.exit_code == 0
+    assert res.stdout.strip() == paths.host_executable("ps")
 
 
 def test_missing_command_field():

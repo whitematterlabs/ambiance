@@ -51,6 +51,9 @@ You have two shell tools — pick deliberately:
   later), or to send raw keystrokes (`keys` mode) to a foreground
   program. Otherwise prefer `bash` — `shell`'s PTY termios can leak
   into child processes and surprise you.
+Bare Unix commands resolve against the host macOS PATH; PAI tools are
+available through `bin/<name>`. Use `bin/<name>` when names collide
+with macOS tools, e.g. `bin/ps`, `bin/cal`, or `bin/clear`.
 
 Event reasons you will see, and how to handle them:
 - `owner message` — incoming message. Read the thread, decide whether to reply.

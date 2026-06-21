@@ -13,6 +13,7 @@ quasi-Linux tree at `$PAI_ROOT`.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 
@@ -40,16 +41,77 @@ ACKS_DIR: Path = PAI_ROOT / "run" / "pai" / "acks"
 
 # PATH wiring — the PAI bin dirs the kernel and every subprocess it spawns
 # need on PATH (paictl, send-message, CoreLocationCLI, the FHS python, …).
-def pai_path_prefix() -> str:
-    """The PAI bin dirs joined for prepending to PATH, in priority order:
-    venv/bin (FHS python + console scripts), usr/bin (PAI-callable tool
-    shims), sbin (owner/kernel tools). bash_tool / shell_tool mirror this
-    when building a tool subprocess env."""
-    return os.pathsep.join([
-        str(PAI_ROOT / "usr" / "lib" / "venv" / "bin"),
-        str(PAI_ROOT / "usr" / "bin"),
-        str(PAI_ROOT / "sbin"),
-    ])
+HOST_SYSTEM_PATH_DIRS: tuple[str, ...] = (
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/sbin",
+)
+
+
+def pai_path_entries(root: Path | None = None) -> list[str]:
+    """PAI bin dirs in priority order."""
+    root = root or PAI_ROOT
+    return [
+        str(root / "usr" / "lib" / "venv" / "bin"),
+        str(root / "usr" / "bin"),
+        str(root / "sbin"),
+    ]
+
+
+def _dedupe_path(entries: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not entry or entry in seen:
+            continue
+        seen.add(entry)
+        out.append(entry)
+    return out
+
+
+def pai_path_prefix(root: Path | None = None) -> str:
+    """The PAI bin dirs joined for prepending to PATH."""
+    return os.pathsep.join(pai_path_entries(root))
+
+
+def build_pai_path(
+    current: str | None = None,
+    *,
+    root: Path | None = None,
+    host_first: bool = False,
+) -> str:
+    """Return PATH with PAI dirs first and host system dirs guaranteed.
+
+    Finder-launched macOS apps can inherit a narrow or empty PATH. Including
+    the host defaults keeps real system binaries such as /bin/ps and
+    /usr/sbin/lsof reachable.
+
+    Kernel/service environments keep PAI tools first so internal helpers like
+    `paictl` and `send-message` resolve without qualification. PAI-facing
+    shells pass host_first=True so generic Unix names (`ps`, `clear`, `cal`)
+    resolve to macOS; PAI tools remain reachable as `bin/<name>` from the
+    stitched home.
+    """
+    if current is None:
+        current = os.environ.get("PATH", "")
+    current_entries = current.split(os.pathsep)
+    pai_entries = pai_path_entries(root)
+    host_entries = list(HOST_SYSTEM_PATH_DIRS)
+    if host_first:
+        entries = [pai_entries[0]] + host_entries + pai_entries[1:] + current_entries
+    else:
+        entries = pai_entries + current_entries + host_entries
+    return os.pathsep.join(_dedupe_path(entries))
+
+
+def host_executable(name: str) -> str | None:
+    """Resolve a real host executable without consulting PAI/repo venv shims."""
+    return shutil.which(name, path=os.pathsep.join(HOST_SYSTEM_PATH_DIRS))
 
 
 def prepend_pai_path() -> None:
@@ -59,11 +121,7 @@ def prepend_pai_path() -> None:
     child it spawns (supervisor services, boot hooks, the per-turn header
     helpers) — would otherwise not find the PAI tools. Called once at kernel
     boot; children inherit the result through os.environ."""
-    prefix = pai_path_prefix()
-    current = os.environ.get("PATH", "")
-    if current == prefix or current.startswith(prefix + os.pathsep):
-        return  # already prepended (e.g. a re-exec inheriting our env)
-    os.environ["PATH"] = prefix + (os.pathsep + current if current else "")
+    os.environ["PATH"] = build_pai_path(os.environ.get("PATH", ""))
 
 
 # v3 FHS helpers — wired up incrementally by later phases.

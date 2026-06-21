@@ -11,6 +11,7 @@ from typing import Optional
 
 from rich.text import Text
 
+from boot import paths
 from boot.paths import PAI_ROOT
 
 import yaml
@@ -410,8 +411,9 @@ class TuiApp(App):
 
         slug = self._slug_for_pid(pid)
         env = os.environ.copy()
-        pai_path = f"{PAI_ROOT/'bin'}:{PAI_ROOT/'usr'/'bin'}"
-        env["PATH"] = f"{pai_path}:{env.get('PATH', '')}"
+        env["PATH"] = paths.build_pai_path(
+            env.get("PATH", ""), root=PAI_ROOT, host_first=True
+        )
         env["PAI_SLUG"] = slug
         env["PAI_ROOT"] = str(PAI_ROOT)
 
