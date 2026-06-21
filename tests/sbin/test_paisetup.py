@@ -11,8 +11,11 @@ the bare name — paiman's bare-name lookup only resolves one-level kinds like
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+from sbin.paisetup import app as paisetup_app
+from sbin.paisetup import picker
 from sbin.paisetup.app import _install_arg
 from sbin.paisetup.inventory import Item
 
@@ -41,3 +44,86 @@ def test_install_arg_falls_back_to_ref_when_source_dead(tmp_path: Path) -> None:
 def test_install_arg_bare_name_last_resort() -> None:
     it = _item(name="x", source="", ref="")
     assert _install_arg(it) == "x"
+
+
+def test_picker_hides_skills_section() -> None:
+    rows = picker._build_rows({
+        "driver": [_item(kind="driver", name="calendar")],
+        "skill": [_item(kind="skill", name="drive-macos-ui")],
+        "pai": [_item(kind="pai", name="calendar-agent")],
+        "subagent": [_item(kind="subagent", name="browse")],
+    })
+
+    assert [r.kind for r in rows if r.is_header] == ["driver", "pai", "subagent"]
+    assert [
+        (r.kind, r.item.name)
+        for r in rows
+        if not r.is_header and r.item is not None
+    ] == [
+        ("driver", "calendar"),
+        ("pai", "calendar-agent"),
+        ("subagent", "browse"),
+    ]
+
+
+def test_picker_auto_checks_drivers_browse_and_scout() -> None:
+    rows = picker._build_rows({
+        "driver": [_item(kind="driver", name="calendar")],
+        "subagent": [
+            _item(kind="subagent", name="browse"),
+            _item(kind="subagent", name="computer-use"),
+            _item(kind="subagent", name="scout"),
+        ],
+    })
+
+    states = {
+        (r.kind, r.item.name): r.checked
+        for r in rows
+        if not r.is_header and r.item is not None
+    }
+    assert states == {
+        ("driver", "calendar"): True,
+        ("subagent", "browse"): True,
+        ("subagent", "computer-use"): False,
+        ("subagent", "scout"): True,
+    }
+
+
+def test_json_catalog_hides_skills_and_marks_default_checked(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        paisetup_app,
+        "discover",
+        lambda: {
+            "driver": [_item(kind="driver", name="calendar", ref="drivers/calendar")],
+            "skill": [
+                _item(
+                    kind="skill",
+                    name="drive-macos-ui",
+                    ref="skills/operating/drive-macos-ui",
+                )
+            ],
+            "subagent": [
+                _item(kind="subagent", name="browse", ref="subagents/browse"),
+                _item(kind="subagent", name="computer-use", ref="subagents/computer-use"),
+                _item(kind="subagent", name="scout", ref="subagents/scout"),
+            ],
+        },
+    )
+
+    assert paisetup_app._emit_catalog_json() == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["auto_checked"] == ["driver"]
+    assert payload["auto_checked_refs"] == ["subagents/browse", "subagents/scout"]
+    assert set(payload["groups"]) == {"driver", "subagent"}
+    defaults = {
+        (kind, item["name"]): item["default_checked"]
+        for kind, items in payload["groups"].items()
+        for item in items
+    }
+    assert defaults == {
+        ("driver", "calendar"): True,
+        ("subagent", "browse"): True,
+        ("subagent", "computer-use"): False,
+        ("subagent", "scout"): True,
+    }

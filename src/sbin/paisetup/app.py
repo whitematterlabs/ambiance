@@ -57,6 +57,7 @@ def _emit_catalog_json() -> int:
     payload = {
         "schema": 1,
         "auto_checked": sorted(picker.AUTO_CHECKED),
+        "auto_checked_refs": picker.auto_checked_refs(),
         "groups": {
             kind: [
                 {
@@ -64,10 +65,12 @@ def _emit_catalog_json() -> int:
                     "description": it.description,
                     "installed": it.installed,
                     "ref": it.ref or it.name,
+                    "default_checked": it.installed or picker.is_auto_checked(kind, it),
                 }
                 for it in groups.get(kind, [])
             ]
-            for kind in ("driver", "skill", "subagent")
+            for kind in picker.VISIBLE_KINDS
+            if kind != "pai"
         },
     }
     print(json.dumps(payload))

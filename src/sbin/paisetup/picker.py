@@ -10,13 +10,23 @@ from .inventory import Item
 
 SECTION_TITLES = {
     "driver": "Drivers",
-    "skill": "Skills",
     "pai": "PAI bundles",
     "subagent": "Subagents",
 }
 
-# Drivers + skills auto-checked, bundles + subagents off by default.
-AUTO_CHECKED = {"driver", "skill"}
+VISIBLE_KINDS = tuple(SECTION_TITLES)
+
+# Drivers are infrastructure and stay checked as a group. A couple of subagents
+# are owner-facing enough to install by default without making every subagent
+# opt-out.
+AUTO_CHECKED_KINDS = frozenset({"driver"})
+AUTO_CHECKED_ITEMS = frozenset({
+    ("subagent", "browse"),
+    ("subagent", "scout"),
+})
+
+# Back-compat for callers that only understand kind-level defaults.
+AUTO_CHECKED = AUTO_CHECKED_KINDS
 
 
 @dataclass
@@ -27,13 +37,29 @@ class Row:
     checked: bool        # ignored on header rows
 
 
+def is_auto_checked(kind: str, item: Item) -> bool:
+    return kind in AUTO_CHECKED_KINDS or (kind, item.name) in AUTO_CHECKED_ITEMS
+
+
+def auto_checked_refs() -> list[str]:
+    plural = {
+        "driver": "drivers",
+        "pai": "pais",
+        "subagent": "subagents",
+    }
+    return sorted(
+        f"{plural.get(kind, kind + 's')}/{name}"
+        for kind, name in AUTO_CHECKED_ITEMS
+    )
+
+
 def _build_rows(groups: dict[str, list[Item]]) -> list[Row]:
     rows: list[Row] = []
-    for kind in ("driver", "skill", "pai", "subagent"):
+    for kind in VISIBLE_KINDS:
         items = groups.get(kind) or []
         rows.append(Row(kind=kind, is_header=True, item=None, checked=False))
         for it in items:
-            checked = it.installed or (kind in AUTO_CHECKED)
+            checked = it.installed or is_auto_checked(kind, it)
             rows.append(Row(kind=kind, is_header=False, item=it, checked=checked))
         if not items:
             # Placeholder to make absence obvious. Header alone.
@@ -102,7 +128,7 @@ def run(groups: dict[str, list[Item]]) -> dict[str, list[str]] | None:
     rows = _build_rows(groups)
     if not any(not r.is_header for r in rows):
         # Empty registry — nothing to pick.
-        return {k: [] for k in SECTION_TITLES}
+        return {k: [] for k in VISIBLE_KINDS}
 
     def _curses_main(stdscr) -> dict[str, list[str]] | None:
         curses.curs_set(0)
@@ -133,7 +159,7 @@ def run(groups: dict[str, list[Item]]) -> dict[str, list[str]] | None:
                 if not row.is_header and row.item is not None and not row.item.installed:
                     row.checked = not row.checked
             elif ch in (curses.KEY_ENTER, 10, 13):
-                out: dict[str, list[str]] = {k: [] for k in SECTION_TITLES}
+                out: dict[str, list[str]] = {k: [] for k in VISIBLE_KINDS}
                 for r in rows:
                     if r.is_header or r.item is None:
                         continue
