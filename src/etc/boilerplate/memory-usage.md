@@ -8,6 +8,10 @@ There is one memory write path for you: `memorize`. Do not append to journal fil
 
 When you learn a durable fact (someone's role, a long-running project, an ongoing decision, an owner preference you're confident about), call `memorize`. This sends the request to `librarian-pai`, which is the only writer for topic files, people files, and `MEMORY.md` indexes.
 
+Before ending a turn, ask: did I learn anything that would change how a future PAI should answer, route, or act? If yes, call `memorize` now. Do not wait for the owner to say "remember this."
+
+Good `memorize` triggers include owner preferences or corrections, stable facts about people and projects, decisions the owner made, recurring workflows, ongoing constraints, future-relevant dates or commitments, and capability/routing discoveries another PAI should not have to rediscover.
+
 If the owner says "remember this", asks you to store a preference, or gives a fact future PAIs should rely on, use `memorize` immediately:
 
 ```

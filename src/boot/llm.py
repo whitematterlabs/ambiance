@@ -23,7 +23,7 @@ from anthropic import AsyncAnthropic
 
 from . import tokens
 
-from . import bash_tool, shell_tool
+from . import bash_tool, noop_tool, shell_tool
 from .image_refs import expand_image_refs
 from .paths import HOME_DIR
 from .processes import ProcessNotFound, append_log
@@ -275,7 +275,11 @@ async def _loop(
             model=model,
             max_tokens=MAX_TOKENS,
             system=system_blocks,
-            tools=[bash_tool.TOOL_SCHEMA, shell_tool.TOOL_SCHEMA],
+            tools=[
+                bash_tool.TOOL_SCHEMA,
+                shell_tool.TOOL_SCHEMA,
+                noop_tool.TOOL_SCHEMA,
+            ],
             messages=_with_cache_control(messages),
             extra_body=extra_body,
         )
@@ -297,8 +301,18 @@ async def _loop(
         # are the model "thinking out loud" between actions. They'd otherwise
         # vanish into history. Append to the PAI's log so the TUI / tail can
         # pick them up live. One-shot per block, prefixed for legibility.
+        noop_only = all(use.name == noop_tool.TOOL_NAME for use in tool_uses)
+        if noop_only:
+            # The model may include filler text alongside NOOP ("Quiet.",
+            # "Nothing to do."). Keep it out of live narration and history.
+            assistant_turn = messages[-1]
+            assistant_turn["content"] = [
+                block
+                for block in assistant_turn.get("content", [])
+                if isinstance(block, dict) and block.get("type") == "tool_use"
+            ]
         pai_slug = (env or {}).get("PAI_SLUG")
-        if pai_slug:
+        if pai_slug and not noop_only:
             for block in response.content:
                 if block.type != "text":
                     continue
@@ -351,6 +365,12 @@ async def _loop(
                     "tool_use_id": use.id,
                     "content": expand_image_refs(rendered, base_dir=Path.cwd()),
                 })
+            elif use.name == noop_tool.TOOL_NAME:
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": use.id,
+                    "content": noop_tool.TOOL_RESULT,
+                })
             else:
                 tool_results.append({
                     "type": "tool_result",
@@ -360,5 +380,11 @@ async def _loop(
                 })
 
         messages.append({"role": "user", "content": tool_results})
+        if noop_only:
+            messages.append({
+                "role": "assistant",
+                "content": [{"type": "text", "text": noop_tool.TOOL_NAME}],
+            })
+            return "", messages
 
     return "[max iterations reached]", messages

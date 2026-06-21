@@ -70,3 +70,23 @@ def test_ensure_venv_rebuilds_existing_wrong_python(
     ]
     assert not stale.exists()
     assert py.read_text() == "# rebuilt python\n"
+
+
+def test_install_bin_shims_installs_calendar_tool(tmp_path: Path) -> None:
+    root = tmp_path / "pai"
+    venv_dir = root / "usr" / "lib" / "venv"
+    py = venv_dir / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text("# fhs python\n")
+
+    paifs_init.install_bin_shims(venv_dir, root)
+
+    cal = root / "usr" / "bin" / "cal"
+    assert cal.is_file()
+    assert not (root / "sbin" / "cal").exists()
+    assert cal.read_text() == (
+        f"#!{py}\n"
+        "from bin.cal import main\n"
+        "raise SystemExit(main())\n"
+    )
+    assert cal.stat().st_mode & 0o111

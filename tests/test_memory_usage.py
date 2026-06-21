@@ -13,6 +13,10 @@ def test_memory_usage_routes_durable_writes_to_librarian() -> None:
     assert "call `memorize`" in text
     assert "librarian-pai" in text
     assert "There is one memory write path for you: `memorize`" in text
+    assert "Before ending a turn, ask: did I learn anything" in text
+    assert "Do not wait for the owner to say \"remember this.\"" in text
+    assert "owner preferences or corrections" in text
+    assert "capability/routing discoveries" in text
     assert "do not fall back to editing topic files or `MEMORY.md` yourself" in text
     assert "Plain `memorize` is the default for durable facts" in text
     assert "Reserve `memorize --private` for classified or very sensitive information" in text
