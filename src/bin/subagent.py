@@ -5,6 +5,7 @@ Usage:
     subagent spawn --slug NAME --prompt "..."             # fork a subagent, return its pid
     subagent reply --content "..."                        # (child only) intermediate update to parent
     subagent reply --done --content "..."                 # (child only) final reply; kernel reaps the child
+    subagent done --result result.md                      # (child only) finish with durable parent-workspace result
     subagent kill --slug NAME                             # (parent only) abort a child you spawned
 
 Subagents are persistent: they stay alive across turns and do not
@@ -19,12 +20,14 @@ finish — every spawned subagent automatically gets a subagent-mode block
 in its system prompt that explains the lifecycle. So `--prompt` should
 just describe the task.
 
-Standard exit: the subagent calls `subagent reply --done`. The kernel
-emits the final response, then resolves the proc — so the parent's
+Standard exit: the subagent writes its report under
+`$PAI_PARENT_HOME/workspace/$PAI_SLUG/`, then calls
+`subagent done --result result.md`. The kernel emits a tiny completion
+event pointing at the result, then resolves the proc — so the parent's
 wake-up nudge already reflects a dead child and any out-of-band
-`send-message` the parent attempts will fail loudly instead of racing
-a self-kill. `subagent kill` is the parent's escape hatch for aborting
-a child; it is not for self-termination.
+`send-message` the parent attempts will fail loudly instead of racing a
+self-kill. `subagent kill` is the parent's escape hatch for aborting a
+child; it is not for self-termination.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
+from pathlib import Path
 import re
 import sys
 
@@ -323,69 +327,177 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_reply(args: argparse.Namespace) -> int:
+def _read_child_reply_env(
+    command: str,
+    *,
+    require_slug: bool = False,
+) -> tuple[int, int, str] | None:
     sender_raw = os.environ.get("PAI_PID")
     parent_raw = os.environ.get("PAI_PARENT")
+    slug = os.environ.get("PAI_SLUG")
     if not sender_raw:
-        print("error: $PAI_PID not set — reply must be invoked from a PAI turn", file=sys.stderr)
-        return 1
+        print(f"error: $PAI_PID not set — {command} must be invoked from a PAI turn", file=sys.stderr)
+        return None
     if not parent_raw:
-        print("error: $PAI_PARENT not set — only subagents can reply", file=sys.stderr)
-        return 1
+        print(f"error: $PAI_PARENT not set — only subagents can use `{command}`", file=sys.stderr)
+        return None
+    if require_slug and not slug:
+        print(f"error: $PAI_SLUG not set — required for `{command}`", file=sys.stderr)
+        return None
     try:
         sender_pid = int(sender_raw)
         parent_pid = int(parent_raw)
     except ValueError:
         print("error: $PAI_PID/$PAI_PARENT must be ints", file=sys.stderr)
-        return 1
+        return None
+    return sender_pid, parent_pid, slug or ""
 
-    done_slug = None
-    if args.done:
-        done_slug = os.environ.get("PAI_SLUG")
-        if not done_slug:
-            print("error: $PAI_SLUG not set — required for --done", file=sys.stderr)
-            return 1
-        try:
-            own_spec = P.read_spec(done_slug)
-        except P.ProcessNotFound:
-            print(f"error: own proc {done_slug!r} not found", file=sys.stderr)
-            return 1
-        if own_spec.get("persub"):
-            print(
-                f"error: {done_slug!r} is a persistent subagent and cannot use --done; "
-                f"reply with `bin/subagent reply --content ...` and wait for the parent",
-                file=sys.stderr,
-            )
-            return 1
 
+def _ensure_can_finish(slug: str) -> bool:
+    try:
+        own_spec = P.read_spec(slug)
+    except P.ProcessNotFound:
+        print(f"error: own proc {slug!r} not found", file=sys.stderr)
+        return False
+    if own_spec.get("persub"):
+        print(
+            f"error: {slug!r} is a persistent subagent and cannot finish itself; "
+            f"reply with `bin/subagent reply --content ...` and wait for the parent",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _emit_parent_response(
+    *,
+    sender_pid: int,
+    parent_pid: int,
+    text: str,
+    done: bool = False,
+    result: str | None = None,
+) -> None:
     payload = {
         "source": "subagent",
         "kind": "subagent:response",
         "target_pid": parent_pid,
         "sender_pid": sender_pid,
-        "text": args.content,
+        "text": text,
     }
-    if args.done:
+    if done:
         payload["done"] = True
+    if result:
+        payload["result"] = result
     P.emit_event(payload)
 
+
+def _resolve_done(slug: str) -> bool:
+    # Emit-then-resolve ordering matters: the response event lands before the
+    # proc_resolved event, so the parent's wake-up nudge sees the reply with a
+    # now-dead child slug. The response above is the parent's notification, so
+    # resolve quietly: notify_parent=False suppresses a redundant
+    # "proc completed" nudge behind the response.
+    try:
+        P.resolve(slug, "completed", notify_parent=False)
+    except P.ProcessNotFound:
+        print(f"error: own proc {slug!r} not found", file=sys.stderr)
+        return False
+    return True
+
+
+def _parent_home(parent_pid: int) -> Path | None:
+    raw = os.environ.get("PAI_PARENT_HOME")
+    if raw:
+        return Path(raw)
+    try:
+        parent_slug = P.find_pai_slug(parent_pid)
+    except P.ProcessNotFound:
+        print(f"error: parent pid={parent_pid} not found", file=sys.stderr)
+        return None
+    return P.HOME_DIR / parent_slug
+
+
+def _normalize_result_path(result: str, *, parent_pid: int, child_slug: str) -> str | None:
+    parent_home = _parent_home(parent_pid)
+    if parent_home is None:
+        return None
+    raw = Path(result)
+    if raw.is_absolute():
+        result_path = raw
+    elif raw.parts and raw.parts[0] == "workspace":
+        result_path = parent_home / raw
+    else:
+        result_path = parent_home / "workspace" / child_slug / raw
+
+    parent_home_resolved = parent_home.resolve()
+    workspace_resolved = (parent_home / "workspace" / child_slug).resolve()
+    result_resolved = result_path.resolve()
+    try:
+        result_resolved.relative_to(workspace_resolved)
+    except ValueError:
+        print(
+            "error: --result must point inside "
+            f"$PAI_PARENT_HOME/workspace/$PAI_SLUG (got {result!r})",
+            file=sys.stderr,
+        )
+        return None
+    if not result_resolved.is_file():
+        print(
+            f"error: result file not found: {result_resolved}. "
+            "Write the report before calling `subagent done`.",
+            file=sys.stderr,
+        )
+        return None
+    return result_resolved.relative_to(parent_home_resolved).as_posix()
+
+
+def cmd_reply(args: argparse.Namespace) -> int:
+    env = _read_child_reply_env("reply", require_slug=args.done)
+    if env is None:
+        return 1
+    sender_pid, parent_pid, child_slug = env
+
+    if args.done and not _ensure_can_finish(child_slug):
+        return 1
+
+    _emit_parent_response(
+        sender_pid=sender_pid,
+        parent_pid=parent_pid,
+        text=args.content,
+        done=args.done,
+    )
+
     if args.done:
-        # Emit-then-resolve ordering matters: the response event lands
-        # before the proc_resolved event, so the parent's wake-up nudge
-        # sees the reply with a (now-dead) child slug — no race window
-        # for the parent to send-message a reaped pid. The response above is
-        # the parent's notification, so resolve quietly: notify_parent=False
-        # drops the parent pid from proc_resolved, suppressing a redundant
-        # "proc completed" nudge that would land right behind the response.
-        try:
-            P.resolve(done_slug, "completed", notify_parent=False)
-        except P.ProcessNotFound:
-            print(f"error: own proc {done_slug!r} not found", file=sys.stderr)
+        if not _resolve_done(child_slug):
             return 1
         print(f"replied to parent pid={parent_pid} (done)")
         return 0
 
     print(f"replied to parent pid={parent_pid}")
+    return 0
+
+
+def cmd_done(args: argparse.Namespace) -> int:
+    env = _read_child_reply_env("done", require_slug=True)
+    if env is None:
+        return 1
+    sender_pid, parent_pid, child_slug = env
+    if not _ensure_can_finish(child_slug):
+        return 1
+    result = _normalize_result_path(args.result, parent_pid=parent_pid, child_slug=child_slug)
+    if result is None:
+        return 1
+
+    _emit_parent_response(
+        sender_pid=sender_pid,
+        parent_pid=parent_pid,
+        text=f"done: {result}",
+        done=True,
+        result=result,
+    )
+    if not _resolve_done(child_slug):
+        return 1
+    print(f"replied to parent pid={parent_pid} (done: {result})")
     return 0
 
 
@@ -480,7 +592,7 @@ def cmd_kill(args: argparse.Namespace) -> int:
     if parent_pid != int(spec["parent"]):
         print(
             f"error: {args.slug!r} can only be aborted by its parent (pid {spec['parent']}); "
-            f"you are pid {parent_pid}. Subagents end via `subagent reply --done`, not kill.",
+            f"you are pid {parent_pid}. Subagents end via `subagent done --result`, not kill.",
             file=sys.stderr,
         )
         return 1
@@ -502,8 +614,8 @@ def main(argv: list[str] | None = None) -> int:
             "stay alive across turns. The kickoff --prompt is the task itself; "
             "you do NOT need to explain how to reply or how to finish — the "
             "subagent already knows its own lifecycle (it gets a subagent-mode "
-            "block in its system prompt teaching `reply --done` as the standard "
-            "exit). Just describe the work."
+            "block in its system prompt teaching `done --result result.md` as "
+            "the standard exit). Just describe the work."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -514,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Spawn a subagent. --prompt should describe the task only — the "
             "subagent already knows to send intermediate updates via "
-            "`bin/subagent reply` and to finish via `bin/subagent reply --done`, "
+            "`bin/subagent reply` and to finish via `bin/subagent done --result result.md`, "
             "so you don't need to spell that out. As the parent, you can call "
             "`bin/subagent kill` to abort a child early."
         ),
@@ -560,6 +672,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     rp.set_defaults(func=cmd_reply)
 
+    dp = sub.add_parser(
+        "done",
+        help="(child only) finish after saving a durable result in the parent's workspace",
+        description=(
+            "Finish an ephemeral subagent. --result is interpreted inside "
+            "$PAI_PARENT_HOME/workspace/$PAI_SLUG unless it already starts with "
+            "workspace/ or is an absolute path. The file must exist; the parent "
+            "receives a tiny subagent:response pointing at it."
+        ),
+    )
+    dp.add_argument("--result", required=True, help="result file, normally result.md")
+    dp.set_defaults(func=cmd_done)
+
     pr = sub.add_parser(
         "plan-ready",
         help="(child only) declare /proc/$PAI_SLUG/plan.md ready; parent gets a 30s ack window (silence=approval)",
@@ -577,7 +702,7 @@ def main(argv: list[str] | None = None) -> int:
 
     dn = sub.add_parser(
         "kill",
-        help="(parent only) abort a child subagent; subagents end themselves via `reply --done`",
+        help="(parent only) abort a child subagent; subagents end themselves via `done --result`",
     )
     dn.add_argument("--slug", required=True, help="full slug as printed by spawn")
     dn.set_defaults(func=cmd_kill)

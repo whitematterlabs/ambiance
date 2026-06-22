@@ -140,11 +140,11 @@ def resolve(slug: str, new_status: str, notify_parent: bool = True) -> None:
 
     `notify_parent` controls whether the emitted `proc_resolved` event
     carries the parent pid (the only thing that turns it into a parent
-    nudge). It defaults to True. A subagent ending via `reply --done` has
-    already handed its result to the parent through the `subagent:response`
-    event, so it resolves with notify_parent=False to suppress the
-    otherwise-redundant "proc completed" nudge that would arrive right
-    behind the response.
+    nudge). It defaults to True. A subagent ending via `done --result`
+    has already handed its result pointer to the parent through the
+    `subagent:response` event, so it resolves with notify_parent=False
+    to suppress the otherwise-redundant "proc completed" nudge that
+    would arrive right behind the response.
     """
     if new_status not in VALID_STATUSES:
         raise ValueError(

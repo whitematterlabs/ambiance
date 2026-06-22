@@ -126,7 +126,7 @@ fallback PAI receives the event.
 | kind | emitter | consumer | payload |
 |---|---|---|---|
 | `pai_message` | `bin/send-message`, `bin/subagent` | `target_pid` (direct delivery) | `target_pid`, `sender_pid`, `text`, `msg_id?` |
-| `subagent:response` | `bin/subagent` | `target_pid` (parent) | `target_pid`, `sender_pid`, `text` |
+| `subagent:response` | `bin/subagent` | `target_pid` (parent) | `target_pid`, `sender_pid`, `text`, `done?`, `result?` |
 | `subagent:plan_ready` | `bin/subagent` | `target_pid` | `target_pid`, `sender_pid`, `slug`, `text?` |
 | `subagent:plan_reject` | `bin/subagent` | `target_pid` | `target_pid`, `sender_pid`, `slug`, `text?` |
 

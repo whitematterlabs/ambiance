@@ -3,9 +3,10 @@
 Subagents differ from one-shot ephemerals in two ways:
   1. Their spawn spec carries `persistent: true`, so nudge.py does NOT
      auto-resolve them after the initial-prompt turn.
-  2. Termination is explicit: the standard exit is `bin/subagent reply --done`,
-     which emits the final `subagent:response` *and* resolves the child's
-     proc as completed in that same call. The parent may also call
+  2. Termination is explicit: the standard exit is `bin/subagent done --result`,
+     which emits a final `subagent:response` pointing at the durable report
+     *and* resolves the child's proc as completed in that same call.
+     The legacy `reply --done` path remains compatible. The parent may also call
      `bin/subagent kill --slug X` to abort a child early. Self-kill is
      not allowed — kill is parent-only.
 
@@ -32,6 +33,7 @@ import yaml
 from bin import send_message as send_msg_bin
 from bin import subagent as sub_bin
 from boot import config as C
+from boot import main as main_mod
 from boot import nudge as nudge_mod
 from boot import paths as paths_mod
 from boot import processes as P
@@ -119,6 +121,114 @@ def test_reply_done_emits_response_and_resolves(
     # proc_resolved event resolves quietly: no `parent` pid means the kernel
     # won't fire a redundant "proc completed" nudge right behind the response.
     assert "parent" not in resolved
+
+
+def test_done_result_emits_pointer_and_resolves(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    monkeypatch.setenv("PAI_PID", "1")
+    sub_bin.main(["spawn", "--slug", "scratch", "--prompt", "go"])
+    [child_slug] = [s for s in P.list_procs() if s.startswith("scratch-")]
+    child_pid = P.read_spec(child_slug)["pid"]
+
+    for e in P.EVENTS_DIR.iterdir():
+        e.unlink()
+
+    parent_home = P.HOME_DIR / "root"
+    result_dir = parent_home / "workspace" / child_slug
+    result_dir.mkdir(parents=True)
+    (result_dir / "result.md").write_text("final answer lives here\n")
+
+    monkeypatch.setenv("PAI_PID", str(child_pid))
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", child_slug)
+    monkeypatch.setenv("PAI_PARENT_HOME", str(parent_home))
+    rc = sub_bin.main(["done", "--result", "result.md"])
+    assert rc == 0
+
+    assert child_slug not in P.list_procs()
+    events = _events(P.EVENTS_DIR)
+    assert len(events) == 2
+    resp, resolved = events
+    result_ref = f"workspace/{child_slug}/result.md"
+    assert resp["kind"] == "subagent:response"
+    assert resp["target_pid"] == 1
+    assert resp["sender_pid"] == child_pid
+    assert resp["text"] == f"done: {result_ref}"
+    assert resp["result"] == result_ref
+    assert resp.get("done") is True
+    assert resolved["kind"] == "proc_resolved"
+    assert resolved["slug"] == child_slug
+    assert resolved["status"] == "completed"
+    assert "parent" not in resolved
+
+
+def test_done_result_requires_existing_parent_workspace_file(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    monkeypatch.setenv("PAI_PID", "1")
+    sub_bin.main(["spawn", "--slug", "scratch", "--prompt", "go"])
+    [child_slug] = [s for s in P.list_procs() if s.startswith("scratch-")]
+    child_pid = P.read_spec(child_slug)["pid"]
+
+    for e in P.EVENTS_DIR.iterdir():
+        e.unlink()
+
+    parent_home = P.HOME_DIR / "root"
+    monkeypatch.setenv("PAI_PID", str(child_pid))
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", child_slug)
+    monkeypatch.setenv("PAI_PARENT_HOME", str(parent_home))
+    rc = sub_bin.main(["done", "--result", "result.md"])
+    assert rc == 1
+    assert child_slug in P.list_procs()
+    assert not list(P.EVENTS_DIR.iterdir())
+
+
+def test_subagent_response_event_routes_result_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[dict] = []
+
+    def fake_dispatch(to: int, *args, from_: int | None = None, **kwargs):
+        captured.append({"to": to, "args": args, "from": from_, "kwargs": kwargs})
+        return None
+
+    monkeypatch.setattr(main_mod, "_dispatch_nudge", fake_dispatch)
+    event_path = tmp_path / "event.yaml"
+    event_path.write_text(
+        yaml.safe_dump(
+            {
+                "source": "subagent",
+                "kind": "subagent:response",
+                "target_pid": 1,
+                "sender_pid": 7,
+                "text": "done: workspace/scout/result.md",
+                "done": True,
+                "result": "workspace/scout/result.md",
+            }
+        )
+    )
+
+    asyncio.run(main_mod._handle_event_file(event_path, []))
+
+    assert captured == [
+        {
+            "to": 1,
+            "args": ("subagent response",),
+            "from": 7,
+            "kwargs": {
+                "from_kind": "subagent",
+                "context": {
+                    "text": "done: workspace/scout/result.md",
+                    "done": True,
+                    "result": "workspace/scout/result.md",
+                },
+            },
+        }
+    ]
 
 
 def test_persub_reply_done_is_rejected_without_event(
@@ -231,7 +341,7 @@ def test_reply_without_done_does_not_resolve(
 
     monkeypatch.setenv("PAI_PID", str(child_pid))
     monkeypatch.setenv("PAI_PARENT", "1")
-    monkeypatch.setenv("PAI_SLUG", child_slug)
+    monkeypatch.delenv("PAI_SLUG", raising=False)
     assert sub_bin.main(["reply", "--content", "still working"]) == 0
     assert P.read_status(child_slug) == "running"
     [resp] = _events(P.EVENTS_DIR)

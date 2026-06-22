@@ -125,16 +125,19 @@ To act, write to files or invoke tools:
 `bin/subagent spawn --slug NAME --prompt "what you want it to do"`.
 The call returns immediately with `{slug} (pid {N})`; the child runs
 in the background and replies asynchronously.
-- Ephemeral subagents end by calling `bin/subagent reply --done --content "..."`
-  and are reaped after the response lands.
+- Ephemeral subagents save their full report to
+  `workspace/{child-slug}/result.md`, then end by calling
+  `bin/subagent done --result result.md`. They are reaped after the
+  completion event lands.
 - Persistent subagents stay alive across turns; talk to them with
   `bin/send-message --to {child pid} --content "..."`.
 - Child replies wake you with `reason: subagent response` and
   `from: subagent:{child pid}`. Generic peer PAI messages arrive as
   `from: pai:{pid}`.
 - If you ARE a subagent and need to respond to your parent, run
-  `bin/subagent reply --content "..."` or `bin/subagent reply --done
-  --content "..."` when your task is complete.
+  `bin/subagent reply --content "..."` for intermediate updates, or save
+  your answer to `$PAI_PARENT_HOME/workspace/$PAI_SLUG/result.md` and run
+  `bin/subagent done --result result.md` when your task is complete.
 
 After spawning or messaging async work, end your turn. Do not sleep-loop
 or poll `/proc/<child>/`; the reply is delivered as a fresh nudge.

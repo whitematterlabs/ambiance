@@ -39,9 +39,9 @@ bin/subagent spawn --slug browse --package browse --prompt "<task>"
 
 The kernel forks a `/proc/<slug>/` for the subagent, kicks off its
 prompt, and the subagent's own bash shell is the agent loop — there is
-no nested LLM. When done, the subagent sends its final answer with
-`bin/subagent reply --done --content "..."`; that emits the result to
-the parent and resolves the subagent proc.
+no nested LLM. When done, the subagent writes its report under the
+parent workspace and calls `bin/subagent done --result result.md`; that
+emits a completion pointer to the parent and resolves the subagent proc.
 
 ## Execution model
 
@@ -94,8 +94,8 @@ inherit context (cookies, scroll position, prior page) or ignore the
 list and open a fresh tab.
 
 This is the only cross-spawn state today. Tab metadata lives under
-`/sys/drivers/browse/`; the per-spawn handoff is the final
-`subagent:response` emitted by `bin/subagent reply --done`.
+`/sys/drivers/browse/`; the per-spawn handoff is the durable result file
+referenced by the final `subagent:response`.
 
 ## Auth model
 
@@ -106,11 +106,12 @@ on. No OAuth dance, no cookie import, no separate sign-in step.
 ## Result contract
 
 One final `subagent:response` per spawn, sent with
-`bin/subagent reply --done --content "..."`. Markdown, ≤500 lines,
+`bin/subagent done --result result.md` after writing
+`$PAI_PARENT_HOME/workspace/$PAI_SLUG/result.md`. The result markdown
 includes the final URL, the answer, and any key verbatim quotes. On a
-hard block (login wall, captcha, dark site) the subagent still sends a
-final response describing the failure — the parent gets closure either
-way and does not retry.
+hard block (login wall, captcha, dark site) the subagent still writes a
+failure report and completes — the parent gets closure either way and
+does not retry.
 
 ---
 
@@ -165,7 +166,8 @@ virtue of using the owner's profile.
 The brainstorm called for an append-only event log at
 `<pai-home>/communication/browser/<domain>/YYYY-MM-DD.md` in the same
 format as messages, so browsing becomes just another conversation. Not
-implemented. The result handoff today is the final `subagent:response`.
+implemented. The result handoff today is the durable report file pointed
+to by the final `subagent:response`.
 
 ## Sandboxing
 
