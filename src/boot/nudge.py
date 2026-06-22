@@ -74,12 +74,14 @@ _COMPACT_INSTRUCTION = (
 _ONBOARDING_INSTRUCTION = (
     "First-run onboarding: you have not yet built the owner profile. Briefly "
     "tell the owner you're going to skim their last month of mail, messages, "
-    "contacts, and calendar to get to know them, then follow the "
-    "`operating/onboard-owner` skill: read those sources, write the owner "
-    "profile to the path the skill documents (var/lib/owner/profile.md under "
-    "the PAI root), and end your turn with a short digest the owner can "
-    "correct. If there's almost nothing to read, say so and ask them to tell "
-    "you about themselves instead."
+    "contacts, and calendar to get to know them. Then read and follow "
+    "`memory/skills/operating/onboard-owner/SKILL.md`: read those sources, "
+    "write the owner profile to the canonical absolute FHS path "
+    "`/var/lib/owner/profile.md` (not a relative `var/lib/...` under your "
+    "home), and end your turn with a short digest the owner can correct. If "
+    "that skill file is missing, report that onboarding is not installed and "
+    "do not improvise a profile. If there's almost nothing to read, say so "
+    "and ask them to tell you about themselves instead."
 )
 
 

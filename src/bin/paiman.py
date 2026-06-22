@@ -136,7 +136,7 @@ SCAFFOLD_TYPES = {
 
 INSTALLABLE_KINDS = ("bin", "driver", "skill", "prompt", "pai", "lib", "subagent")
 PRIMITIVE_KINDS = ("bin", "driver", "skill", "prompt", "lib")
-DEPS_KINDS = ("pai", "driver", "subagent")
+DEPS_KINDS = ("bin", "pai", "driver", "subagent")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".DS_Store", "*.pyc")
 DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
@@ -350,7 +350,7 @@ def _audit_log(line: str) -> None:
 def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
                          seen: set[str], kinds_out: set[str] | None = None) -> str:
     """Install one bundle from a resolved source tree. Returns the bundle name.
-    Recursive for composite bundles via their `deps:` list. `kinds_out`, if given,
+    Recursive for package `deps:` lists. `kinds_out`, if given,
     collects every kind installed during this call (including transitive deps)
     so the caller can decide whether to emit a kernel reload event."""
     manifest = _load_manifest(src)
@@ -381,9 +381,9 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         if not (src / entrypoint).is_file():
             raise SystemExit(f"paiman: entrypoint {entrypoint!r} not found in source")
 
-    # Resolve declared `deps:` for composite bundles. Drivers commonly depend
-    # on shared lib/bin packages; pai bundles pull in their drivers/skills;
-    # subagents can now carry their own driver/bin surface too.
+    # Resolve declared `deps:` before activation. Drivers commonly depend on
+    # shared lib/bin packages; PAIs/subagents pull in their drivers/skills; bins
+    # can pull in the driver/library code they import.
     if kind in DEPS_KINDS:
         deps = manifest.get("deps") or []
         if not isinstance(deps, list):

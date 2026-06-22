@@ -134,6 +134,27 @@ def test_install_subagent_pulls_deps_from_registry(
     assert (fhs_root / "usr" / "bin" / "testbin1").is_file()
 
 
+def test_install_bin_pulls_deps_from_registry(
+    fhs_root: Path, tmp_path: Path
+) -> None:
+    pkg = tmp_path / "bin-with-deps"
+    pkg.mkdir()
+    (pkg / "package.yaml").write_text(
+        "name: bin-with-deps\n"
+        "kind: bin\n"
+        "version: 0.1.0\n"
+        "entrypoint: bin_with_deps.py\n"
+        "deps:\n"
+        "  - testskill1\n"
+    )
+    (pkg / "bin_with_deps.py").write_text("#!/usr/bin/env python\n")
+
+    assert paiman.main(["install", str(pkg)]) == 0
+
+    assert (fhs_root / "usr" / "bin" / "bin-with-deps").is_file()
+    assert (fhs_root / "usr" / "lib" / "skills" / "testskill1").is_symlink()
+
+
 def test_skill_install_emits_reload(
     fhs_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

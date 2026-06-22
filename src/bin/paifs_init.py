@@ -115,10 +115,10 @@ ROOT_SEED_PROMPTS: tuple[str, ...] = (
     "subagent-persistent",
 )
 
-# Drivers the kernel imports as libraries during boot/runtime. A fresh
-# $PAI_ROOT must have these before `boot.entry` starts supervising; drivers
-# with runnable processes (imessage, macmail)
-# are NOT seeded — the root user installs them explicitly.
+# Drivers the kernel imports directly as libraries during boot/runtime. A fresh
+# $PAI_ROOT must have these before `boot.entry` starts supervising. Other
+# driver packages can still arrive as deps of seeded bins; e.g. onboarding
+# tools pull email/iMessage so their shared query code is importable.
 KERNEL_SEED_DRIVERS: tuple[str, ...] = ("contacts", "messages")
 
 # Skills every PAI needs at first boot. Kept tight: only skills that
@@ -127,14 +127,18 @@ KERNEL_SEED_DRIVERS: tuple[str, ...] = ("contacts", "messages")
 KERNEL_SEED_SKILLS: tuple[str, ...] = (
     "schedule-reminder",
     "grow-capability",
+    "onboard-owner",
 )
 
-# Bins the kernel's memory contract refers to from the default prompts.
+# Bins the kernel's seed prompts/skills require on first boot.
 # `memorize` and `remember` are invoked by every PAI via the memory-usage
-# boilerplate; without them installed the memory contract is inert.
+# boilerplate; `mailsearch` and `imessage-history` are required by the
+# first-run owner onboarding skill.
 KERNEL_SEED_BINS: tuple[str, ...] = (
     "memorize",
     "remember",
+    "mailsearch",
+    "imessage-history",
 )
 
 # PAIs the kernel itself requires to close core loops. `librarian-pai`
