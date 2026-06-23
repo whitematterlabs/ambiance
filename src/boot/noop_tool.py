@@ -9,10 +9,11 @@ TOOL_RESULT = "NOOP: no action taken."
 TOOL_SCHEMA = {
     "name": TOOL_NAME,
     "description": (
-        "Use this when the event requires no filesystem action, tool work, "
-        "delegation, or owner-facing reply. This is a terminal choice: call "
-        "NOOP instead of writing filler text such as 'quiet', 'nothing to do', "
-        "or 'doing nothing'."
+        "Required terminal tool for quiet turns. Use this when the event "
+        "needs no further filesystem action, no further tool work, no "
+        "delegation, and no owner-facing reply. Call NOOP instead of writing "
+        "filler text such as 'quiet', 'nothing to do', 'no update', or "
+        "'doing nothing'."
     ),
     "input_schema": {
         "type": "object",

@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from boot import llm as L
+from boot import bash_tool, bootstrap, llm as L
 from boot import noop_tool
+from boot import shell_tool
 
 
 class _Block:
@@ -37,6 +38,14 @@ def _response(*blocks: _Block):
     return SimpleNamespace(content=list(blocks), usage=SimpleNamespace())
 
 
+def test_noop_policy_is_required_for_quiet_turns() -> None:
+    instructions = " ".join(bootstrap.OPERATING_INSTRUCTIONS.split())
+
+    assert "call the `NOOP` tool as your final action" in instructions
+    assert "required for quiet turns" in instructions
+    assert "one-line reply is preferred over silence" not in instructions
+
+
 def test_noop_schema_is_registered(monkeypatch) -> None:
     response = _response(_Block("tool_use", id="noop-1", name="NOOP", input={}))
     messages_api = _Messages([response])
@@ -55,7 +64,11 @@ def test_noop_schema_is_registered(monkeypatch) -> None:
     )
 
     assert reply == ""
-    assert messages_api.calls[0]["tools"][-1] == noop_tool.TOOL_SCHEMA
+    assert messages_api.calls[0]["tools"] == [
+        bash_tool.TOOL_SCHEMA,
+        shell_tool.TOOL_SCHEMA,
+        noop_tool.TOOL_SCHEMA,
+    ]
     assert len(messages_api.calls) == 1
     assert messages[-2] == {
         "role": "user",
