@@ -21,7 +21,7 @@ in its system prompt that explains the lifecycle. So `--prompt` should
 just describe the task.
 
 Standard exit: the subagent writes its report under
-`$PAI_PARENT_HOME/workspace/$PAI_SLUG/`, then calls
+`$PAI_RESULT_DIR/`, then calls
 `subagent done --result result.md`. The kernel emits a tiny completion
 event pointing at the result, then resolves the proc — so the parent's
 wake-up nudge already reflects a dead child and any out-of-band
@@ -334,15 +334,12 @@ def _read_child_reply_env(
 ) -> tuple[int, int, str] | None:
     sender_raw = os.environ.get("PAI_PID")
     parent_raw = os.environ.get("PAI_PARENT")
-    slug = os.environ.get("PAI_SLUG")
+    env_slug = os.environ.get("PAI_SLUG")
     if not sender_raw:
         print(f"error: $PAI_PID not set — {command} must be invoked from a PAI turn", file=sys.stderr)
         return None
     if not parent_raw:
         print(f"error: $PAI_PARENT not set — only subagents can use `{command}`", file=sys.stderr)
-        return None
-    if require_slug and not slug:
-        print(f"error: $PAI_SLUG not set — required for `{command}`", file=sys.stderr)
         return None
     try:
         sender_pid = int(sender_raw)
@@ -350,7 +347,38 @@ def _read_child_reply_env(
     except ValueError:
         print("error: $PAI_PID/$PAI_PARENT must be ints", file=sys.stderr)
         return None
-    return sender_pid, parent_pid, slug or ""
+    child_slug = _canonical_slug_for_pid(
+        sender_pid,
+        env_slug=env_slug,
+        command=command,
+        require=require_slug,
+    )
+    if child_slug is None:
+        return None
+    return sender_pid, parent_pid, child_slug
+
+
+def _canonical_slug_for_pid(
+    pid: int,
+    *,
+    env_slug: str | None,
+    command: str,
+    require: bool = True,
+) -> str | None:
+    try:
+        live_slug = P.find_pai_slug(pid)
+    except P.ProcessNotFound:
+        if require:
+            print(f"error: own proc for $PAI_PID={pid} not found — required for `{command}`", file=sys.stderr)
+            return None
+        return env_slug or ""
+    if env_slug and env_slug != live_slug:
+        print(
+            f"warning: $PAI_SLUG={env_slug!r} does not match live proc "
+            f"slug {live_slug!r} for pid={pid}; using live slug",
+            file=sys.stderr,
+        )
+    return live_slug
 
 
 def _ensure_can_finish(slug: str) -> bool:
@@ -422,37 +450,61 @@ def _normalize_result_path(result: str, *, parent_pid: int, child_slug: str) -> 
     if parent_home is None:
         return None
     raw = Path(result)
-    if raw.is_absolute():
-        result_path = raw
-    elif raw.parts and raw.parts[0] == "workspace":
-        result_path = parent_home / raw
-    else:
-        result_path = parent_home / "workspace" / child_slug / raw
 
-    parent_home_resolved = parent_home.resolve()
-    workspace_resolved = (parent_home / "workspace" / child_slug).resolve()
-    result_resolved = result_path.resolve()
-    try:
-        result_resolved.relative_to(workspace_resolved)
-    except ValueError:
+    result_dir_raw = os.environ.get("PAI_RESULT_DIR")
+    result_dir = Path(result_dir_raw) if result_dir_raw else parent_home / "workspace" / child_slug
+    legacy_result_dir = parent_home / "workspace" / child_slug
+
+    if raw.is_absolute():
+        candidates = [raw]
+    elif raw.parts and raw.parts[0] == "workspace":
+        candidates = [parent_home / raw]
+    else:
+        candidates = [result_dir / raw]
+        if result_dir.resolve(strict=False) != legacy_result_dir.resolve(strict=False):
+            candidates.append(legacy_result_dir / raw)
+
+    allowed_dirs = []
+    for base in (result_dir, legacy_result_dir):
+        if base not in allowed_dirs:
+            allowed_dirs.append(base)
+
+    missing: list[Path] = []
+    for result_path in candidates:
+        result_resolved = result_path.resolve()
+        matched_relative: Path | None = None
+        for base in allowed_dirs:
+            try:
+                matched_relative = result_resolved.relative_to(base.resolve(strict=False))
+                break
+            except ValueError:
+                continue
+        if matched_relative is None:
+            continue
+        if not result_resolved.is_file():
+            missing.append(result_resolved)
+            continue
+        return (Path("workspace") / child_slug / matched_relative).as_posix()
+
+    candidate_display = ", ".join(str(p.resolve(strict=False)) for p in candidates)
+    if missing:
         print(
-            "error: --result must point inside "
-            f"$PAI_PARENT_HOME/workspace/$PAI_SLUG (got {result!r})",
-            file=sys.stderr,
-        )
-        return None
-    if not result_resolved.is_file():
-        print(
-            f"error: result file not found: {result_resolved}. "
+            f"error: result file not found: {candidate_display}. "
             "Write the report before calling `subagent done`.",
             file=sys.stderr,
         )
         return None
-    return result_resolved.relative_to(parent_home_resolved).as_posix()
+
+    print(
+        "error: --result must point inside $PAI_RESULT_DIR "
+        f"(or $PAI_PARENT_HOME/workspace/{child_slug}; got {result!r})",
+        file=sys.stderr,
+    )
+    return None
 
 
 def cmd_reply(args: argparse.Namespace) -> int:
-    env = _read_child_reply_env("reply", require_slug=args.done)
+    env = _read_child_reply_env("reply", require_slug=True)
     if env is None:
         return 1
     sender_pid, parent_pid, child_slug = env
@@ -517,6 +569,13 @@ def cmd_plan_ready(args: argparse.Namespace) -> int:
     sender_pid = _read_sender_pid()
     if sender_pid is None:
         return 1
+    child_slug = _canonical_slug_for_pid(
+        sender_pid,
+        env_slug=os.environ.get("PAI_SLUG"),
+        command="plan-ready",
+    )
+    if child_slug is None:
+        return 1
     parent_raw = os.environ.get("PAI_PARENT")
     if not parent_raw:
         print("error: $PAI_PARENT not set — only subagents can declare plan-ready", file=sys.stderr)
@@ -531,7 +590,7 @@ def cmd_plan_ready(args: argparse.Namespace) -> int:
         "kind": "subagent:plan_ready",
         "target_pid": parent_pid,
         "sender_pid": sender_pid,
-        "slug": os.environ.get("PAI_SLUG", ""),
+        "slug": child_slug,
         "text": args.content or "",
     })
     print(f"emitted subagent:plan_ready → pid={parent_pid}")
@@ -677,8 +736,8 @@ def main(argv: list[str] | None = None) -> int:
         help="(child only) finish after saving a durable result in the parent's workspace",
         description=(
             "Finish an ephemeral subagent. --result is interpreted inside "
-            "$PAI_PARENT_HOME/workspace/$PAI_SLUG unless it already starts with "
-            "workspace/ or is an absolute path. The file must exist; the parent "
+            "$PAI_RESULT_DIR first, then the legacy parent workspace path, unless "
+            "it already starts with workspace/ or is an absolute path. The file must exist; the parent "
             "receives a tiny subagent:response pointing at it."
         ),
     )

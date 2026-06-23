@@ -553,7 +553,9 @@ async def _nudge_body(
     # can name it.
     if parent_pid is not None:
         try:
-            env["PAI_PARENT_HOME"] = str(stitch.home_for(P.find_pai_slug(parent_pid)))
+            parent_home = stitch.home_for(P.find_pai_slug(parent_pid))
+            env["PAI_PARENT_HOME"] = str(parent_home)
+            env["PAI_RESULT_DIR"] = str((parent_home / "workspace" / pai_slug).resolve(strict=False))
         except ProcessNotFound:
             pass
 

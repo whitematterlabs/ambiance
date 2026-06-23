@@ -47,6 +47,18 @@ def _events(events_dir: Path) -> list[dict]:
     return out
 
 
+def _spawn_parent_child(parent_slug: str = "root", child_slug: str = "child-real") -> int:
+    P.spawn_pai(pid=1, slug=parent_slug, description="parent")
+    P.spawn_pai(
+        pid=7,
+        slug=child_slug,
+        description="child",
+        parent=1,
+        extra={"persistent": True},
+    )
+    return 7
+
+
 @pytest.fixture
 def acks_dir(live_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     acks = live_dir / "acks"
@@ -162,6 +174,170 @@ def test_done_result_emits_pointer_and_resolves(
     assert resolved["slug"] == child_slug
     assert resolved["status"] == "completed"
     assert "parent" not in resolved
+
+
+def test_reply_done_uses_live_slug_when_env_slug_is_stale(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    child_slug = "child-real"
+    child_pid = _spawn_parent_child(child_slug=child_slug)
+
+    monkeypatch.setenv("PAI_PID", str(child_pid))
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", "child-old")
+    rc = sub_bin.main(["reply", "--done", "--content", "final answer"])
+    assert rc == 0
+
+    captured = capsys.readouterr()
+    assert "PAI_SLUG='child-old'" in captured.err
+    assert "child-real" in captured.err
+    assert child_slug not in P.list_procs()
+    resp, resolved = _events(P.EVENTS_DIR)
+    assert resp["kind"] == "subagent:response"
+    assert resolved["slug"] == child_slug
+
+
+def test_done_uses_live_slug_when_env_slug_is_stale(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    child_slug = "child-real"
+    child_pid = _spawn_parent_child(child_slug=child_slug)
+    parent_home = P.HOME_DIR / "root"
+    result_dir = parent_home / "workspace" / child_slug
+    result_dir.mkdir(parents=True)
+    (result_dir / "result.md").write_text("final answer lives here\n")
+
+    monkeypatch.setenv("PAI_PID", str(child_pid))
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", "child-old")
+    monkeypatch.setenv("PAI_PARENT_HOME", str(parent_home))
+    rc = sub_bin.main(["done", "--result", "result.md"])
+    assert rc == 0
+
+    captured = capsys.readouterr()
+    assert "PAI_SLUG='child-old'" in captured.err
+    assert "child-real" in captured.err
+    assert child_slug not in P.list_procs()
+    resp, resolved = _events(P.EVENTS_DIR)
+    result_ref = "workspace/child-real/result.md"
+    assert resp["result"] == result_ref
+    assert resp["text"] == f"done: {result_ref}"
+    assert resolved["slug"] == child_slug
+
+
+def test_plan_ready_uses_live_slug_when_env_slug_is_stale(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    child_pid = _spawn_parent_child(child_slug="child-real")
+
+    monkeypatch.setenv("PAI_PID", str(child_pid))
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", "child-old")
+    rc = sub_bin.main(["plan-ready", "--content", "ready"])
+    assert rc == 0
+
+    captured = capsys.readouterr()
+    assert "PAI_SLUG='child-old'" in captured.err
+    [event] = _events(P.EVENTS_DIR)
+    assert event["kind"] == "subagent:plan_ready"
+    assert event["slug"] == "child-real"
+
+
+def test_done_result_prefers_pai_result_dir(
+    live_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child_slug = "child-real"
+    child_pid = _spawn_parent_child(child_slug=child_slug)
+    parent_home = P.HOME_DIR / "root"
+    result_dir = tmp_path / "durable-workspace" / child_slug
+    result_dir.mkdir(parents=True)
+    (result_dir / "result.md").write_text("final answer lives here\n")
+
+    monkeypatch.setenv("PAI_PID", str(child_pid))
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", child_slug)
+    monkeypatch.setenv("PAI_PARENT_HOME", str(parent_home))
+    monkeypatch.setenv("PAI_RESULT_DIR", str(result_dir))
+    rc = sub_bin.main(["done", "--result", "result.md"])
+    assert rc == 0
+
+    [resp, _resolved] = _events(P.EVENTS_DIR)
+    assert resp["result"] == "workspace/child-real/result.md"
+
+
+def test_nudge_env_exposes_resolved_pai_result_dir(
+    live_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child_slug = "child-real"
+    child_pid = _spawn_parent_child(child_slug=child_slug)
+    parent_home = P.HOME_DIR / "root"
+    parent_home.mkdir(parents=True)
+    durable_workspace = tmp_path / "var" / "lib" / "instances" / "root" / "workspace"
+    durable_workspace.mkdir(parents=True)
+    (parent_home / "workspace").symlink_to(durable_workspace, target_is_directory=True)
+    captured_env: dict[str, str] = {}
+
+    def fake_home_for(slug: str) -> Path:
+        return parent_home if slug == "root" else live_dir / slug
+
+    async def fake_run_turn(*args, env: dict | None = None, history=None, **kwargs):
+        captured_env.update(env or {})
+        return "", list(history or [])
+
+    monkeypatch.setattr(nudge_mod, "HOME_DIR", live_dir, raising=True)
+    monkeypatch.setattr(nudge_mod, "PROC_DIR", P.PROC_DIR, raising=True)
+    monkeypatch.setattr(nudge_mod.stitch, "home_for", fake_home_for)
+    monkeypatch.setattr(nudge_mod.bootstrap, "build_system_prompt", lambda **kwargs: "system")
+    monkeypatch.setattr(nudge_mod.bootstrap, "build_user_turn", lambda *args, **kwargs: "user")
+    monkeypatch.setattr(nudge_mod.llm, "run_turn", fake_run_turn)
+
+    asyncio.run(
+        nudge_mod._nudge_body(
+            reason="peer message",
+            slug=None,
+            context=None,
+            pai_pid=child_pid,
+            pai_slug=child_slug,
+            from_=1,
+            from_kind="pai",
+        )
+    )
+
+    assert captured_env["PAI_PARENT_HOME"] == str(parent_home)
+    assert captured_env["PAI_RESULT_DIR"] == str(
+        (parent_home / "workspace" / child_slug).resolve(strict=False)
+    )
+
+
+@pytest.mark.parametrize("use_resolved_target", [False, True])
+def test_done_result_accepts_absolute_parent_workspace_symlink_and_target_paths(
+    live_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    use_resolved_target: bool,
+) -> None:
+    child_slug = "child-real"
+    child_pid = _spawn_parent_child(child_slug=child_slug)
+    parent_home = P.HOME_DIR / "root"
+    parent_home.mkdir(parents=True)
+    durable_workspace = tmp_path / "var" / "lib" / "instances" / "root" / "workspace"
+    durable_workspace.mkdir(parents=True)
+    (parent_home / "workspace").symlink_to(durable_workspace, target_is_directory=True)
+
+    base = durable_workspace if use_resolved_target else parent_home / "workspace"
+    result_path = base / child_slug / "result.md"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text("final answer lives here\n")
+
+    monkeypatch.setenv("PAI_PID", str(child_pid))
+    monkeypatch.setenv("PAI_PARENT", "1")
+    monkeypatch.setenv("PAI_SLUG", child_slug)
+    monkeypatch.setenv("PAI_PARENT_HOME", str(parent_home))
+    rc = sub_bin.main(["done", "--result", str(result_path)])
+    assert rc == 0
+
+    [resp, _resolved] = _events(P.EVENTS_DIR)
+    assert resp["result"] == "workspace/child-real/result.md"
 
 
 def test_done_result_requires_existing_parent_workspace_file(

@@ -143,7 +143,7 @@ in the background and replies asynchronously.
   `from: pai:{pid}`.
 - If you ARE a subagent and need to respond to your parent, run
   `bin/subagent reply --content "..."` for intermediate updates, or save
-  your answer to `$PAI_PARENT_HOME/workspace/$PAI_SLUG/result.md` and run
+  your answer to `$PAI_RESULT_DIR/result.md` and run
   `bin/subagent done --result result.md` when your task is complete.
 
 After spawning or messaging async work, end your turn. Do not sleep-loop

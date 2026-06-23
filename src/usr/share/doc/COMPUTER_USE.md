@@ -103,11 +103,11 @@ PAI does not hold passwords. It drives the owner's real Chrome
 profile, so whatever the owner is signed into is what browse can act
 on. No OAuth dance, no cookie import, no separate sign-in step.
 
-## Result contract
+## Result handoff
 
 One final `subagent:response` per spawn, sent with
 `bin/subagent done --result result.md` after writing
-`$PAI_PARENT_HOME/workspace/$PAI_SLUG/result.md`. The result markdown
+`$PAI_RESULT_DIR/result.md`. The result markdown
 includes the final URL, the answer, and any key verbatim quotes. On a
 hard block (login wall, captcha, dark site) the subagent still writes a
 failure report and completes — the parent gets closure either way and
