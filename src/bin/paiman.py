@@ -223,6 +223,32 @@ def _atomic_symlink(target: Path, slot: Path) -> None:
     os.replace(tmp, slot)
 
 
+def _driver_skill_slot(name: str) -> Path:
+    """Driver bundles may ship a driver-bound SKILL.md.
+
+    Expose it through the normal skills index so prompts can consistently
+    refer to `/usr/lib/skills/drivers/<driver>/SKILL.md`.
+    """
+    return paths.usr_lib_skills() / "drivers" / name
+
+
+def _expose_driver_skill(name: str, bundle_dir: Path) -> None:
+    if not (bundle_dir / "SKILL.md").is_file():
+        return
+    _atomic_symlink(bundle_dir, _driver_skill_slot(name))
+
+
+def _remove_driver_skill(name: str) -> None:
+    slot = _driver_skill_slot(name)
+    if slot.is_symlink():
+        slot.unlink()
+    parent = slot.parent
+    try:
+        parent.rmdir()
+    except OSError:
+        pass
+
+
 def _is_url(s: str) -> bool:
     return (
         s.startswith(("http://", "https://", "git+", "git@"))
@@ -438,6 +464,9 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         slot.chmod(0o755)
     else:
         _atomic_symlink(target, slot)
+    if kind == "driver":
+        _remove_driver_skill(name)
+        _expose_driver_skill(name, dest)
 
     _audit_log(f"install {kind} {name} from {src_arg}")
     print(f"installed {kind} {name} -> {slot}")
@@ -515,10 +544,12 @@ def cmd_install(args: argparse.Namespace) -> int:
         )
     # Re-stitch all running PAIs' homes if anything that affects them landed.
     # Skill/prompt installs need to surface in `memory/skills/` and prompt
-    # blocks without a reboot. Bin/lib are picked up via PATH/sys.path on the
-    # PAI's next turn — no reload needed. Driver/pai installs are followed by
-    # explicit paictl/paiadd which emit reload themselves.
-    if installed_kinds & {"skill", "prompt"} and not getattr(args, "no_reload", False):
+    # blocks without a reboot. Driver installs may also expose driver-bound
+    # skills and home links. Bin/lib are picked up via PATH/sys.path on the
+    # PAI's next turn — no reload needed.
+    if installed_kinds & {"skill", "prompt", "driver"} and not getattr(
+        args, "no_reload", False
+    ):
         try:
             from boot import processes as _processes
             _processes.emit_event({"kind": "kernel:reload_config", "source": "paiman",
@@ -608,6 +639,8 @@ def cmd_remove(args: argparse.Namespace) -> int:
         slot, _ = _activation_slot(kind, name, entrypoint, topic=topic)
         if slot.is_symlink() or slot.exists():
             slot.unlink()
+        if kind == "driver":
+            _remove_driver_skill(name)
     shutil.rmtree(bundle_dir)
     _audit_log(f"remove {kind} {name}")
     print(f"removed {kind} {name}")

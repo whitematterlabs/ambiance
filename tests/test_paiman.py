@@ -99,8 +99,11 @@ def test_install_bin(fhs_root: Path) -> None:
 def test_install_driver(fhs_root: Path) -> None:
     assert paiman.main(["install", str(FIXTURES / "testdriver")]) == 0
     slot = fhs_root / "usr" / "lib" / "drivers" / "testdriver"
+    skill_slot = fhs_root / "usr" / "lib" / "skills" / "drivers" / "testdriver"
     assert slot.is_symlink()
     assert (slot / "events.yaml").is_file()
+    assert skill_slot.is_symlink()
+    assert (skill_slot / "SKILL.md").read_text().startswith("---")
 
 
 def test_install_subagent(fhs_root: Path) -> None:
@@ -196,6 +199,33 @@ def test_remove(fhs_root: Path) -> None:
     assert paiman.main(["remove", "testskill"]) == 0
     assert not (fhs_root / "opt" / "paiman" / "skill" / "testskill").exists()
     assert not (fhs_root / "usr" / "lib" / "skills" / "testskill").exists()
+
+
+def test_remove_driver_removes_driver_skill(fhs_root: Path) -> None:
+    paiman.main(["install", str(FIXTURES / "testdriver")])
+    assert paiman.main(["remove", "testdriver"]) == 0
+    assert not (fhs_root / "opt" / "paiman" / "driver" / "testdriver").exists()
+    assert not (
+        fhs_root / "usr" / "lib" / "skills" / "drivers" / "testdriver"
+    ).exists()
+
+
+def test_reinstall_driver_without_skill_removes_old_driver_skill(
+    fhs_root: Path, tmp_path: Path
+) -> None:
+    paiman.main(["install", str(FIXTURES / "testdriver")])
+
+    pkg = tmp_path / "testdriver"
+    pkg.mkdir()
+    (pkg / "package.yaml").write_text(
+        "name: testdriver\nkind: driver\nversion: 0.2.0\n"
+    )
+    (pkg / "events.yaml").write_text("events: []\n")
+
+    paiman.main(["install", str(pkg)])
+    assert not (
+        fhs_root / "usr" / "lib" / "skills" / "drivers" / "testdriver"
+    ).exists()
 
 
 def test_remove_unknown_fails(fhs_root: Path) -> None:

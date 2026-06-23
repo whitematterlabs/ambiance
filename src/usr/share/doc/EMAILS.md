@@ -113,9 +113,8 @@ Names containing diacritics are URL-encoded as Apple does — NFD-decomposed UTF
 - Watches `home/communication/email/drafts/*.yaml` via watchdog (single shared dir).
 - PAI-facing drafting instructions live in the `drivers/email` skill
   (`name: drafting-emails`, source
-  `~/Projects/pairegistry/drivers/email/SKILL.md`). There is no
-  `draft-email` model tool or bin command; PAIs draft by writing the YAML
-  file this driver watches.
+  `~/Projects/pairegistry/drivers/email/SKILL.md`). PAIs normally draft
+  with `bin/draft-email`, which writes the YAML file this driver watches.
 - Each draft yaml carries a required `from: <email>` field naming the Mail.app account that owns the draft. Validated via `accounts.accepts_from(cfg, addr)` — accepts every address Mail.app reports for any account, **including aliases** (e.g. iCloud Hide-My-Email relay addresses). Unknown `from:` values fail fast with `draft_state: failed`.
 - For each unmarked draft, builds AppleScript that calls `make new outgoing message` (with `sender:` pinned to `from:`) + `save` (NOT `send`) — the message lands in Mail.app's Drafts folder under the right account.
 - Replies (`in_reply_to` set) locate the parent by Message-ID across every mailbox, use Mail's `reply` to inherit threading, then `save`. The reply window briefly opens — we close it after save (see "macOS 15 quirks" below). If the parent isn't synced yet, retries with exponential backoff (5s, 15s, 30s) before giving up.
