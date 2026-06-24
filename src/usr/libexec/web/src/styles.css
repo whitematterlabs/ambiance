@@ -1150,8 +1150,16 @@ button {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 16%, transparent);
 }
 
+.composer-field {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+}
+
 .composer-input {
-  flex: 1;
+  width: 100%;
+  flex: 0 1 auto;
   min-width: 0;
   min-height: 36px;
   max-height: 140px;
@@ -1169,13 +1177,6 @@ button {
   color: var(--dim);
 }
 
-.composer.overclock .composer-input,
-.composer-overclock-prefix {
-  font-family: var(--mono);
-  font-size: 14.5px;
-  line-height: 1.45;
-}
-
 .composer-input:disabled {
   cursor: not-allowed;
 }
@@ -1186,16 +1187,43 @@ button {
   color: #6b5a3a;
 }
 
-.composer-overclock-prefix {
-  display: block;
-  flex: 0 0 auto;
-  min-height: 36px;
-  padding: 7px 0;
+.composer-overclock-tab {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 4px;
+  padding: 2px 8px 3px;
+  border: 1px solid color-mix(in srgb, var(--teal) 28%, var(--border));
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: color-mix(in srgb, var(--teal) 8%, var(--surface-raised));
   color: var(--teal);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  animation: fade-in 0.18s var(--ease) both;
+}
+
+.composer-overclock-tab-label,
+.composer-overclock-tab-desc {
+  min-width: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.composer-overclock-tab-label {
+  flex: 0 0 auto;
+  font-weight: 700;
   text-transform: uppercase;
+}
+
+.composer-overclock-tab-desc {
+  flex: 1 1 auto;
+  color: var(--muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* "shell" reads as a small caps tag, not a filled pill. */
@@ -2424,6 +2452,7 @@ button {
   }
 
   .composer-stop,
+  .composer-overclock,
   .composer-mic,
   .composer-send {
     width: 40px;

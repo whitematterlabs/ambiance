@@ -200,25 +200,34 @@ export function MessageInput({
       >
         <Gauge aria-hidden="true" focusable="false" />
       </button>
-      {overclockDraft && <span className="composer-overclock-prefix">OVERCLOCKED |</span>}
-      <textarea
-        ref={inputRef}
-        className="composer-input"
-        rows={1}
-        placeholder={
-          disabled
-            ? "No active PAI"
-            : overclockDraft
-              ? "Keep working until you find a great deal on Honolulu hotels"
-              : "Message your PAI...  (start with ! for shell)"
-        }
-        value={value}
-        disabled={disabled || recordingState === "transcribing"}
-        autoFocus
-        enterKeyHint="send"
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleInputKeyDown}
-      />
+      <div className="composer-field">
+        {overclockDraft && (
+          <div className="composer-overclock-tab">
+            <span className="composer-overclock-tab-label">Overclocked</span>
+            <span className="composer-overclock-tab-desc">
+              PAI will continue working until a specific condition is fulfilled.
+            </span>
+          </div>
+        )}
+        <textarea
+          ref={inputRef}
+          className="composer-input"
+          rows={1}
+          placeholder={
+            disabled
+              ? "No active PAI"
+              : overclockDraft
+                ? "Keep working until you find a great deal on Honolulu hotels"
+                : "Message your PAI...  (start with ! for shell)"
+          }
+          value={value}
+          disabled={disabled || recordingState === "transcribing"}
+          autoFocus
+          enterKeyHint="send"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleInputKeyDown}
+        />
+      </div>
       {isShell && <span className="composer-tag">shell</span>}
       <button
         className={`composer-mic ${recordingState}`}
