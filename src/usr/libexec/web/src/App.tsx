@@ -25,6 +25,7 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 
 const CAP = 500; // ring-buffer cap for log/activity/events
 type MobileView = "chat" | "activity";
+type ClearScreen = { label: string; messageIndex: number };
 
 function cap<T>(arr: T[], extra: T[]): T[] {
   const next = arr.concat(extra);
@@ -53,7 +54,7 @@ export function App() {
   const [mobileView, setMobileView] = useState<MobileView>("chat");
   const [authNeeded, setAuthNeeded] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
-  const [clearMarkers, setClearMarkers] = useState<Record<number, string>>({});
+  const [clearScreens, setClearScreens] = useState<Record<number, ClearScreen>>({});
   const [composerDraft, setComposerDraft] = useState<{ text: string; nonce: number } | null>(
     null,
   );
@@ -338,8 +339,9 @@ export function App() {
     setStatus(`interrupt sent → pid ${pid}, cancelled`);
   }, []);
 
-  // Clear is one-shot: queue + apply the history reset for the active PAI. The
-  // kernel pushes the emptied thread back over SSE, so we only touch status.
+  // Clear is one-shot: queue + apply the history reset for the active PAI. Use
+  // bin/clear explicitly because host PATH comes first and `clear` may resolve
+  // to the terminal screen-clear command.
   const handleClearContext = useCallback(async () => {
     const pid = activePidRef.current;
     if (pid === null) {
@@ -349,7 +351,7 @@ export function App() {
     setClearBusy(true);
     setStatus("clearing context…");
     try {
-      const res = await api.runShell(pid, "clear");
+      const res = await api.runShell(pid, "bin/clear");
       const last = res.lines[res.lines.length - 1];
       setStatus(
         res.rc === 0
@@ -358,9 +360,11 @@ export function App() {
             : last || "clear queued"
           : `clear: exit ${res.rc}${last ? ` — ${last}` : ""}`,
       );
-      if (res.rc === 0) {
+      if (res.rc === 0 && res.ctx_applied) {
         const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        setClearMarkers((prev) => ({ ...prev, [pid]: ts }));
+        const messageIndex = (threadsRef.current[pid] ?? []).length;
+        setShell((prev) => ({ ...prev, [pid]: [] }));
+        setClearScreens((prev) => ({ ...prev, [pid]: { label: ts, messageIndex } }));
       }
     } catch (e) {
       setStatus(`clear failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -469,6 +473,20 @@ export function App() {
 
   const messages = activePid !== null ? threads[activePid] ?? [] : [];
   const shellEntries = activePid !== null ? shell[activePid] ?? [] : [];
+  const clearScreen = activePid !== null ? clearScreens[activePid] ?? null : null;
+  const clearOffset = clearScreen ? Math.min(clearScreen.messageIndex, messages.length) : 0;
+  const visibleMessages = clearScreen ? messages.slice(clearOffset) : messages;
+  const visibleShellEntries = clearScreen
+    ? shellEntries
+        .filter(
+          (entry) =>
+            entry.afterMessageIndex !== undefined && entry.afterMessageIndex >= clearOffset,
+        )
+        .map((entry) => ({
+          ...entry,
+          afterMessageIndex: Math.max((entry.afterMessageIndex ?? clearOffset) - clearOffset, 0),
+        }))
+    : shellEntries;
   const activeMember = activePid !== null ? fleet.find((m) => m.pid === activePid) ?? null : null;
   const activeProc =
     activePid !== null ? procs.find((r) => r.pid === String(activePid)) ?? null : null;
@@ -558,11 +576,11 @@ export function App() {
               </div>
             </header>
             <ChatPane
-              messages={messages}
-              shell={shellEntries}
+              messages={visibleMessages}
+              shell={visibleShellEntries}
               threadKey={activePid}
               busy={activeProc?.busy ?? null}
-              clearMarker={activePid !== null ? clearMarkers[activePid] ?? null : null}
+              clearMarker={clearScreen?.label ?? null}
             />
             <StatusBar text={status} />
             <MessageInput

@@ -61,7 +61,7 @@ export function ChatPane({
 
   return (
     <div className="chat-pane" ref={ref} onScroll={handleScroll}>
-      {messages.length === 0 && shell.length === 0 && !busy && (
+      {messages.length === 0 && shell.length === 0 && !busy && !clearMarker && (
         <div className="chat-empty">
           <span>Say hello to start this conversation.</span>
         </div>
