@@ -141,6 +141,14 @@ def test_boilerplate_default_picks_per_role(
     assert "<memory-usage>" not in out_subagent
 
 
+def test_shipped_subagent_prompt_requires_done_result() -> None:
+    prompt = Path("src/prompts/subagent.md").read_text()
+
+    assert "subagent done --result result.md" in prompt
+    assert "Do **not** end a completed task with plain assistant text" in prompt
+    assert "Self-termination goes through `done --result`" in prompt
+
+
 def test_boilerplate_explicit_list_renders_in_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

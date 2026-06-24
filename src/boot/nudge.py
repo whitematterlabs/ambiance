@@ -64,6 +64,73 @@ def _slug_lock(slug: str) -> asyncio.Lock:
     return lock
 
 
+def _is_ad_hoc_subagent(spec: dict) -> bool:
+    return (
+        spec.get("kind") == "pai"
+        and spec.get("parent") is not None
+        and not spec.get("persub")
+        and "run" not in spec
+        and "schedule" not in spec
+    )
+
+
+def _auto_finish_subagent_plain_reply(
+    *,
+    pai_slug: str,
+    pai_pid: int,
+    parent_pid: int,
+    visible_reply: str,
+) -> bool:
+    """Last-resort handoff when a spawned child replies with plain text.
+
+    Subagents are supposed to call `bin/subagent done --result result.md`.
+    If a child instead ends its turn with normal assistant text, that text is
+    otherwise invisible to the parent and the child stays `running` forever.
+    Preserve the answer in the parent's workspace and deliver the normal done
+    event so the parent can continue.
+    """
+    text = visible_reply.strip()
+    if not text:
+        return False
+    try:
+        parent_slug = P.find_pai_slug(parent_pid)
+        result_dir = HOME_DIR / parent_slug / "workspace" / pai_slug
+        result_dir.mkdir(parents=True, exist_ok=True)
+        (result_dir / "result.md").write_text(f"{text}\n")
+        result_ref = f"workspace/{pai_slug}/result.md"
+        P.emit_event(
+            {
+                "source": "subagent",
+                "kind": "subagent:response",
+                "target_pid": parent_pid,
+                "sender_pid": pai_pid,
+                "text": (
+                    "auto-fallback: child ended without calling "
+                    f"`bin/subagent done`; saved plain reply to {result_ref}"
+                ),
+                "done": True,
+                "result": result_ref,
+                "auto_fallback": True,
+            }
+        )
+        append_log(
+            pai_slug,
+            f"kernel: auto-finished plain subagent reply to {result_ref}",
+        )
+        P.resolve(pai_slug, "completed", notify_parent=False)
+    except Exception as e:
+        print(
+            f"[kernel] subagent auto-finish failed for {pai_slug}: {e!r}",
+            flush=True,
+        )
+        try:
+            append_log(pai_slug, f"kernel: subagent auto-finish failed — {e!r}")
+        except ProcessNotFound:
+            pass
+        return False
+    return True
+
+
 _COMPACT_INSTRUCTION = (
     "Your conversation history has grown past its compaction threshold. "
     "Summarize the conversation so far for context compaction and call "
@@ -841,17 +908,29 @@ async def _nudge_body(
 
     _apply_history_action(pai_slug, history_path)
 
+    auto_finished = False
     if reply:
         visible_reply = reply_filter(reply) if reply_filter else reply
         if visible_reply:
             print(f"[pai:{pai_slug}] {visible_reply}", flush=True)
+        if (
+            visible_reply
+            and parent_pid is not None
+            and _is_ad_hoc_subagent(pai_spec)
+        ):
+            auto_finished = _auto_finish_subagent_plain_reply(
+                pai_slug=pai_slug,
+                pai_pid=pai_pid,
+                parent_pid=parent_pid,
+                visible_reply=visible_reply,
+            )
         # Top-level fleet PAIs (no parent) write back to the owner's
         # me-thread so the TUI chat tab shows their replies. Persubs
         # are also owner-addressable (the user opens a tab for them
         # in the TUI), so their replies belong in the me-thread too.
         # Plain ephemeral subagents talk to their parent via
         # subagent:response, not the me-thread, so they're excluded.
-        if visible_reply and (not parent_str or pai_spec.get("persub")):
+        elif visible_reply and (not parent_str or pai_spec.get("persub")):
             _append_to_me_thread(pai_pid, visible_reply)
     print("[kernel] nudge complete", flush=True)
     try:
@@ -864,7 +943,7 @@ async def _nudge_body(
         except ProcessNotFound:
             pass
 
-    if is_ephemeral:
+    if is_ephemeral and not auto_finished:
         try:
             P.resolve(pai_slug, "completed")
         except ProcessNotFound:

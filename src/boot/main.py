@@ -460,6 +460,8 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             context["done"] = bool(event.get("done"))
         if event.get("result"):
             context["result"] = event.get("result")
+        if event.get("auto_fallback") is True:
+            context["auto_fallback"] = True
         _dispatch_nudge(
             int(target_pid),
             "subagent response",

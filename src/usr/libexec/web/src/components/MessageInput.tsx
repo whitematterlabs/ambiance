@@ -6,6 +6,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { Gauge } from "lucide-react";
 
 export function MessageInput({
   disabled,
@@ -197,7 +198,7 @@ export function MessageInput({
         title={overclockRunning ? "Stop Overclock" : "Overclock mode"}
         aria-label={overclockRunning ? "Stop Overclock" : "Overclock mode"}
       >
-        <SpeedometerIcon />
+        <Gauge aria-hidden="true" focusable="false" />
       </button>
       {overclockDraft && <span className="composer-overclock-prefix">OVERCLOCKED |</span>}
       <textarea
@@ -278,19 +279,6 @@ function MicIcon() {
       <path d="M18 11.5a6 6 0 0 1-12 0" />
       <path d="M12 17.5v3" />
       <path d="M8.5 20.5h7" />
-    </svg>
-  );
-}
-
-function SpeedometerIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M5.2 17a7.8 7.8 0 0 1 13.6 0" />
-      <path d="M12 17l3.8-5.2" />
-      <path d="M7.6 15.2l-1.3-1.1" />
-      <path d="M12 11.2V9.5" />
-      <path d="M16.4 15.2l1.3-1.1" />
-      <path d="M9.2 18h5.6" />
     </svg>
   );
 }

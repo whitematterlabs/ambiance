@@ -352,6 +352,73 @@ def test_nudge_env_exposes_resolved_pai_result_dir(
     )
 
 
+def test_plain_text_subagent_reply_auto_finishes(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child_slug = "child-real"
+    child_pid = _spawn_parent_child(child_slug=child_slug)
+    parent_home = P.HOME_DIR / "root"
+    parent_home.mkdir(parents=True)
+
+    def fake_home_for(slug: str) -> Path:
+        home = P.HOME_DIR / slug
+        home.mkdir(parents=True, exist_ok=True)
+        return home
+
+    async def fake_run_turn(*args, history=None, **kwargs):
+        messages = list(history or [])
+        messages.append(
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Final housing report"}],
+            }
+        )
+        return "Final housing report", messages
+
+    monkeypatch.setattr(nudge_mod, "HOME_DIR", P.HOME_DIR, raising=True)
+    monkeypatch.setattr(nudge_mod, "PROC_DIR", P.PROC_DIR, raising=True)
+    monkeypatch.setattr(nudge_mod.stitch, "home_for", fake_home_for)
+    monkeypatch.setattr(nudge_mod.bootstrap, "build_system_prompt", lambda **kwargs: "system")
+    monkeypatch.setattr(nudge_mod.bootstrap, "build_user_turn", lambda *args, **kwargs: "user")
+    monkeypatch.setattr(nudge_mod.llm, "run_turn", fake_run_turn)
+
+    asyncio.run(
+        nudge_mod._nudge_body(
+            reason="peer message",
+            slug=None,
+            context=None,
+            pai_pid=child_pid,
+            pai_slug=child_slug,
+            from_=1,
+            from_kind="pai",
+        )
+    )
+
+    assert child_slug not in P.list_procs()
+    handoff = parent_home / "workspace" / child_slug / "result.md"
+    assert handoff.read_text() == "Final housing report\n"
+
+    events = _events(P.EVENTS_DIR)
+    responses = [e for e in events if e.get("kind") == "subagent:response"]
+    assert len(responses) == 1
+    resp = responses[0]
+    result_ref = f"workspace/{child_slug}/result.md"
+    assert resp["target_pid"] == 1
+    assert resp["sender_pid"] == child_pid
+    assert resp["text"] == (
+        "auto-fallback: child ended without calling "
+        f"`bin/subagent done`; saved plain reply to {result_ref}"
+    )
+    assert resp["result"] == result_ref
+    assert resp["done"] is True
+    assert resp["auto_fallback"] is True
+
+    resolved = [e for e in events if e.get("kind") == "proc_resolved"]
+    assert len(resolved) == 1
+    assert resolved[0]["slug"] == child_slug
+    assert "parent" not in resolved[0]
+
+
 @pytest.mark.parametrize("use_resolved_target", [False, True])
 def test_done_result_accepts_absolute_parent_workspace_symlink_and_target_paths(
     live_dir: Path,
@@ -427,6 +494,7 @@ def test_subagent_response_event_routes_result_context(
                 "text": "done: workspace/scout/result.md",
                 "done": True,
                 "result": "workspace/scout/result.md",
+                "auto_fallback": True,
             }
         )
     )
@@ -444,6 +512,7 @@ def test_subagent_response_event_routes_result_context(
                     "text": "done: workspace/scout/result.md",
                     "done": True,
                     "result": "workspace/scout/result.md",
+                    "auto_fallback": True,
                 },
             },
         }
