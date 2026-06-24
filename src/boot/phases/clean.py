@@ -9,6 +9,7 @@ the supervise loop starts it again.
 """
 from __future__ import annotations
 
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,159 @@ def _wipe_busy_flags() -> None:
         if not child.is_dir():
             continue
         (child / "busy").unlink(missing_ok=True)
+
+
+def _append_proc_log(slug: str, line: str) -> None:
+    proc = paths.PROC_DIR / slug
+    try:
+        hm = datetime.now().strftime("%H:%M")
+        with (proc / "log.md").open("a") as f:
+            f.write(f"[{hm}] {line}\n")
+    except OSError:
+        pass
+
+
+def _emit_event(payload: dict) -> None:
+    events = paths.EVENTS_DIR
+    events.mkdir(parents=True, exist_ok=True)
+    source = str(payload.get("source", "kernel"))
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
+    path = events / f"{stamp}-{source}.yaml"
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(payload, f, sort_keys=False)
+    os.replace(tmp, path)
+
+
+def _find_pai_slug(pid: int) -> str | None:
+    if not paths.PROC_DIR.is_dir():
+        return None
+    for child in paths.PROC_DIR.iterdir():
+        if not child.is_dir():
+            continue
+        spec_path = child / "spec.yaml"
+        if not spec_path.is_file():
+            continue
+        try:
+            spec = yaml.safe_load(spec_path.read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if spec.get("kind") == "pai" and spec.get("pid") == pid:
+            return child.name
+    return None
+
+
+def _int_or_none(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_stale_ad_hoc_subagent(proc: Path, spec: dict) -> bool:
+    status_path = proc / "status"
+    try:
+        status = status_path.read_text().strip()
+    except OSError:
+        return False
+    return (
+        status == "running"
+        and spec.get("kind") == "pai"
+        and "parent" in spec
+        and not spec.get("persub")
+        and "run" not in spec
+        and "schedule" not in spec
+    )
+
+
+def _mark_browse_tab_orphan(slug: str) -> None:
+    tab_file = paths.PAI_ROOT / "sys" / "drivers" / "browse" / "tabs" / f"{slug}.yaml"
+    if not tab_file.exists():
+        return
+    try:
+        data = yaml.safe_load(tab_file.read_text()) or {}
+        data["owner_status"] = "orphan"
+        tab_file.write_text(yaml.safe_dump(data, sort_keys=False))
+    except (OSError, yaml.YAMLError):
+        pass
+
+
+def _write_interruption_result(proc: Path, slug: str, parent_slug: str) -> str:
+    dest_dir = paths.home_pai(parent_slug) / "workspace" / slug
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "result.md"
+    proc_result = proc / "result.md"
+    if proc_result.is_file():
+        shutil.copy2(proc_result, dest)
+    else:
+        dest.write_text(
+            "# Subagent interrupted\n\n"
+            f"`{slug}` was still running when the kernel booted, which means "
+            "the prior kernel stopped or restarted before the subagent called "
+            "`subagent done --result`.\n\n"
+            "No final result was produced. Any Chrome tab owned by this "
+            "subagent was left open and will be closed before the next "
+            "browse subagent starts a fresh tab.\n"
+        )
+    return f"workspace/{slug}/result.md"
+
+
+def _resolve_interrupted_subagents() -> None:
+    """Turn stale running ad-hoc subagents into parent-visible failures.
+
+    A graceful kernel restart cancels in-flight model turns after a bounded
+    drain. Shutdown preserves ad-hoc subagent proc dirs so this boot phase,
+    after wiping stale event files, can emit a fresh `subagent:response` that
+    the new kernel will actually deliver.
+    """
+    if not paths.PROC_DIR.is_dir():
+        return
+    for proc in sorted(paths.PROC_DIR.iterdir()):
+        if not proc.is_dir():
+            continue
+        spec_path = proc / "spec.yaml"
+        if not spec_path.is_file():
+            continue
+        try:
+            spec = yaml.safe_load(spec_path.read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if not _is_stale_ad_hoc_subagent(proc, spec):
+            continue
+
+        slug = proc.name
+        parent_pid = _int_or_none(spec.get("parent"))
+        child_pid = _int_or_none(spec.get("pid"))
+        parent_slug = _find_pai_slug(parent_pid) if parent_pid is not None else None
+        result_ref = None
+        if parent_slug:
+            result_ref = _write_interruption_result(proc, slug, parent_slug)
+
+        _append_proc_log(slug, "boot: interrupted by prior kernel restart; notifying parent")
+        _mark_browse_tab_orphan(slug)
+        try:
+            (proc / "status").write_text("failed\n")
+        except OSError:
+            pass
+
+        if parent_pid is not None:
+            text = "interrupted before completion"
+            if result_ref:
+                text = f"{text}: {result_ref}"
+            payload = {
+                "source": "kernel",
+                "kind": "subagent:response",
+                "target_pid": parent_pid,
+                "text": text,
+                "done": True,
+            }
+            if child_pid is not None:
+                payload["sender_pid"] = child_pid
+            if result_ref:
+                payload["result"] = result_ref
+            _emit_event(payload)
+
+        shutil.rmtree(proc, ignore_errors=True)
 
 
 def _reset_stale_driver_statuses() -> None:
@@ -85,6 +239,7 @@ def run() -> None:
     _wipe_dir_contents(paths.PAI_ROOT / "tmp")
     _wipe_dir_contents(paths.EVENTS_DIR)
     _wipe_busy_flags()
+    _resolve_interrupted_subagents()
     _reset_stale_driver_statuses()
     print(
         "[boot] clean: wiped tmp/, run/pai/events/, stale busy flags, "

@@ -189,7 +189,11 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_body()
         try:
             if path == "/api/message":
-                actions.send_message(int(body["pid"]), str(body["text"]))
+                actions.send_message(
+                    int(body["pid"]),
+                    str(body["text"]),
+                    overclock=body.get("overclock") is True,
+                )
                 return self._json({"ok": True})
             if path == "/api/interrupt":
                 actions.interrupt(int(body["pid"]))

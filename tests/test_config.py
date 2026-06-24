@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from bin.paifs_init import default_config_yaml
 from boot import config as C
 from boot import processes as P
 
@@ -294,6 +295,33 @@ pais:
     # package fields flow through
     assert msg["model"] == "deepseek-v4-pro"
     assert msg["wake_on"] == ["imessage:*"]
+
+
+def test_seed_config_overrides_librarian_package_provider(repo_root):
+    for name in ("owner", "memory-usage", "capability-escalation"):
+        p = repo_root / "etc" / "boilerplate" / f"{name}.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"# {name}\n")
+    _write_package(
+        repo_root,
+        "librarian-pai",
+        {
+            "kind": "pai",
+            "name": "librarian-pai",
+            "description": "from package",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "wake_on": ["librarian:consolidate"],
+        },
+    )
+    _write_config(
+        repo_root,
+        default_config_yaml(provider="openai", model="gpt-5.5"),
+    )
+
+    cfg = C.load_config()
+    assert cfg["librarian-pai"]["provider"] == "openai"
+    assert cfg["librarian-pai"]["model"] == "gpt-5.5"
 
 
 def test_package_kind_unsupported(repo_root):

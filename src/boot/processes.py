@@ -190,8 +190,8 @@ def resolve(slug: str, new_status: str, notify_parent: bool = True) -> None:
             _write_subagent_metrics(slug, spec, new_status)
         except Exception as e:
             print(f"[kernel] metrics: failed for {slug}: {e!r}", flush=True)
-        # If this subagent owned a browse tab, mark the tab as orphan so a
-        # future subagent can claim it. Tab stays open in Chrome.
+        # If this subagent owned a browse tab, mark the tab as orphan. The next
+        # normal browse use closes orphaned tabs before opening a fresh one.
         try:
             tab_file = PAI_ROOT / "sys" / "drivers" / "browse" / "tabs" / f"{slug}.yaml"
             if tab_file.exists():

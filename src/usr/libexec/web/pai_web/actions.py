@@ -375,22 +375,23 @@ def _slug_for_pid(pid: int) -> str:
     return str(pid)
 
 
-def send_message(pid: int, text: str) -> None:
+def send_message(pid: int, text: str, *, overclock: bool = False) -> None:
     """Append `[HH:MM] me: text` to today's day-file, then wake the kernel."""
     path = today_file(pid)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = f"[{datetime.now().strftime('%H:%M')}] me: {text}\n"
     with path.open("a", encoding="utf-8") as f:
         f.write(line)
-    emit_event(
-        {
-            "source": "web",
-            "kind": "new_message",
-            "thread": "me",
-            "target_pid": pid,
-            "text": text,
-        }
-    )
+    payload = {
+        "source": "web",
+        "kind": "new_message",
+        "thread": "me",
+        "target_pid": pid,
+        "text": text,
+    }
+    if overclock:
+        payload["overclock"] = True
+    emit_event(payload)
 
 
 def interrupt(pid: int) -> None:

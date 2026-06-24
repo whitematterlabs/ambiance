@@ -14,15 +14,18 @@ export function MessageInput({
   onTranscribeAudio,
   onVoiceStatus,
   prefill,
+  overclockRunning = false,
 }: {
   disabled: boolean;
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string, options?: { overclock?: boolean }) => void;
   onInterrupt: () => void;
   onTranscribeAudio: (audio: Blob) => Promise<string>;
   onVoiceStatus: (status: string) => void;
   prefill?: { text: string; nonce: number } | null;
+  overclockRunning?: boolean;
 }) {
   const [value, setValue] = useState("");
+  const [overclockDraft, setOverclockDraft] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "transcribing">(
     "idle",
@@ -30,7 +33,8 @@ export function MessageInput({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const isShell = value.startsWith("!");
+  const overclockMode = overclockDraft || overclockRunning;
+  const isShell = !overclockMode && value.startsWith("!");
   const voiceBusy = recordingState !== "idle";
   const canRecord =
     typeof navigator !== "undefined" &&
@@ -42,8 +46,10 @@ export function MessageInput({
     if (voiceBusy) return;
     const text = value.trim();
     if (!text) return;
+    const overclock = overclockDraft;
     setValue("");
-    onSubmit(text);
+    setOverclockDraft(false);
+    onSubmit(text, overclock ? { overclock: true } : undefined);
   };
 
   useLayoutEffect(() => {
@@ -68,6 +74,7 @@ export function MessageInput({
   // caret at the end so the user can keep typing their summary immediately.
   useEffect(() => {
     if (!prefill) return;
+    setOverclockDraft(false);
     setValue(prefill.text);
     const el = inputRef.current;
     if (!el) return;
@@ -80,6 +87,17 @@ export function MessageInput({
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
     submit();
+  };
+
+  const handleOverclockClick = () => {
+    if (overclockRunning) {
+      setOverclockDraft(false);
+      onInterrupt();
+      return;
+    }
+    if (disabled || voiceBusy) return;
+    setOverclockDraft((v) => !v);
+    inputRef.current?.focus();
   };
 
   const startRecording = async () => {
@@ -156,7 +174,10 @@ export function MessageInput({
   };
 
   return (
-    <form className={`composer ${isShell ? "shell" : ""}`} onSubmit={submit}>
+    <form
+      className={`composer ${isShell ? "shell" : ""} ${overclockDraft ? "overclock" : ""}`}
+      onSubmit={submit}
+    >
       <button
         className="composer-stop"
         type="button"
@@ -167,12 +188,28 @@ export function MessageInput({
       >
         ◼
       </button>
+      <button
+        className={`composer-overclock ${overclockMode ? "active" : ""}`}
+        type="button"
+        disabled={disabled || (!overclockRunning && voiceBusy)}
+        onClick={handleOverclockClick}
+        aria-pressed={overclockMode}
+        title={overclockRunning ? "Stop Overclock" : "Overclock mode"}
+        aria-label={overclockRunning ? "Stop Overclock" : "Overclock mode"}
+      >
+        <SpeedometerIcon />
+      </button>
+      {overclockDraft && <span className="composer-overclock-prefix">OVERCLOCKED |</span>}
       <textarea
         ref={inputRef}
         className="composer-input"
         rows={1}
         placeholder={
-          disabled ? "No active PAI" : "Message your PAI...  (start with ! for shell)"
+          disabled
+            ? "No active PAI"
+            : overclockDraft
+              ? "Keep working until you find a great deal on Honolulu hotels"
+              : "Message your PAI...  (start with ! for shell)"
         }
         value={value}
         disabled={disabled || recordingState === "transcribing"}
@@ -241,6 +278,19 @@ function MicIcon() {
       <path d="M18 11.5a6 6 0 0 1-12 0" />
       <path d="M12 17.5v3" />
       <path d="M8.5 20.5h7" />
+    </svg>
+  );
+}
+
+function SpeedometerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5.2 17a7.8 7.8 0 0 1 13.6 0" />
+      <path d="M12 17l3.8-5.2" />
+      <path d="M7.6 15.2l-1.3-1.1" />
+      <path d="M12 11.2V9.5" />
+      <path d="M16.4 15.2l1.3-1.1" />
+      <path d="M9.2 18h5.6" />
     </svg>
   );
 }

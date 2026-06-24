@@ -18,6 +18,9 @@ from boot.init import check_layout
 from boot.paths import PAI_ROOT, REPO_ROOT
 
 
+UPDATE_READY_NOTICE = "*** PAI is ready to update! ***"
+
+
 @dataclass(frozen=True)
 class UpdateStatus:
     repo: Path
@@ -95,6 +98,8 @@ def _check_for_update_on_start() -> None:
     except SystemExit as e:
         print(f"pai start: update check skipped — {e}", file=sys.stderr)
         return
+    if status.upstream and status.behind and not status.ahead:
+        print(UPDATE_READY_NOTICE)
     _print_update_status(status)
 
 

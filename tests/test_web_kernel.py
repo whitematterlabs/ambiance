@@ -29,6 +29,28 @@ def test_kernel_status_reports_held_pid_lock(tmp_path: Path, monkeypatch: pytest
         os.close(fd)
 
 
+def test_send_message_emits_optional_overclock_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[dict] = []
+    day_file = tmp_path / "me" / "2" / "today.md"
+
+    monkeypatch.setattr(actions, "today_file", lambda pid: day_file, raising=True)
+    monkeypatch.setattr(actions, "emit_event", lambda payload: emitted.append(payload))
+
+    actions.send_message(2, "normal")
+    actions.send_message(2, "find a hotel", overclock=True)
+
+    assert emitted[0]["text"] == "normal"
+    assert "overclock" not in emitted[0]
+    assert emitted[1]["text"] == "find a hotel"
+    assert emitted[1]["overclock"] is True
+    text = day_file.read_text()
+    assert "me: normal" in text
+    assert "me: find a hotel" in text
+
+
 def test_start_kernel_spawns_boot_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     popen_calls: list[tuple[tuple, dict]] = []
 

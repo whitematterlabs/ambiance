@@ -1140,6 +1140,16 @@ button {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 18%, transparent);
 }
 
+.composer.overclock {
+  border-color: color-mix(in srgb, var(--teal) 34%, var(--border-strong));
+  background: color-mix(in srgb, var(--teal) 7%, var(--surface-raised));
+}
+
+.composer.overclock:focus-within {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 16%, transparent);
+}
+
 .composer-input {
   flex: 1;
   min-width: 0;
@@ -1169,6 +1179,16 @@ button {
   color: #6b5a3a;
 }
 
+.composer-overclock-prefix {
+  flex: 0 0 auto;
+  color: var(--teal);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* "shell" reads as a small caps tag, not a filled pill. */
 .composer-tag {
   flex: 0 0 auto;
@@ -1184,6 +1204,7 @@ button {
 }
 
 .composer-stop,
+.composer-overclock,
 .composer-mic,
 .composer-send {
   display: grid;
@@ -1219,6 +1240,13 @@ button {
   color: var(--muted);
 }
 
+.composer-overclock {
+  border-color: var(--border);
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.composer-overclock svg,
 .composer-mic svg {
   width: 18px;
   height: 18px;
@@ -1227,6 +1255,28 @@ button {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.composer-overclock:hover:not(:disabled),
+.composer-overclock:focus-visible:not(:disabled) {
+  color: var(--teal);
+  border-color: color-mix(in srgb, var(--teal) 45%, var(--border));
+  background: color-mix(in srgb, var(--teal) 11%, var(--surface-soft));
+  outline: none;
+}
+
+.composer-overclock.active {
+  color: #fff;
+  border-color: var(--teal);
+  background: var(--teal);
+  box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--teal) 80%, transparent);
+}
+
+.composer-overclock.active:hover:not(:disabled),
+.composer-overclock.active:focus-visible:not(:disabled) {
+  color: #fff;
+  border-color: #3e5a53;
+  background: #3e5a53;
 }
 
 .composer-mic:hover:not(:disabled),

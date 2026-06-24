@@ -25,7 +25,7 @@ import tempfile
 import time
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from . import bootstrap, config, debugger, llm, stitch, tokens
 from . import paths as paths_mod
@@ -38,6 +38,10 @@ from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
 # preceded by a kernel-issued compact nudge. Override per-PAI with
 # `compact_threshold:` in /etc/config.yaml.
 DEFAULT_COMPACT_THRESHOLD = 150_000
+
+OVERCLOCK_SENTINEL = "<PAI_OVERCLOCK_COMPLETE>"
+OVERCLOCK_MAX_TURNS = 10
+OVERCLOCK_MAX_SECONDS = 60 * 60
 
 # Cooldown after a compaction attempt: don't re-trigger compaction for
 # the same PAI again within this window even if tokens still exceed the
@@ -83,6 +87,36 @@ _ONBOARDING_INSTRUCTION = (
     "do not improvise a profile. If there's almost nothing to read, say so "
     "and ask them to tell you about themselves instead."
 )
+
+
+def _is_overclock_context(context: Optional[dict]) -> bool:
+    return isinstance(context, dict) and context.get("overclock") is True
+
+
+def _overclock_goal(context: Optional[dict]) -> str:
+    if not isinstance(context, dict):
+        return ""
+    goal = context.get("goal") or context.get("text") or ""
+    return str(goal).strip()
+
+
+def _overclock_instruction(context: Optional[dict]) -> str:
+    goal = _overclock_goal(context)
+    goal_block = f"\n\nGoal:\n{goal}" if goal else ""
+    return (
+        "Overclock mode is active. Keep working autonomously until the goal "
+        "is genuinely complete or blocked by something that needs the owner. "
+        "Use the tools available to you and continue across turns when more "
+        "work is needed. Keep non-final owner-facing replies concise and do "
+        f"not include `{OVERCLOCK_SENTINEL}` unless the goal is complete. "
+        f"When the goal is complete, end your final reply with exactly "
+        f"`{OVERCLOCK_SENTINEL}`."
+        f"{goal_block}"
+    )
+
+
+def _strip_overclock_sentinel(reply: str) -> str:
+    return reply.replace(OVERCLOCK_SENTINEL, "").strip()
 
 
 def _history_path(pai_slug: str) -> Path:
@@ -391,41 +425,124 @@ async def nudge(
         return
 
     async with _slug_lock(pai_slug):
-        # Threshold check runs inside the lock so concurrent nudges queue
-        # behind a compact-in-progress and re-evaluate after it finishes.
-        last_window = tokens.read_last_window(pai_slug)
-        if last_window is not None:
-            try:
-                pai_spec = P.read_spec(pai_slug)
-            except ProcessNotFound:
-                pai_spec = {}
-            threshold = pai_spec.get("compact_threshold") or DEFAULT_COMPACT_THRESHOLD
-            cooled = (time.monotonic() - _recently_compacted.get(pai_slug, 0.0)
-                      < _COMPACT_COOLDOWN_SECS)
-            if last_window >= threshold and not cooled:
-                _recently_compacted[pai_slug] = time.monotonic()
-                try:
-                    append_log(
-                        pai_slug,
-                        f"kernel: compacting (last_window={last_window} >= {threshold})",
-                    )
-                except ProcessNotFound:
-                    pass
-                print(
-                    f"[kernel] compaction: pai={pai_slug} "
-                    f"last_window={last_window} threshold={threshold}",
-                    flush=True,
-                )
-                await _nudge_locked(
-                    "kernel:compact",
-                    None,
-                    {"instruction": _COMPACT_INSTRUCTION,
-                     "last_window_tokens": last_window,
-                     "threshold": threshold},
-                    pai_pid, pai_slug, None, "kernel",
-                )
+        if _is_overclock_context(context):
+            await _overclock_locked(
+                reason, slug, context, pai_pid, pai_slug, from_, from_kind
+            )
+            return
 
+        await _maybe_compact_locked(pai_pid, pai_slug)
         await _nudge_locked(reason, slug, context, pai_pid, pai_slug, from_, from_kind)
+
+
+async def _maybe_compact_locked(pai_pid: int, pai_slug: str) -> None:
+    # Threshold check runs inside the lock so concurrent nudges queue
+    # behind a compact-in-progress and re-evaluate after it finishes.
+    last_window = tokens.read_last_window(pai_slug)
+    if last_window is None:
+        return
+    try:
+        pai_spec = P.read_spec(pai_slug)
+    except ProcessNotFound:
+        pai_spec = {}
+    threshold = pai_spec.get("compact_threshold") or DEFAULT_COMPACT_THRESHOLD
+    cooled = (time.monotonic() - _recently_compacted.get(pai_slug, 0.0)
+              < _COMPACT_COOLDOWN_SECS)
+    if last_window < threshold or cooled:
+        return
+    _recently_compacted[pai_slug] = time.monotonic()
+    try:
+        append_log(
+            pai_slug,
+            f"kernel: compacting (last_window={last_window} >= {threshold})",
+        )
+    except ProcessNotFound:
+        pass
+    print(
+        f"[kernel] compaction: pai={pai_slug} "
+        f"last_window={last_window} threshold={threshold}",
+        flush=True,
+    )
+    await _nudge_locked(
+        "kernel:compact",
+        None,
+        {"instruction": _COMPACT_INSTRUCTION,
+         "last_window_tokens": last_window,
+         "threshold": threshold},
+        pai_pid, pai_slug, None, "kernel",
+    )
+
+
+async def _overclock_locked(
+    reason: str,
+    slug: Optional[str],
+    context: Optional[dict],
+    pai_pid: int,
+    pai_slug: str,
+    from_: Optional[int],
+    from_kind: str,
+) -> None:
+    started = time.monotonic()
+    goal = _overclock_goal(context)
+    base_context = dict(context or {})
+    base_context["overclock"] = True
+    base_context["goal"] = goal
+    try:
+        append_log(pai_slug, f"overclock started — max_turns={OVERCLOCK_MAX_TURNS}")
+    except ProcessNotFound:
+        pass
+
+    for turn in range(1, OVERCLOCK_MAX_TURNS + 1):
+        await _maybe_compact_locked(pai_pid, pai_slug)
+        elapsed = int(time.monotonic() - started)
+        turn_context = {
+            **base_context,
+            "overclock_turn": turn,
+            "overclock_max_turns": OVERCLOCK_MAX_TURNS,
+            "overclock_elapsed_seconds": elapsed,
+        }
+        turn_reason = reason if turn == 1 else "overclock continue"
+        status_prefix = f"overclock: turn {turn}/{OVERCLOCK_MAX_TURNS}"
+        reply = await _nudge_locked(
+            turn_reason,
+            slug,
+            turn_context,
+            pai_pid,
+            pai_slug,
+            from_,
+            from_kind,
+            status_prefix=status_prefix,
+            reply_filter=_strip_overclock_sentinel,
+        )
+        if reply is None:
+            return
+        if OVERCLOCK_SENTINEL in reply:
+            try:
+                append_log(pai_slug, f"overclock complete on turn {turn}")
+            except ProcessNotFound:
+                pass
+            return
+        if time.monotonic() - started >= OVERCLOCK_MAX_SECONDS:
+            note = (
+                "Overclock stopped after 60 minutes without a completion signal. "
+                "Send a new Overclock goal to continue."
+            )
+            _append_to_me_thread(pai_pid, note)
+            try:
+                append_log(pai_slug, "overclock stopped at wall-clock limit")
+            except ProcessNotFound:
+                pass
+            return
+
+    note = (
+        f"Overclock stopped after {OVERCLOCK_MAX_TURNS} turns without a "
+        "completion signal. Send a new Overclock goal to continue."
+    )
+    _append_to_me_thread(pai_pid, note)
+    try:
+        append_log(pai_slug, "overclock stopped at turn limit")
+    except ProcessNotFound:
+        pass
 
 
 async def _nudge_locked(
@@ -436,7 +553,10 @@ async def _nudge_locked(
     pai_slug: str,
     from_: Optional[int],
     from_kind: str,
-) -> None:
+    *,
+    status_prefix: Optional[str] = None,
+    reply_filter: Optional[Callable[[str], str]] = None,
+) -> Optional[str]:
     log_line = f"nudge: {reason}" + (f" ({slug})" if slug else "")
     try:
         append_log(pai_slug, log_line)
@@ -444,12 +564,22 @@ async def _nudge_locked(
         pass
 
     try:
-        P.mark_busy(pai_slug, log_line)
+        P.mark_busy(pai_slug, status_prefix or log_line)
     except ProcessNotFound:
         pass
 
     try:
-        await _nudge_body(reason, slug, context, pai_pid, pai_slug, from_, from_kind)
+        return await _nudge_body(
+            reason,
+            slug,
+            context,
+            pai_pid,
+            pai_slug,
+            from_,
+            from_kind,
+            status_prefix=status_prefix,
+            reply_filter=reply_filter,
+        )
     finally:
         P.clear_busy(pai_slug)
 
@@ -462,7 +592,10 @@ async def _nudge_body(
     pai_slug: str,
     from_: Optional[int],
     from_kind: str,
-) -> None:
+    *,
+    status_prefix: Optional[str] = None,
+    reply_filter: Optional[Callable[[str], str]] = None,
+) -> Optional[str]:
     if slug and slug != pai_slug:
         try:
             append_log(slug, f"kernel: nudge — {reason}")
@@ -519,6 +652,8 @@ async def _nudge_body(
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)
     if do_onboarding:
         user += f"\n\n{_ONBOARDING_INSTRUCTION}"
+    if _is_overclock_context(context):
+        user += f"\n\n{_overclock_instruction(context)}"
 
     history_path = _history_path(pai_slug)
     history = _load_history(history_path)
@@ -561,7 +696,10 @@ async def _nudge_body(
 
     def _set_status(reason: str) -> None:
         try:
-            P.set_busy_reason(pai_slug, reason)
+            if status_prefix:
+                P.set_busy_reason(pai_slug, f"{status_prefix} - {reason}")
+            else:
+                P.set_busy_reason(pai_slug, reason)
         except ProcessNotFound:
             pass
 
@@ -704,15 +842,17 @@ async def _nudge_body(
     _apply_history_action(pai_slug, history_path)
 
     if reply:
-        print(f"[pai:{pai_slug}] {reply}", flush=True)
+        visible_reply = reply_filter(reply) if reply_filter else reply
+        if visible_reply:
+            print(f"[pai:{pai_slug}] {visible_reply}", flush=True)
         # Top-level fleet PAIs (no parent) write back to the owner's
         # me-thread so the TUI chat tab shows their replies. Persubs
         # are also owner-addressable (the user opens a tab for them
         # in the TUI), so their replies belong in the me-thread too.
         # Plain ephemeral subagents talk to their parent via
         # subagent:response, not the me-thread, so they're excluded.
-        if not parent_str or pai_spec.get("persub"):
-            _append_to_me_thread(pai_pid, reply)
+        if visible_reply and (not parent_str or pai_spec.get("persub")):
+            _append_to_me_thread(pai_pid, visible_reply)
     print("[kernel] nudge complete", flush=True)
     try:
         append_log(pai_slug, "nudge complete")
@@ -729,3 +869,4 @@ async def _nudge_body(
             P.resolve(pai_slug, "completed")
         except ProcessNotFound:
             pass
+    return reply

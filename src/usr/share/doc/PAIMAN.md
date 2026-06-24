@@ -267,11 +267,14 @@ declared as module constants in `src/bin/paifs_init.py`:
   libraries at module-load time; a missing one raises during boot.
   Drivers with runnable processes (e.g. `imessage`, `macmail`) are NOT
   seeded — the owner installs them explicitly.
-- `KERNEL_SEED_SKILLS` — `schedule-reminder`, `grow-capability`. Kept
-  tight: only skills that teach the use of a kernel-provided tool the
-  PAI cannot reasonably invent on its own.
-- `KERNEL_SEED_BINS` — `memorize`, `remember`. The memory-usage boilerplate
-  in the default prompts references them directly; without them installed the
+- `KERNEL_SEED_SKILLS` — `schedule-reminder`, `grow-capability`,
+  `onboard-owner`. Kept tight: only skills that teach the use of a
+  kernel-provided tool or first-boot flow the PAI cannot reasonably invent on
+  its own. `grow-capability` handles registry discovery/installation only; it
+  does not pull a coding-agent dependency.
+- `KERNEL_SEED_BINS` — `memorize`, `remember`, `mailsearch`,
+  `imessage-history`. The memory-usage and owner-onboarding boilerplate in
+  the default prompts references them directly; without them installed the
   contract is inert.
 - `KERNEL_SEED_PAIS` — `librarian-pai`. Sole writer to shared/private
   MEMORY indexes; reserved fleet member so reconcile spawns it on first

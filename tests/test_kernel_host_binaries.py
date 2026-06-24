@@ -34,3 +34,12 @@ def test_reap_descendants_uses_host_ps(monkeypatch) -> None:
     main._reap_descendants()
 
     assert calls == [["/host/bin/ps", "-eo", "pid=,ppid="]]
+
+
+def test_ad_hoc_subagent_classifier() -> None:
+    assert main._is_ad_hoc_subagent_spec({"kind": "pai", "parent": 2})
+    assert not main._is_ad_hoc_subagent_spec({"kind": "pai"})
+    assert not main._is_ad_hoc_subagent_spec({"kind": "pai", "parent": 2, "persub": True})
+    assert not main._is_ad_hoc_subagent_spec({"kind": "pai", "parent": 2, "run": "worker"})
+    assert not main._is_ad_hoc_subagent_spec({"kind": "pai", "parent": 2, "schedule": "0 9 * * *"})
+    assert not main._is_ad_hoc_subagent_spec({"kind": "driver", "parent": 2})

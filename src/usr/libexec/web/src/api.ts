@@ -37,8 +37,8 @@ async function readJson(res: Response, path: string): Promise<any> {
   }
 }
 
-export const sendMessage = (pid: number, text: string) =>
-  post("/api/message", { pid, text });
+export const sendMessage = (pid: number, text: string, overclock = false) =>
+  post("/api/message", { pid, text, ...(overclock ? { overclock: true } : {}) });
 
 export const interrupt = (pid: number) => post("/api/interrupt", { pid });
 

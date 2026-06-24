@@ -75,25 +75,22 @@ browse url
 browse title
 browse wait <selector|text> [--timeout S]
 browse tabs
-browse claim <tab_id>
 browse close
 ```
 
 Indices come from the most recent `browse dom` and are invalidated by
 the next nav/click.
 
-## Tabs and handoff between spawns
+## Tabs between spawns
 
 Each browse subagent owns one tab. When the subagent exits, the
 kernel marks its tab as orphaned in
 `/sys/drivers/browse/tabs/<slug>.yaml`
-(see `boot/processes.py`). On the next browse spawn, `bin/subagent.py`
-prefixes the kickoff message with an `AVAILABLE TABS` block listing
-claimable orphans. The new subagent can `browse claim <tab_id>` to
-inherit context (cookies, scroll position, prior page) or ignore the
-list and open a fresh tab.
+(see `boot/processes.py`). On the next normal `browse` use, the binary
+closes orphaned tabs from previous browse subagents, removes their stale
+metadata/snapshots, and opens a fresh tab for the new subagent.
 
-This is the only cross-spawn state today. Tab metadata lives under
+Tab metadata lives under
 `/sys/drivers/browse/`; the per-spawn handoff is the durable result file
 referenced by the final `subagent:response`.
 

@@ -210,15 +210,18 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             return
         pid = int(event["target_pid"])
         day = date.today().isoformat()
+        ctx = {
+            "thread": "me",
+            "sender": "me",
+            "text": text,
+            "day_file": f"communication/messages/me/{pid}/{day}.md",
+        }
+        if event.get("overclock") is True:
+            ctx["overclock"] = True
         _dispatch_nudge(
             pid,
             "owner message",
-            context={
-                "thread": "me",
-                "sender": "me",
-                "text": text,
-                "day_file": f"communication/messages/me/{pid}/{day}.md",
-            },
+            context=ctx,
         )
         return
 
@@ -238,15 +241,18 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             else:
                 pids = _route_to_pids("imessage:owner")
             for pid in pids:
+                ctx = {
+                    "thread": "me",
+                    "sender": "me",
+                    "text": text,
+                    "day_file": f"communication/messages/me/{pid}/{day}.md",
+                }
+                if event.get("overclock") is True:
+                    ctx["overclock"] = True
                 _dispatch_nudge(
                     pid,
                     "owner message",
-                    context={
-                        "thread": "me",
-                        "sender": "me",
-                        "text": text,
-                        "day_file": f"communication/messages/me/{pid}/{day}.md",
-                    },
+                    context=ctx,
                 )
             return
 
@@ -669,6 +675,17 @@ _RESTART_DRAIN_TIMEOUT = 5.0
 _RELOAD_DRAIN_TIMEOUT = 5.0
 
 
+def _is_ad_hoc_subagent_spec(spec: dict) -> bool:
+    """A parent-owned one-shot PAI child, not a declared persistent subagent."""
+    return (
+        spec.get("kind") == "pai"
+        and "parent" in spec
+        and not spec.get("persub")
+        and "run" not in spec
+        and "schedule" not in spec
+    )
+
+
 async def _drain_pai_locks() -> None:
     async with AsyncExitStack() as stack:
         for lock in list(_pai_locks.values()):
@@ -1049,6 +1066,7 @@ async def run() -> None:
             # carries a `schedule:` is a one-shot service mid-fire — keep it
             # running so its restart policy applies on resume.
             survivors = []
+            restart_interrupted_subagents = []
             for slug in remaining:
                 try:
                     spec = P.read_spec(slug)
@@ -1056,7 +1074,10 @@ async def run() -> None:
                     spec = {}
                 if "schedule" in spec:
                     survivors.append(slug)
-            to_resolve = [s for s in remaining if s not in survivors]
+                elif _restart_requested and _is_ad_hoc_subagent_spec(spec):
+                    restart_interrupted_subagents.append(slug)
+            preserved = set(survivors) | set(restart_interrupted_subagents)
+            to_resolve = [s for s in remaining if s not in preserved]
             if to_resolve:
                 print(f"[kernel] shutdown: resolving {len(to_resolve)} procs", flush=True)
                 for slug in to_resolve:
@@ -1066,6 +1087,13 @@ async def run() -> None:
                         print(f"[kernel] failed to resolve {slug}: {e!r}", flush=True)
             if survivors:
                 print(f"[kernel] shutdown: preserving {len(survivors)} cron procs across restart", flush=True)
+            if restart_interrupted_subagents:
+                print(
+                    "[kernel] shutdown: preserving "
+                    f"{len(restart_interrupted_subagents)} interrupted subagent procs "
+                    "for boot-time parent notification",
+                    flush=True,
+                )
         except Exception as e:
             print(f"[kernel] shutdown sweep failed: {e!r}", flush=True)
         try:

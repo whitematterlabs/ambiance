@@ -253,13 +253,14 @@ export function App() {
   }, [applyFleet]);
 
   // --- input: message or !shell ---
-  const handleSubmit = useCallback(async (text: string) => {
+  const handleSubmit = useCallback(async (text: string, options?: { overclock?: boolean }) => {
     const pid = activePidRef.current;
     if (pid === null) {
       setStatus("no PAI tab active");
       return;
     }
-    if (text.startsWith("!")) {
+    const overclock = options?.overclock === true;
+    if (!overclock && text.startsWith("!")) {
       const cmd = text.slice(1).trim();
       if (!cmd) {
         setStatus("shell: empty command");
@@ -278,8 +279,12 @@ export function App() {
       setStatus(`shell: exit ${res.rc}`);
       return;
     }
-    await api.sendMessage(pid, text);
-    setStatus(`sent → pid ${pid}, waiting for kernel…`);
+    await api.sendMessage(pid, text, overclock);
+    setStatus(
+      overclock
+        ? `overclock sent → pid ${pid}, waiting for kernel…`
+        : `sent → pid ${pid}, waiting for kernel…`,
+    );
   }, []);
 
   // --- keybindings ---
@@ -490,6 +495,9 @@ export function App() {
   const activeMember = activePid !== null ? fleet.find((m) => m.pid === activePid) ?? null : null;
   const activeProc =
     activePid !== null ? procs.find((r) => r.pid === String(activePid)) ?? null : null;
+  const activeOverclockRunning = Boolean(
+    activeProc?.busy?.reason.trim().startsWith("overclock:"),
+  );
   const activeLabel = activeMember?.title || activeMember?.slug || "No active PAI";
   const activeMeta =
     activeMember && activeProc
@@ -590,6 +598,7 @@ export function App() {
               onTranscribeAudio={handleTranscribeAudio}
               onVoiceStatus={setStatus}
               prefill={composerDraft}
+              overclockRunning={activeOverclockRunning}
             />
           </section>
         </section>

@@ -165,3 +165,20 @@ def test_start_update_check_failure_is_nonfatal(
     assert "==> update check" in captured.out
     assert "update check skipped" in captured.err
     assert "network unavailable" in captured.err
+
+
+def test_start_update_check_shows_ready_notice_when_behind(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        pai,
+        "_read_update_status",
+        lambda repo, *, fetch: _status(repo, behind=2),
+    )
+
+    pai._check_for_update_on_start()
+
+    out = capsys.readouterr().out
+    assert pai.UPDATE_READY_NOTICE in out
+    assert "status: update available (2 commit(s) behind)" in out

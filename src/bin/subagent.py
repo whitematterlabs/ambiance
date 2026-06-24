@@ -39,40 +39,9 @@ from pathlib import Path
 import re
 import sys
 
-import yaml
-
 from boot import config as C
-from boot import paths as PATHS
 from boot import processes as P
 from boot import stitch as S
-
-
-def _browse_orphan_tabs_block() -> str:
-    """For browse subagents: list claimable orphan tabs as a kickoff prefix.
-    Returns '' if none — caller skips the section."""
-    tab_dir = PATHS.PAI_ROOT / "sys" / "drivers" / "browse" / "tabs"
-    if not tab_dir.is_dir():
-        return ""
-    orphans: list[tuple[str, str, str]] = []  # (tab_id, title, age_iso)
-    for tf in sorted(tab_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(tf.read_text()) or {}
-        except Exception:
-            continue
-        if data.get("owner_status") != "orphan":
-            continue
-        tid = data.get("tab_id")
-        if not tid:
-            continue
-        title = (data.get("last_title") or data.get("last_url") or "(untitled)")[:80]
-        orphans.append((str(tid), title, str(data.get("created", ""))))
-    if not orphans:
-        return ""
-    lines = ["AVAILABLE TABS (claim with `browse claim <tab_id>` or ignore for a fresh one):"]
-    for tid, title, created in orphans:
-        suffix = f"  ({created})" if created else ""
-        lines.append(f"  - {tid}  \"{title}\"  (orphan){suffix}")
-    return "\n".join(lines) + "\n\n"
 
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")
@@ -298,17 +267,12 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         # Kickoff is just the parent's first IPC to the newborn child — same
         # event kind any peer would use. Persubs have no kickoff: they boot
         # idle and wait for the parent to message them.
-        kickoff_text = args.prompt
-        if bundle.get("name") == "browse":
-            prefix = _browse_orphan_tabs_block()
-            if prefix:
-                kickoff_text = prefix + "YOUR TASK:\n" + args.prompt
         P.emit_event({
             "source": "subagent",
             "kind": "pai_message",
             "target_pid": child_pid,
             "sender_pid": parent_pid,
-            "text": kickoff_text,
+            "text": args.prompt,
         })
 
     if args.persistent:

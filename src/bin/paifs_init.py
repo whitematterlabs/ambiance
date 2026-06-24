@@ -177,7 +177,7 @@ def default_config_yaml(provider: str = DEFAULT_SEED_PROVIDER,
 #   description  required
 #   package      (optional) pulls defaults from packages/{{package}}/package.yaml
 #   prompt       per-PAI role file (resolved relative to repo root)
-#   provider     LLM provider key (anthropic | deepseek). Drives base_url + key.
+#   provider     LLM provider key (anthropic | deepseek | openai). Drives base_url + key.
 #   model        model id within the provider; defaults to provider's default
 #   wake_on      list of fnmatch globs over event-kind; matching PAIs are nudged
 #   fallback     if true, this PAI is nudged only when no wake_on pattern matched
@@ -210,6 +210,8 @@ pais:
   - name: librarian-pai
     package: librarian-pai
     description: nightly + on-demand memory consolidator; sole writer of shared/private MEMORY
+    provider: {provider}
+    model: {model}
 
   # Example future entry (not seeded):
   # - name: msg-spec

@@ -60,6 +60,58 @@ def test_clean_wipes_run_pai_events(laid_out_root: Path) -> None:
     assert events.is_dir()
 
 
+def test_clean_reports_interrupted_ad_hoc_subagent(laid_out_root: Path) -> None:
+    import yaml
+
+    parent = laid_out_root / "proc" / "pai"
+    parent.mkdir()
+    (parent / "spec.yaml").write_text(
+        yaml.safe_dump({"kind": "pai", "pid": 2, "slug": "pai"}, sort_keys=False)
+    )
+    (parent / "status").write_text("running\n")
+    (parent / "log.md").write_text("[00:00] spawned\n")
+
+    child = laid_out_root / "proc" / "browse-job"
+    child.mkdir()
+    (child / "spec.yaml").write_text(
+        yaml.safe_dump(
+            {"kind": "pai", "pid": 9, "parent": 2, "package": "browse"},
+            sort_keys=False,
+        )
+    )
+    (child / "status").write_text("running\n")
+    (child / "log.md").write_text("[00:00] spawned\n")
+    (child / "busy").write_text("nudge\n123\n")
+
+    tab = laid_out_root / "sys" / "drivers" / "browse" / "tabs" / "browse-job.yaml"
+    tab.parent.mkdir(parents=True)
+    tab.write_text(yaml.safe_dump({"tab_id": "tab-1", "owner_status": "running"}))
+
+    events = laid_out_root / "run" / "pai" / "events"
+    stale = events / "20240101T000000-test.yaml"
+    stale.write_text("kind: stale")
+
+    from boot.phases import clean
+
+    clean.run()
+
+    assert not child.exists()
+    assert not stale.exists()
+    [event_path] = sorted(events.glob("*.yaml"))
+    event = yaml.safe_load(event_path.read_text())
+    assert event["kind"] == "subagent:response"
+    assert event["target_pid"] == 2
+    assert event["sender_pid"] == 9
+    assert event["done"] is True
+    assert event["result"] == "workspace/browse-job/result.md"
+    assert "interrupted before completion" in event["text"]
+
+    result = laid_out_root / "home" / "pai" / "workspace" / "browse-job" / "result.md"
+    assert result.is_file()
+    assert "Subagent interrupted" in result.read_text()
+    assert yaml.safe_load(tab.read_text())["owner_status"] == "orphan"
+
+
 def test_clean_removes_nested_subdir_in_tmp(laid_out_root: Path) -> None:
     nested = laid_out_root / "tmp" / "workspace" / "file.txt"
     nested.parent.mkdir()
