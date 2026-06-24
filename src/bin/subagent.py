@@ -2,7 +2,7 @@
 """subagent — spawn and manage subordinate PAI instances.
 
 Usage:
-    subagent spawn --slug NAME --prompt "..."             # fork a subagent, return its pid
+    subagent spawn --slug NAME --prompt '...'             # fork a subagent, return its pid
     subagent reply --content "..."                        # (child only) intermediate update to parent
     subagent reply --done --content "..."                 # (child only) final reply; kernel reaps the child
     subagent done --result result.md                      # (child only) finish with durable parent-workspace result
@@ -45,6 +45,12 @@ from boot import stitch as S
 
 
 DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}(?:T\d{2}-\d{2}-\d{2})?$")
+SHELL_MANGLED_COMMA_CURRENCY = re.compile(
+    r"(?is)\b(?:budget|rent|price|cost|usd|dollars?|amount)\b[^\n]{0,120}(?<!\d),\d{3}\b"
+)
+SHELL_MANGLED_DECIMAL_K = re.compile(
+    r"(?is)\b(?:budget|rent|price|cost|usd|dollars?|amount)\b[^\n]{0,120}(?<![\d])\.\d+\s*k\b"
+)
 
 # Last-resort fallback only — used when neither the spawning PAI's spec nor
 # the fleet default in config.yaml yield a provider/model. In practice the
@@ -155,6 +161,34 @@ def _package_hint_from_slug(slug: str, packages: set[str]) -> str | None:
     return None
 
 
+def _prompt_looks_shell_mangled(prompt: str) -> bool:
+    return bool(
+        SHELL_MANGLED_COMMA_CURRENCY.search(prompt)
+        or SHELL_MANGLED_DECIMAL_K.search(prompt)
+    )
+
+
+def _resolve_spawn_prompt(args: argparse.Namespace) -> str | None:
+    prompt = args.prompt
+
+    if prompt is not None and not prompt.strip():
+        print("error: subagent prompt is empty", file=sys.stderr)
+        return None
+
+    if prompt is not None and _prompt_looks_shell_mangled(prompt):
+        print(
+            "error: subagent prompt looks shell-mangled: a budget/price contains "
+            "`,200` or `.5k`, which often means a value like `$1,200` or `$1.5k` "
+            "was passed inside double quotes and the shell expanded `$N` as a "
+            "positional parameter. Retry "
+            "with single quotes around the --prompt value.",
+            file=sys.stderr,
+        )
+        return None
+
+    return prompt
+
+
 def cmd_spawn(args: argparse.Namespace) -> int:
     parent_pid_raw = os.environ.get("PAI_PID")
     if not parent_pid_raw:
@@ -167,6 +201,9 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         return 1
     if not args.slug:
         print("error: --slug is required", file=sys.stderr)
+        return 1
+    prompt = _resolve_spawn_prompt(args)
+    if prompt is None and args.prompt is not None:
         return 1
     if not args.package:
         hinted_package = _package_hint_from_slug(
@@ -182,7 +219,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-    if not args.persistent and not args.prompt:
+    if not args.persistent and not prompt:
         print("error: --prompt is required (omit only with --persistent)", file=sys.stderr)
         return 1
     bundle: dict = {}
@@ -225,7 +262,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
 
     child_pid = P.alloc_pai_pid()
     description = (
-        args.prompt
+        prompt
         or (bundle.get("description") if bundle else None)
         or f"persub: {args.slug}"
     )[:80]
@@ -272,7 +309,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             "kind": "pai_message",
             "target_pid": child_pid,
             "sender_pid": parent_pid,
-            "text": args.prompt,
+            "text": prompt,
         })
 
     if args.persistent:
@@ -657,7 +694,10 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--slug", required=True, help="base slug (date is auto-appended unless --persistent)")
     sp.add_argument(
         "--prompt",
-        help="task for the subagent (required for ephemeral; optional for --persistent)",
+        help=(
+            "task for the subagent (required for ephemeral; optional for "
+            "--persistent). Use single quotes if it contains dollar amounts."
+        ),
     )
     sp.add_argument(
         "--model",

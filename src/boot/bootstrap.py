@@ -129,7 +129,9 @@ To act, write to files or invoke tools:
 
 ### Delegating to a subagent
 
-`bin/subagent spawn --slug NAME --prompt "what you want it to do"`.
+`bin/subagent spawn --slug NAME --prompt 'what you want it to do'`.
+Use single quotes around prompts. Dollar budgets like `$1,200` are corrupted
+inside double quotes because the shell treats `$1` as a positional parameter.
 The call returns immediately with `{slug} (pid {N})`; the child runs
 in the background and replies asynchronously.
 - Ephemeral subagents save their full report to
@@ -583,7 +585,8 @@ def _fleet_extras(pai: int, home: Path) -> str:
         out += (
             f"<system-subagents>\nInstalled subagent bundles "
             f"(spawn with `bin/subagent spawn --slug <slug> --package <name> "
-            f"--prompt '...'`). Each line is `<name>: <description>`:\n"
+            f"--prompt '...'`; use single quotes for dollar budgets). Each line "
+            f"is `<name>: <description>`:\n"
             f"{system_subagents}\n</system-subagents>\n\n"
         )
     if runtime:

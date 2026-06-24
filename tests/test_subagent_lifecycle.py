@@ -94,6 +94,49 @@ def test_spawn_marks_subagent_persistent(live_dir: Path, monkeypatch: pytest.Mon
     assert kickoff["text"] == "do a thing"
 
 
+def test_spawn_prompt_preserves_dollar_budget_when_quoted(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    monkeypatch.setenv("PAI_PID", "1")
+    prompt = "Correction: budget is explicitly USD $1,200 to $1,500 per month."
+
+    rc = sub_bin.main(["spawn", "--slug", "housing", "--prompt", prompt])
+    assert rc == 0
+
+    [child_slug] = [s for s in P.list_procs() if s.startswith("housing-")]
+    spec = P.read_spec(child_slug)
+    assert "$1,200" in spec["description"]
+    [kickoff] = _events(P.EVENTS_DIR)
+    assert kickoff["text"] == prompt
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Correction: budget is explicitly USD ,200 to ,500 per month.",
+        "Find housing with budget about .5k/month near transit.",
+    ],
+)
+def test_spawn_rejects_shell_mangled_budget_prompt(
+    live_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    prompt: str,
+) -> None:
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    monkeypatch.setenv("PAI_PID", "1")
+
+    rc = sub_bin.main(["spawn", "--slug", "housing", "--prompt", prompt])
+    assert rc == 1
+
+    assert not [s for s in P.list_procs() if s.startswith("housing-")]
+    assert not list(P.EVENTS_DIR.iterdir())
+    captured = capsys.readouterr()
+    assert "shell-mangled" in captured.err
+    assert "single quotes" in captured.err
+
+
 def test_reply_done_emits_response_and_resolves(
     live_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
