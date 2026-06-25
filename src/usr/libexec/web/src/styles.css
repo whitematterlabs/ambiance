@@ -1190,40 +1190,33 @@ button {
 .composer-overclock-tab {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 0 4px;
-  padding: 2px 8px 3px;
-  border: 1px solid color-mix(in srgb, var(--teal) 28%, var(--border));
-  border-bottom: none;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: color-mix(in srgb, var(--teal) 8%, var(--surface-raised));
-  color: var(--teal);
-  font-size: 12.5px;
-  line-height: 1.35;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  width: 100%;
+  margin: 2px 0 7px;
+  padding: 0 2px 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--teal) 24%, var(--border));
   animation: fade-in 0.18s var(--ease) both;
-}
-
-.composer-overclock-tab-label,
-.composer-overclock-tab-desc {
-  min-width: 0;
-  font-size: inherit;
-  line-height: inherit;
 }
 
 .composer-overclock-tab-label {
   flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--teal) 15%, var(--surface-raised));
+  color: var(--teal);
+  font-size: 10.5px;
   font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .composer-overclock-tab-desc {
-  flex: 1 1 auto;
+  flex: 1 1 220px;
+  min-width: 0;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 12.5px;
+  line-height: 1.4;
 }
 
 /* "shell" reads as a small caps tag, not a filled pill. */
