@@ -1187,15 +1187,25 @@ button {
   color: #6b5a3a;
 }
 
+/* The overclock tab is a folder tab sitting on this panel edge. */
+.composer.overclock .composer-input {
+  border-top: 1px solid color-mix(in srgb, var(--teal) 30%, var(--border));
+  padding-top: 9px;
+}
+
 .composer-overclock-tab {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 4px 8px;
-  width: 100%;
-  margin: 2px 0 7px;
-  padding: 0 2px 7px;
-  border-bottom: 1px solid color-mix(in srgb, var(--teal) 24%, var(--border));
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 -1px;
+  padding: 4px 11px 6px;
+  border: 1px solid color-mix(in srgb, var(--teal) 30%, var(--border));
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: color-mix(in srgb, var(--teal) 10%, var(--surface-raised));
   animation: fade-in 0.18s var(--ease) both;
 }
 
