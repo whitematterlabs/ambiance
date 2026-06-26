@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Moon, Sun } from "lucide-react";
 import { VOICE_OPTIONS } from "../speech";
 
 export function Header({
@@ -6,6 +7,8 @@ export function Header({
   kernelRunning,
   kernelBusy,
   onToggleKernel,
+  theme,
+  onToggleTheme,
   voiceEnabled,
   onToggleVoice,
   voiceId,
@@ -17,6 +20,8 @@ export function Header({
   kernelRunning: boolean;
   kernelBusy: boolean;
   onToggleKernel: () => void;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
   voiceEnabled: boolean;
   onToggleVoice: () => void;
   voiceId: string | null;
@@ -74,6 +79,20 @@ export function Header({
         </button>
       </div>
       <span className="spacer" />
+      <button
+        className="ghost-button theme-toggle"
+        type="button"
+        onClick={onToggleTheme}
+        aria-pressed={theme === "dark"}
+        title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      >
+        {theme === "dark" ? (
+          <Sun size={15} aria-hidden="true" />
+        ) : (
+          <Moon size={15} aria-hidden="true" />
+        )}
+      </button>
       <div className="voice-split" ref={popoverRef}>
         <button
           className="ghost-button voice-toggle"

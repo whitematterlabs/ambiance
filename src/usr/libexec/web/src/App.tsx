@@ -69,6 +69,11 @@ export function App() {
     const n = raw ? parseFloat(raw) : NaN;
     return Number.isFinite(n) ? n : 1.1;
   });
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const saved = localStorage.getItem("theme");
+    if (saved === "dark" || saved === "light") return saved;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
 
   const activityState = useRef<ActivityState>(initialActivity());
   const activePidRef = useRef<number | null>(null);
@@ -94,6 +99,12 @@ export function App() {
   procsRef.current = procs;
   threadsRef.current = threads;
   voiceEnabledRef.current = voiceEnabled;
+
+  // Paint the chosen theme onto <html> and remember it for next visit.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   // Refresh the status line when the active tab changes (TUI pokes /proc).
   useEffect(() => {
@@ -513,6 +524,8 @@ export function App() {
         kernelRunning={kernel.running}
         kernelBusy={kernelBusy}
         onToggleKernel={handleToggleKernel}
+        theme={theme}
+        onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         voiceEnabled={voiceEnabled}
         onToggleVoice={() => setVoiceEnabled((v) => !v)}
         voiceId={voiceId}

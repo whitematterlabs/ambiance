@@ -36,6 +36,10 @@
   --pai-color: var(--pai);
   --teal: #4f6b64;
 
+  /* Surfaces that can't be expressed as a single palette token */
+  --header-bg: rgba(250, 248, 242, 0.78);
+  --bubble-me: linear-gradient(180deg, #f6ece2, #f1e3d6);
+
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
@@ -55,6 +59,49 @@
   font-size: 14.5px;
   line-height: 1.55;
   color-scheme: light;
+}
+
+/* ---------- Dark mode ----------
+   Same editorial voice, lit at night: warm espresso paper instead of ivory,
+   the clay accent nudged a touch brighter so it still rings against the dark. */
+:root[data-theme="dark"] {
+  --paper: #1a1714;
+  --paper-deep: #141110;
+  --surface: #221e1a;
+  --surface-soft: #2a2520;
+  --surface-muted: #322c25;
+  --surface-sunk: #100e0c;
+  --surface-raised: #28231e;
+
+  --border: #38312a;
+  --border-strong: #4b4138;
+
+  --text: #ece5d8;
+  --muted: #a89e8d;
+  --dim: #7b7163;
+
+  --accent: #d77a52;
+  --accent-deep: #c4663f;
+  --accent-ink: #1a1714;
+  --accent-soft: #3a2a20;
+  --accent-border: #5a4334;
+
+  --ok: #8aa172;
+  --warn: #c9a34e;
+  --warn-soft: #322a17;
+  --fail: #d4766a;
+  --fail-soft: #3a221e;
+  --pai: #c2a565;
+  --teal: #6fa195;
+
+  --shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -14px rgba(0, 0, 0, 0.5);
+  --shadow-lift: 0 18px 40px -22px rgba(0, 0, 0, 0.75);
+
+  --header-bg: rgba(26, 23, 20, 0.78);
+  --bubble-me: linear-gradient(180deg, #3a2a20, #32241c);
+
+  color-scheme: dark;
 }
 
 * {
@@ -112,7 +159,7 @@ button {
   padding: 12px 28px;
   flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
-  background: rgba(250, 248, 242, 0.78);
+  background: var(--header-bg);
   backdrop-filter: blur(16px) saturate(1.1);
   animation: drop-in 0.6s var(--ease-out) both;
 }
@@ -244,6 +291,27 @@ button {
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
+}
+
+/* Theme toggle — a quiet square icon button, not an accent-filled pill. */
+.theme-toggle {
+  justify-content: center;
+  padding: 0;
+  width: 36px;
+  flex: 0 0 auto;
+}
+
+.theme-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--border-strong);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent-border);
 }
 
 /* ---------- Voice split button + picker popover ---------- */
@@ -855,7 +923,7 @@ button {
 }
 
 .msg-me .msg-body {
-  background: linear-gradient(180deg, #f6ece2, #f1e3d6);
+  background: var(--bubble-me);
   border-color: var(--accent-border);
   border-radius: var(--radius);
   border-top-right-radius: 4px;
