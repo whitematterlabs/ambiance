@@ -316,3 +316,50 @@ def test_drain_catchup_checkpoints_before_returning(monkeypatch):
     assert saved, "cursor not persisted after backlog emit"
     assert saved[-1] == (11, 11)
     assert (new_last, new_announced) == (11, 11)
+
+
+def test_fold_into_bucket_accumulates_all_subjects():
+    """A backlog bucket records EVERY subject, not just the most recent;
+    `last_subject` stays as a convenience alias for `subjects[-1]`."""
+    bucket = inbound._new_bucket("owner@example.com")
+    inbound._fold_into_bucket(bucket, "alpha")
+    inbound._fold_into_bucket(bucket, "beta")
+    inbound._fold_into_bucket(bucket, "gamma")
+
+    assert bucket["count"] == 3
+    assert bucket["subjects"] == ["alpha", "beta", "gamma"]
+    assert bucket["last_subject"] == "gamma"
+
+
+def test_drain_catchup_backlog_carries_all_subjects(monkeypatch):
+    """The coalesced boot backlog lists every subject per account so the PAI
+    can recap the whole batch instead of only the latest message."""
+    emitted: list = []
+    subjects = {10: "alpha", 11: "beta", 12: "gamma"}
+
+    monkeypatch.setattr(inbound, "_load_parked", lambda: {})
+    monkeypatch.setattr(inbound, "_retry_parked", lambda parked, cfg: [])
+    monkeypatch.setattr(inbound, "_save_parked", lambda parked: None)
+    monkeypatch.setattr(inbound, "_save_cursor", lambda lr, la: None)
+    monkeypatch.setattr(
+        inbound, "_query_rows", lambda lr, cfg: [_row(10), _row(11), _row(12)]
+    )
+
+    def _ingest(row, cfg):
+        result = _result(created=True)
+        result["subject"] = subjects[int(row["rowid"])]
+        return result
+
+    monkeypatch.setattr(inbound, "ingest_row", _ingest)
+    monkeypatch.setattr(
+        inbound, "_mac_date_to_dt", lambda secs: inbound.datetime.now()
+    )
+    monkeypatch.setattr(inbound.P, "emit_event", lambda p: emitted.append(p))
+
+    inbound._drain_catchup(9, cfg=None, last_announced=9)
+
+    assert len(emitted) == 1
+    bucket = emitted[0]["accounts"][0]
+    assert bucket["count"] == 3
+    assert bucket["subjects"] == ["alpha", "beta", "gamma"]
+    assert bucket["last_subject"] == "gamma"

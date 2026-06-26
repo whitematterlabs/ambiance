@@ -1,12 +1,20 @@
 #!/usr/bin/env python
-"""mailsearch — lazy email search via Mail.app's Envelope Index.
+"""mailsearch — email search over two sources, deduped.
 
-Queries the same SQLite index macmail-in watches for new mail, but does
-it on demand against the entire history Mail.app has cached. Each hit
-gets materialized into the canonical yaml tree under
-`~/communication/email/{account}/{date}/...` (idempotent — uses
-`shared.write_message_yaml`'s Message-ID dedup), so future greps and
-PAI's reply flow "just work" on the result.
+Searches BOTH:
+  1. The on-disk canonical yaml archive under
+     `~/communication/email/{account}/...` — everything the driver has
+     already ingested, including mail Mail.app has since deleted or
+     aged out of its index. Works even when Mail.app is closed or the
+     Envelope Index is gone.
+  2. Mail.app's SQLite Envelope Index — the entire history Mail.app has
+     cached, including mail older than the driver's ingest window. Each
+     SQLite hit gets materialized into the canonical yaml tree
+     (idempotent — uses `shared.write_message_yaml`'s Message-ID dedup),
+     so future greps and PAI's reply flow "just work" on the result.
+
+Results from the two sources are merged and deduped by Message-ID (path
+fallback), newest first. A message present in both sources appears once.
 
 Result `path`s are emitted in the home view (`communication/email/...`),
 matching what the email SKILL teaches and what the calling PAI can grep
@@ -32,28 +40,19 @@ import asyncio
 import sqlite3
 import sys
 from datetime import date, datetime, time, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 
+from boot import paths
+from drivers.email import shared
 from drivers.email.macmail import accounts as A
 from drivers.email.macmail import inbound as IN
 
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 200
-
-
-def _home_view(rel_path: str) -> str:
-    """Rewrite a PAI_ROOT-relative spool path into the home-view path a PAI
-    actually uses. `ingest_row` returns `var/spool/communication/email/...`
-    (FHS), but every email-capable PAI sees that tree through its home link
-    `communication/email -> var/spool/communication/email`, which the email
-    SKILL teaches as `~/communication/email/<account>/...`. Stripping the
-    `var/spool/` prefix yields exactly that home-relative path. Paths that
-    don't start with the prefix are returned unchanged."""
-    prefix = "var/spool/"
-    return rel_path[len(prefix):] if rel_path.startswith(prefix) else rel_path
 
 
 def _split_terms(value: Optional[str]) -> list[str]:
@@ -169,8 +168,9 @@ def parse_date(s: Optional[str]) -> Optional[int]:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="mailsearch",
-        description="Lazy email search via Mail.app's Envelope Index. "
-                    "Hits get materialized as canonical yamls under "
+        description="Search the on-disk email archive AND Mail.app's "
+                    "Envelope Index, merged and deduped by Message-ID. "
+                    "Index hits get materialized as canonical yamls under "
                     "~/communication/email/.",
     )
     p.add_argument("--from", dest="from_addr",
@@ -212,37 +212,139 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return args
 
 
-def run_search(args: argparse.Namespace) -> int:
-    # Refresh from Mail.app via AppleScript so newly-added accounts and
-    # localized mailbox names are picked up without requiring the kernel
-    # to have run recently. Falls back to the persisted file on failure.
+# ---- on-disk archive search ----------------------------------------------
+
+_EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def _parse_dt(s: Optional[str]) -> datetime:
+    """ISO string → aware datetime; naive strings assume local tz. Falls
+    back to the Unix epoch so a malformed timestamp sorts oldest rather
+    than crashing the merge."""
+    if not s:
+        return _EPOCH
     try:
-        cfg = asyncio.run(A.refresh())
-    except RuntimeError:
-        cfg = A.load()
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return _EPOCH
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return dt
+
+
+def _any_term_in(terms: list[str], *haystacks: Optional[str]) -> bool:
+    """True if no terms (filter absent) or any term is a case-insensitive
+    substring of the concatenated haystacks — mirrors the SQLite side's
+    OR-of-LIKEs semantics for `|`-alternations."""
+    if not terms:
+        return True
+    blob = " ".join(h for h in haystacks if h).lower()
+    return any(t.lower() in blob for t in terms)
+
+
+def search_disk(args: argparse.Namespace) -> list[dict]:
+    """Scan the canonical yaml archive under var/spool/communication/email,
+    applying the same filters as the SQLite query.
+
+    Independent of Mail.app: reads only on-disk yamls, so it surfaces mail
+    that Mail.app has deleted or never kept in its index. `--unread` /
+    `--flagged` are live-state predicates with no on-disk equivalent, so a
+    disk scan is skipped when either is set (the caller notes this)."""
+    root = paths.var_spool_email()
+    if not root.exists():
+        return []
+
+    from_terms = _split_terms(args.from_addr)
+    to_terms = _split_terms(args.to_addr)
+    subject_terms = _split_terms(args.subject)
+    account_terms = _split_terms(args.account)
+
+    out: list[dict] = []
+    for acc_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        # `drafts/` holds unsent drafts, not received/sent mail; the SQLite
+        # side never returns them, so skip for parity.
+        if acc_dir.name == "drafts":
+            continue
+        if not _any_term_in(account_terms, acc_dir.name):
+            continue
+        for yml in acc_dir.rglob("*.yaml"):
+            # threads/ entries are symlinks back to the canonical files;
+            # meta.yaml is account metadata, not a message.
+            parts = yml.relative_to(acc_dir).parts
+            if "threads" in parts or yml.name == "meta.yaml":
+                continue
+            try:
+                msg = yaml.safe_load(yml.read_text(errors="replace")) or {}
+            except (OSError, yaml.YAMLError):
+                continue
+            if not isinstance(msg, dict):
+                continue
+
+            if args.inbox_only and msg.get("direction") == "outbound":
+                continue
+            if not _any_term_in(from_terms, msg.get("from"), msg.get("from_name")):
+                continue
+            if not _any_term_in(subject_terms, msg.get("subject")):
+                continue
+            if to_terms:
+                recips = [
+                    a for k in ("to", "cc", "bcc")
+                    for a in (msg.get(k) or [])
+                    if isinstance(a, str)
+                ]
+                if not _any_term_in(to_terms, *recips):
+                    continue
+
+            ts = _parse_dt(msg.get("received_at") or msg.get("sent_at"))
+            if args.since_ts is not None and ts.timestamp() < args.since_ts:
+                continue
+            if args.until_ts is not None and ts.timestamp() > args.until_ts:
+                continue
+
+            out.append({
+                "path": shared.home_view_path(str(yml.relative_to(paths.PAI_ROOT))),
+                "date": ts.isoformat(timespec="seconds"),
+                "account": acc_dir.name,
+                "from": msg.get("from", ""),
+                "subject": msg.get("subject", ""),
+                "_mid": (msg.get("message_id") or "").strip(),
+                "_sort": ts,
+            })
+    return out
+
+
+def search_sqlite(args: argparse.Namespace, cfg: A.AccountsConfig) -> list[dict]:
+    """Query Mail.app's Envelope Index and materialize each hit. Returns []
+    (and warns) on any access failure rather than aborting the whole search —
+    the on-disk scan still runs."""
     if cfg.is_empty():
         print(
-            "mailsearch: no Mail.app accounts discovered (is Mail.app running "
-            "and is automation permission granted?)",
+            "[mailsearch] no Mail.app accounts discovered; searching on-disk "
+            "archive only (is Mail.app running and automation permitted?)",
             file=sys.stderr,
         )
-        return 2
-
-    sql, params = build_query(args, cfg)
-
+        return []
     if not IN.ENVELOPE_INDEX.exists():
-        print(f"mailsearch: Envelope Index not found at {IN.ENVELOPE_INDEX}",
-              file=sys.stderr)
-        return 2
-
+        print(
+            f"[mailsearch] Envelope Index not found at {IN.ENVELOPE_INDEX}; "
+            "searching on-disk archive only",
+            file=sys.stderr,
+        )
+        return []
     try:
         conn = IN._connect()
     except sqlite3.OperationalError as e:
-        print(f"mailsearch: cannot open Envelope Index: {e}", file=sys.stderr)
-        return 2
+        print(f"[mailsearch] cannot open Envelope Index: {e}; "
+              "searching on-disk archive only", file=sys.stderr)
+        return []
 
+    sql, params = build_query(args, cfg)
     try:
         rows = conn.execute(sql, params).fetchall()
+    except sqlite3.OperationalError as e:
+        print(f"[mailsearch] index query failed: {e}; "
+              "searching on-disk archive only", file=sys.stderr)
+        return []
     finally:
         conn.close()
 
@@ -263,16 +365,61 @@ def run_search(args: argparse.Namespace) -> int:
             continue
         ts = IN._mac_date_to_dt(int(row["date_received"] or 0))
         results.append({
-            "path": _home_view(result["path"]),
+            "path": shared.home_view_path(result["path"]),
             "date": ts.isoformat(timespec="seconds"),
             "account": result["account"],
             "from": result["from"],
             "subject": result["subject"],
+            "_mid": (result.get("_message_id") or "").strip(),
+            "_sort": ts,
         })
+    return results
 
-    if not results:
+
+def merge_dedupe(sqlite_hits: list[dict], disk_hits: list[dict], limit: int) -> list[dict]:
+    """Combine both sources, dedupe by Message-ID (path fallback), sort
+    newest-first, and cap at `limit`. SQLite hits are considered first so a
+    message present in both keeps the freshly-materialized live copy."""
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for hit in sqlite_hits + disk_hits:
+        key = hit.get("_mid") or hit["path"]
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(hit)
+    merged.sort(key=lambda h: h["_sort"], reverse=True)
+    return merged[:limit]
+
+
+def run_search(args: argparse.Namespace) -> int:
+    # Refresh from Mail.app via AppleScript so newly-added accounts and
+    # localized mailbox names are picked up without requiring the kernel
+    # to have run recently. Falls back to the persisted file on failure.
+    try:
+        cfg = asyncio.run(A.refresh())
+    except RuntimeError:
+        cfg = A.load()
+
+    sqlite_hits = search_sqlite(args, cfg)
+
+    if args.unread or args.flagged:
+        # read/flag are live Mail.app state with no on-disk equivalent;
+        # honoring them means the SQLite source only.
+        print("[mailsearch] --unread/--flagged are live-state filters; "
+              "skipping the on-disk archive scan", file=sys.stderr)
+        disk_hits: list[dict] = []
+    else:
+        disk_hits = search_disk(args)
+
+    if not sqlite_hits and not disk_hits:
         print("[]", end="")
         return 0
+
+    results = merge_dedupe(sqlite_hits, disk_hits, args.limit)
+    for r in results:
+        r.pop("_mid", None)
+        r.pop("_sort", None)
     yaml.safe_dump(results, sys.stdout, sort_keys=False, allow_unicode=True)
     return 0
 
