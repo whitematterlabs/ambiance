@@ -130,34 +130,80 @@ def _stitch_skills(
                 # Non-empty (user added something) — leave it.
                 pass
 
-    if not skills_root.exists():
-        return
+    if skills_root.exists():
+        for topic_dir in sorted(skills_root.iterdir()):
+            if not topic_dir.is_dir() or topic_dir.name.startswith("."):
+                continue
+            # Flat skill (SKILL.md directly under topic dir, no nested topic).
+            if (topic_dir / "SKILL.md").exists():
+                if _skills_filter.is_visible(
+                    topic_dir / "SKILL.md", slug, pid or 0, mounted_drivers
+                ):
+                    link = target_root / topic_dir.name
+                    if not link.exists():
+                        link.symlink_to(topic_dir.resolve(), target_is_directory=True)
+                continue
+            for skill_dir in sorted(topic_dir.iterdir()):
+                if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+                    continue
+                skill_md = skill_dir / "SKILL.md"
+                if not skill_md.exists():
+                    continue
+                if not _skills_filter.is_visible(skill_md, slug, pid or 0, mounted_drivers):
+                    continue
+                link = target_root / topic_dir.name / skill_dir.name
+                link.parent.mkdir(parents=True, exist_ok=True)
+                if link.is_symlink() or link.exists():
+                    continue
+                link.symlink_to(skill_dir.resolve(), target_is_directory=True)
 
-    for topic_dir in sorted(skills_root.iterdir()):
-        if not topic_dir.is_dir() or topic_dir.name.startswith("."):
+    # Overlay writable self-written skills over the read-only baseline. Shared
+    # skills (every PAI) are applied first, then this PAI's private skills, so a
+    # PAI's own adaptation wins over a fleet-shared one of the same name. Both
+    # win over a baseline skill of the same top-level name (the overlay IS the
+    # adaptation) — see the plan. Overlay skills are flat: `<root>/<name>/SKILL.md`.
+    _overlay_skills(target_root, paths.var_lib_skills(), slug, pid, mounted_drivers)
+    _overlay_skills(
+        target_root,
+        paths.var_lib_instance_skills(slug),
+        slug,
+        pid,
+        mounted_drivers,
+    )
+
+
+def _overlay_skills(
+    target_root: Path,
+    overlay_root: Path,
+    slug: str,
+    pid: int | None,
+    mounted_drivers: set[str] | None,
+) -> None:
+    """Link each flat `<overlay_root>/<name>/SKILL.md` into `target_root/<name>`,
+    overriding any baseline entry of the same name (the overlay wins)."""
+    if not overlay_root.exists():
+        return
+    for skill_dir in sorted(overlay_root.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith("."):
             continue
-        # Flat skill (SKILL.md directly under topic dir, no nested topic).
-        if (topic_dir / "SKILL.md").exists():
-            if _skills_filter.is_visible(
-                topic_dir / "SKILL.md", slug, pid or 0, mounted_drivers
-            ):
-                link = target_root / topic_dir.name
-                if not link.exists():
-                    link.symlink_to(topic_dir.resolve(), target_is_directory=True)
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
             continue
-        for skill_dir in sorted(topic_dir.iterdir()):
-            if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+        if not _skills_filter.is_visible(skill_md, slug, pid or 0, mounted_drivers):
+            continue
+        link = target_root / skill_dir.name
+        # Overlay wins: drop a colliding baseline symlink (or empty dir) first.
+        if link.is_symlink():
+            link.unlink()
+        elif link.is_dir():
+            try:
+                link.rmdir()
+            except OSError:
+                # Non-empty real dir (e.g. a populated baseline topic) — leave it.
                 continue
-            skill_md = skill_dir / "SKILL.md"
-            if not skill_md.exists():
-                continue
-            if not _skills_filter.is_visible(skill_md, slug, pid or 0, mounted_drivers):
-                continue
-            link = target_root / topic_dir.name / skill_dir.name
-            link.parent.mkdir(parents=True, exist_ok=True)
-            if link.is_symlink() or link.exists():
-                continue
-            link.symlink_to(skill_dir.resolve(), target_is_directory=True)
+        elif link.exists():
+            continue
+        link.symlink_to(skill_dir.resolve(), target_is_directory=True)
 
 
 _PRIVATE_MEMORY_INDEX_HEADER = (
@@ -174,6 +220,7 @@ def _seed_instance(instance: Path) -> None:
         "memory/private",
         "memory/private/journal",
         "memory/private/topics",
+        "skills",
     ):
         (instance / sub).mkdir(parents=True, exist_ok=True)
     index = instance / "memory" / "private" / "MEMORY.md"

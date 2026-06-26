@@ -149,6 +149,20 @@ def var_lib_instance(name: str) -> Path:
     return PAI_ROOT / "var" / "lib" / "instances" / name
 
 
+def var_lib_instance_skills(name: str) -> Path:
+    """A PAI's private writable skills overlay — self-written skills only that
+    PAI sees, stitched into its `home/memory/skills/` view over the read-only
+    `/usr/lib/skills/` baseline."""
+    return var_lib_instance(name) / "skills"
+
+
+def var_lib_skills() -> Path:
+    """Fleet-shared writable skills overlay — self-written skills every PAI
+    sees, stitched into each `home/memory/skills/` view over the read-only
+    `/usr/lib/skills/` baseline."""
+    return PAI_ROOT / "var" / "lib" / "skills"
+
+
 def var_lib_packages() -> Path:
     return PAI_ROOT / "var" / "lib" / "packages"
 

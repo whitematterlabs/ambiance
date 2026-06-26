@@ -96,6 +96,68 @@ def test_does_not_create_self_symlink_when_driver_nests_under_seeded_dir(
     assert drafts.is_dir()
 
 
+def _write_skill(skill_dir: Path, name: str, body: str = "do the thing") -> None:
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {name} skill\n---\n\n{body}\n"
+    )
+
+
+def _skills_view(fhs: Path, slug: str) -> Path:
+    home = stitch.home_for(slug) if slug == "root" else fhs / "home" / slug
+    return home / "memory" / "skills"
+
+
+def test_writable_skill_overlay_private_and_shared(fhs: Path) -> None:
+    # Shared (fleet-wide) skill + a private skill only `pai` owns.
+    _write_skill(paths.var_lib_skills() / "shared-flow", "shared-flow")
+    _write_skill(paths.var_lib_instance_skills("pai") / "private-flow", "private-flow")
+
+    stitch.stitch_home("pai")
+    stitch.stitch_home("root")
+
+    pai_skills = _skills_view(fhs, "pai")
+    assert (pai_skills / "shared-flow" / "SKILL.md").exists()
+    assert (pai_skills / "private-flow" / "SKILL.md").exists()
+
+    # A different PAI sees the shared skill but not pai's private one.
+    root_skills = _skills_view(fhs, "root")
+    assert (root_skills / "shared-flow" / "SKILL.md").exists()
+    assert not (root_skills / "private-flow").exists()
+
+
+def test_overlay_overrides_baseline_of_same_name(fhs: Path) -> None:
+    # Baseline (read-only) flat skill, then an overlay with the same name.
+    _write_skill(paths.usr_lib_skills() / "deploy", "deploy", body="BASELINE")
+    _write_skill(paths.var_lib_skills() / "deploy", "deploy", body="OVERLAY")
+
+    stitch.stitch_home("pai")
+
+    link = _skills_view(fhs, "pai") / "deploy"
+    assert link.is_symlink()
+    # Overlay wins: the link resolves into var/lib/skills, not usr/lib/skills.
+    assert (link / "SKILL.md").read_text().strip().endswith("OVERLAY")
+
+
+def test_overlay_survives_restitch(fhs: Path) -> None:
+    _write_skill(paths.var_lib_skills() / "shared-flow", "shared-flow")
+    _write_skill(paths.var_lib_instance_skills("pai") / "private-flow", "private-flow")
+
+    stitch.stitch_home("pai")
+    stitch.stitch_home("pai")  # re-stitch
+
+    pai_skills = _skills_view(fhs, "pai")
+    # Real source files untouched; links rebuilt and still present.
+    assert (pai_skills / "shared-flow" / "SKILL.md").exists()
+    assert (pai_skills / "private-flow" / "SKILL.md").exists()
+    assert paths.var_lib_skills().joinpath("shared-flow", "SKILL.md").exists()
+
+
+def test_seed_instance_creates_skills_dir(fhs: Path) -> None:
+    stitch.stitch_home("pai")
+    assert paths.var_lib_instance_skills("pai").is_dir()
+
+
 def test_subagent_package_deps_mount_prefixed_driver(fhs: Path) -> None:
     _install_email_driver(fhs)
     pkg = fhs / "usr" / "lib" / "subagents" / "computer-use"

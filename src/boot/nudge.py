@@ -39,6 +39,13 @@ from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
 # `compact_threshold:` in /etc/config.yaml.
 DEFAULT_COMPACT_THRESHOLD = 150_000
 
+# Post-turn skill-candidate trigger. After a non-trivial turn the kernel nudges
+# librarian-pai to consider distilling the just-finished workflow into a SKILL.md
+# (the procedural twin of `memorize`). Librarian is the sole skills writer.
+SKILL_CANDIDATE_DURATION_SECS = 30
+SKILL_CANDIDATE_TOOL_CALLS = 5
+LIBRARIAN_SLUG = "librarian-pai"
+
 OVERCLOCK_SENTINEL = "<PAI_OVERCLOCK_COMPLETE>"
 OVERCLOCK_MAX_TURNS = 10
 OVERCLOCK_MAX_SECONDS = 60 * 60
@@ -651,6 +658,91 @@ async def _nudge_locked(
         P.clear_busy(pai_slug)
 
 
+def _count_tool_calls(messages: list[dict]) -> int:
+    """Count `tool_use` blocks across a slice of conversation messages.
+
+    Assistant turns store content as a list of blocks; each tool invocation is
+    a `{"type": "tool_use", ...}` block. String-content messages (plain user/
+    assistant text) contribute nothing."""
+    total = 0
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        total += sum(
+            1
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "tool_use"
+        )
+    return total
+
+
+def _is_skill_candidate(pai_slug: str, duration: float, tool_calls: int) -> bool:
+    """Whether a just-finished turn is worth offering to librarian as a skill.
+
+    Loop guard is mandatory: librarian's own turns hit this same post-turn path,
+    so it must never nominate itself (that would wake it on its own output and
+    spin). A turn qualifies when it ran long or fanned out across many tools —
+    the cheap signal that a reusable multi-step procedure just happened."""
+    if pai_slug == LIBRARIAN_SLUG:
+        return False
+    return (
+        duration > SKILL_CANDIDATE_DURATION_SECS
+        or tool_calls > SKILL_CANDIDATE_TOOL_CALLS
+    )
+
+
+def _resolve_librarian_pid() -> Optional[int]:
+    """Find librarian-pai's pid by scanning proc specs (same shape as the
+    `memorize` bin's resolver — librarian is identified by slug)."""
+    for slug, spec in P._iter_pai_specs():
+        if slug == LIBRARIAN_SLUG:
+            pid = spec.get("pid")
+            if isinstance(pid, int):
+                return pid
+    return None
+
+
+def _maybe_emit_skill_candidate(
+    pai_slug: str,
+    pai_pid: int,
+    duration: float,
+    tool_calls: int,
+    history_len: int,
+    new_history_len: int,
+) -> None:
+    """Nudge librarian to consider a skill from this turn, if it qualifies.
+
+    Fires the same `pai_message`/`target_pid` event that `memorize` uses, with a
+    `[skill-candidate …]` marker pointing librarian at the transcript range it
+    should read. Best-effort: never raise into the reply path."""
+    try:
+        if not _is_skill_candidate(pai_slug, duration, tool_calls):
+            return
+        lib_pid = _resolve_librarian_pid()
+        if lib_pid is None:
+            return
+        reason = "duration" if duration > SKILL_CANDIDATE_DURATION_SECS else "toolcalls"
+        P.emit_event({
+            "source": "pai",
+            "kind": "pai_message",
+            "target_pid": lib_pid,
+            "sender_pid": pai_pid,
+            "text": (
+                f"[skill-candidate from={pai_slug} reason={reason} "
+                f"duration={duration:.0f}s tools={tool_calls} "
+                f"turns={history_len}..{new_history_len}] "
+                f"messages=proc/{pai_slug}/messages.jsonl"
+            ),
+        })
+    except Exception as e:
+        print(f"[kernel] skill-candidate emit failed (pai={pai_slug}): {e!r}", flush=True)
+        try:
+            append_log(pai_slug, f"kernel: skill-candidate emit failed — {e!r}")
+        except ProcessNotFound:
+            pass
+
+
 async def _nudge_body(
     reason: str,
     slug: Optional[str],
@@ -663,6 +755,7 @@ async def _nudge_body(
     status_prefix: Optional[str] = None,
     reply_filter: Optional[Callable[[str], str]] = None,
 ) -> Optional[str]:
+    t0 = time.monotonic()
     if slug and slug != pai_slug:
         try:
             append_log(slug, f"kernel: nudge — {reason}")
@@ -889,6 +982,19 @@ async def _nudge_body(
         "turn_index": len(new_history),
         "messages_path": f"proc/{pai_slug}/messages.jsonl",
     })
+
+    # Procedural self-learning: after a non-trivial turn, nudge librarian to
+    # consider distilling the workflow into a SKILL.md. The `!= librarian-pai`
+    # loop guard (in `_is_skill_candidate`) keeps librarian's own turns — which
+    # hit this same path — from re-waking it. Best-effort; never raises.
+    _maybe_emit_skill_candidate(
+        pai_slug,
+        pai_pid,
+        time.monotonic() - t0,
+        _count_tool_calls(new_history[len(history):]),
+        len(history),
+        len(new_history),
+    )
 
     # Append-only turn audit log. Consumed by the macOS app's
     # NotifyWatcher to post "PAI <slug> finished" notifications.
