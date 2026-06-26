@@ -197,6 +197,18 @@ def _history_path(pai_slug: str) -> Path:
     return HOME_DIR / "proc" / pai_slug / "messages.jsonl"
 
 
+def _history_path_display(pai_slug: str) -> str:
+    """Namespace-absolute path to a PAI's live transcript, as any PAI sees it.
+
+    PAI_ROOT is mounted at `/` in every PAI's bash view, but each PAI's cwd is
+    its *own* home. The kernel writes transcripts under the default PAI's
+    stitched home (`HOME_DIR/proc/<slug>/`), NOT the FHS `/proc` — so a bare
+    relative `proc/<slug>/messages.jsonl` resolves against the reader's home
+    (e.g. librarian's, which has no `proc/`) and misses. Hand out the absolute
+    path so any PAI can open it regardless of cwd."""
+    return "/" + str(_history_path(pai_slug).relative_to(paths_mod.PAI_ROOT))
+
+
 def _load_history(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -732,7 +744,7 @@ def _maybe_emit_skill_candidate(
                 f"[skill-candidate from={pai_slug} reason={reason} "
                 f"duration={duration:.0f}s tools={tool_calls} "
                 f"turns={history_len}..{new_history_len}] "
-                f"messages=proc/{pai_slug}/messages.jsonl"
+                f"messages={_history_path_display(pai_slug)}"
             ),
         })
     except Exception as e:
@@ -980,7 +992,7 @@ async def _nudge_body(
         "slug": pai_slug,
         "pid": pai_pid,
         "turn_index": len(new_history),
-        "messages_path": f"proc/{pai_slug}/messages.jsonl",
+        "messages_path": _history_path_display(pai_slug),
     })
 
     # Procedural self-learning: after a non-trivial turn, nudge librarian to

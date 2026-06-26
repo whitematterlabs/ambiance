@@ -7,6 +7,18 @@ librarian-pai as a skill candidate, and the tool-call counter that feeds it.
 from __future__ import annotations
 
 from boot import nudge
+from boot import paths as paths_mod
+
+
+def test_history_path_display_is_namespace_absolute() -> None:
+    # The marker must hand librarian an absolute path. A bare relative
+    # `proc/<slug>/messages.jsonl` resolves against the *reader's* home
+    # (librarian's, which has no `proc/`) and misses — the file actually
+    # lives under the default PAI's stitched home.
+    disp = nudge._history_path_display("pai")
+    assert disp.startswith("/"), disp
+    assert disp == "/" + str(nudge._history_path("pai").relative_to(paths_mod.PAI_ROOT))
+    assert "home" in disp and disp.endswith("/proc/pai/messages.jsonl"), disp
 
 
 def test_predicate_fires_on_long_duration() -> None:
