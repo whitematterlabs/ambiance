@@ -87,12 +87,47 @@ description: "macOS Mail driver"
 #   driver, pai, subagent — `deps:` list of bundle names or typed refs; resolved recursively
 #   lib    — none beyond name/kind
 
-# Optional install-time hooks. Run after activation. Failures are logged
-# but never abort the install (a bad hook can't half-uninstall a bundle).
+# Optional install-time hooks. Run after activation, with cwd=PAI_ROOT and
+# shell=True. Failures are logged but never abort the install (a bad hook
+# can't half-uninstall a bundle). Two phases — see "Install hooks vs setup
+# hooks" below for when each fires.
 hooks:
-  install:
-    - "echo hello"
+  install:                       # headless; always runs; 120s cap
+    - "bash usr/lib/drivers/<name>/libexec/install.sh"
+  setup:                         # interactive; TTY only; 300s cap; skippable
+    - "usr/bin/<name>_pair"
 ```
+
+### Install hooks vs setup hooks
+
+A bundle gets two distinct hook phases, chosen by what the step needs:
+
+| | `hooks.install` | `hooks.setup` |
+|---|---|---|
+| When | Every install, after activation | Only when stdin **and** stdout are a TTY |
+| Prompt | None — runs unattended | `Run interactive setup for '<name>' now? [Y/n]` (default-yes) |
+| Timeout | 120s | 300s |
+| Headless run (CI, pipe, `paifs-init`) | Runs | **Skipped** — prints `run later: <cmd>` |
+| Use for | Idempotent staging the install can always do unattended: copy sidecar sources, `uv pip install` a dep, compile a binary | Steps that need a human, a permission grant, or longer than 120s: OAuth/login, QR pairing, Full-Disk-Access-gated population |
+
+Both run with `cwd=PAI_ROOT`; reference bundle files by their *activated*
+path (`usr/lib/drivers/<name>/...`, `usr/bin/<name>`), not the `/opt`
+store. A setup hook should exit `0` even when it can't complete (e.g. a
+permission not yet granted) and print the one-liner to run later, so the
+batch install isn't marked failed — it is expected to be re-runnable and
+idempotent.
+
+**Worked example — `mailv2`.** Its one-time history backfill reads the
+TCC-protected Mail.app Envelope Index (needs Full Disk Access on the
+terminal) and can outlast the 120s install cap, so it is a `setup` hook
+(`bash usr/lib/drivers/mailv2/libexec/backfill.sh`), not an `install`
+hook. On an interactive install it prompts and runs (migrating a legacy
+flat tree first if present, then backfilling — both resumable +
+idempotent); on a headless bootstrap it is skipped and the owner runs
+`cd ~/.pai && usr/bin/python -m drivers.mailv2.macmail.backfill` after
+granting access. `whatsapp` follows the same split: a headless `install`
+hook stages the Baileys bridge + deps, an interactive `setup` hook runs
+the QR pairing.
 
 `deps:` is a flat list of bare names. paiman walks deps first, fetching
 any missing one from the registry. Cycles are a hard error. Already-
@@ -238,6 +273,13 @@ the kernel's job.
    For `bin`, ensure the target has the execute bit.
 6. **Run install hooks.** Each `hooks.install` command runs with
    `cwd=PAI_ROOT`, 120s timeout. Failures are logged, never fatal.
+6b. **Run setup hooks (TTY only).** If stdin and stdout are both a TTY,
+   each `hooks.setup` command is offered (`[Y/n]`, default-yes), then run
+   with `cwd=PAI_ROOT`, 300s timeout. A non-interactive install skips this
+   phase entirely and prints `run later: <cmd>`. There is **no
+   `--no-setup` flag on paiman** — the TTY check is the only gate
+   (`--no-reload`, which `paisetup` passes, suppresses only the kernel
+   reload in step 8, not hooks).
 7. **Audit log.** Append a line to `/var/lib/paiman/log.md`.
 8. **Maybe reload.** If any installed bundle is a `skill` or `prompt`,
    emit `kernel:reload_config` so running PAIs re-stitch their homes
@@ -254,11 +296,47 @@ the kernel's job.
 4. `rmtree` the bundle dir.
 5. Append audit log entry.
 
-## Relationship to `paifs-init`
+## Bootstrap flow — `install.sh` → `paifs-init` → `paisetup`
 
-`paifs-init` (and `paisetup` on top of it) is the bootstrapper. On first
-install of `$PAI_ROOT`, it calls `paiman install` for a tight seed set
-declared as module constants in `src/bin/paifs_init.py`:
+`paiman` is never called by hand on a fresh machine; `./install.sh` drives
+it in two stages, and that is where a bundle's hooks (above) actually fire.
+
+```
+./install.sh
+  ├─ uv sync ; build web frontend
+  ├─ paifs-init --no-setup         # provision $PAI_ROOT, then install the SEED set
+  │     └─ paiman install <seed>   # contacts, messages, root/pai_default prompts, …
+  ├─ ensure API key
+  └─ paisetup                      # interactive registry picker (TTY only)
+        └─ paiman install --no-reload <each picked bundle>
+              ├─ hooks.install     # runs unattended
+              └─ hooks.setup       # prompts [Y/n] — TTY is inherited from paisetup
+```
+
+- **Stage 1 — `paifs-init` installs only the seed set** (the constants
+  below). It is called with `--no-setup`, which suppresses paifs-init
+  *chaining into* `paisetup` (install.sh runs `paisetup` itself next) — it
+  does **not** suppress paiman's per-bundle setup hooks. Owner-facing
+  drivers like `mailv2` / `imessage` / `macmail` are **not** seeded here.
+- **Stage 2 — `paisetup` is the interactive picker** (`src/sbin/paisetup`).
+  It runs only when stdin+stdout are a TTY (a piped/CI `install.sh` prints
+  "non-interactive shell — skipping" and installs nothing extra). In the
+  curses checklist **every `driver` is auto-checked** (`AUTO_CHECKED_KINDS
+  = {"driver"}`), so `mailv2` is selected by default. paisetup calls
+  `paiman.main(["install", "--no-reload", …])` **in-process**, so the TTY
+  propagates and each bundle's `hooks.setup` is offered right there. One
+  `kernel:reload_config` is emitted after the whole batch, not per package.
+
+Net effect for a hook author: a `setup` hook fires during an **interactive**
+`./install.sh` (once for each picked bundle, default-yes), and is deferred
+with a "run later" line on any **headless** install — which is exactly when
+a TCC/Full-Disk-Access-gated step like the `mailv2` backfill can't succeed
+anyway. See "Install hooks vs setup hooks" above.
+
+### Seed set
+
+On first install of `$PAI_ROOT`, `paifs-init` calls `paiman install` for a
+tight seed set declared as module constants in `src/bin/paifs_init.py`:
 
 - `ROOT_SEED_PROMPTS` — `root`, `pai_default`, `subagent`,
   `subagent-persistent`. Stitched into every spawned PAI/subagent
