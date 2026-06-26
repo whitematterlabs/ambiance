@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Gauge } from "lucide-react";
+import { ContextRing } from "./ContextRing";
 
 export function MessageInput({
   disabled,
@@ -16,6 +17,8 @@ export function MessageInput({
   onVoiceStatus,
   prefill,
   overclockRunning = false,
+  ctxTokens = 0,
+  ctxLimit = 0,
 }: {
   disabled: boolean;
   onSubmit: (text: string, options?: { overclock?: boolean }) => void;
@@ -24,6 +27,8 @@ export function MessageInput({
   onVoiceStatus: (status: string) => void;
   prefill?: { text: string; nonce: number } | null;
   overclockRunning?: boolean;
+  ctxTokens?: number;
+  ctxLimit?: number;
 }) {
   const [value, setValue] = useState("");
   const [overclockDraft, setOverclockDraft] = useState(false);
@@ -254,6 +259,7 @@ export function MessageInput({
       >
         <MicIcon />
       </button>
+      {!disabled && ctxLimit > 0 && <ContextRing tokens={ctxTokens} limit={ctxLimit} />}
       <button
         className="composer-send"
         type="submit"

@@ -21,6 +21,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from boot import config
+from boot.nudge import DEFAULT_COMPACT_THRESHOLD
 from boot.processes import (
     EVENTS_DIR,
     PROC_DIR,
@@ -141,6 +142,11 @@ def read_proc_rows() -> list[dict]:
                 "tree_prefix": prefix,
                 "busy": {"reason": busy[0], "started_at": busy[1]} if busy else None,
                 "ctx_tokens": _read_ctx_tokens(slug),
+                # Compaction trips at this many prompt-window tokens — the
+                # natural "full" mark for the composer's context ring. Per-PAI
+                # `compact_threshold:` (a config-managed field on spec.yaml)
+                # overrides the kernel default.
+                "ctx_limit": int(spec.get("compact_threshold") or DEFAULT_COMPACT_THRESHOLD),
             }
         )
     return rows

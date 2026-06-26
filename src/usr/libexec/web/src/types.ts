@@ -21,6 +21,10 @@ export interface ProcRow {
   tree_prefix: string;
   busy: { reason: string; started_at: number } | null;
   ctx_tokens: number;
+  // Token count at which the kernel forces a compaction — the "full" mark for
+  // the composer's context ring. Sourced from per-PAI `compact_threshold` or
+  // the kernel default.
+  ctx_limit: number;
 }
 
 export interface ThreadMessage {

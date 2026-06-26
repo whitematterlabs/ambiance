@@ -599,6 +599,8 @@ export function App() {
               onVoiceStatus={setStatus}
               prefill={composerDraft}
               overclockRunning={activeOverclockRunning}
+              ctxTokens={activeProc?.ctx_tokens ?? 0}
+              ctxLimit={activeProc?.ctx_limit ?? 0}
             />
           </section>
         </section>
