@@ -1421,6 +1421,60 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* Hover tooltip: exact token counts + auto-compact note. */
+.composer-ctx-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: max-content;
+  max-width: 220px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.15s var(--ease), transform 0.15s var(--ease);
+}
+
+.composer-ctx:hover .composer-ctx-tip,
+.composer-ctx:focus-visible .composer-ctx-tip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.composer-ctx-tip-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ctx-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-ctx-tip-sep {
+  opacity: 0.5;
+  font-weight: 500;
+}
+
+.composer-ctx-tip-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.composer-ctx-tip-note {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+  margin-top: 1px;
+}
+
 /* ---------- Side panel ---------- */
 .side-panel {
   display: flex;

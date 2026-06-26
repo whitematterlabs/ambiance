@@ -2,15 +2,6 @@
 // compaction threshold (ctx_tokens / ctx_limit). Sits at the right edge of the
 // composer. Color escalates calm → warn → full as the ring tops out.
 
-// Compact token count: 12.3k / 187k / 1.2M (matches ProcList.fmtCtx + _fmt_ctx).
-function fmtCtx(n: number): string {
-  if (!n) return "0";
-  if (n < 1000) return String(n);
-  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
-  if (n < 1_000_000) return `${Math.floor(n / 1000)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
 const SIZE = 30;
 const STROKE = 3;
 const R = (SIZE - STROKE) / 2;
@@ -25,12 +16,15 @@ export function ContextRing({ tokens, limit }: { tokens: number; limit: number }
   const level = frac >= 0.95 ? "full" : frac >= 0.75 ? "warn" : "calm";
   const offset = C * (1 - frac);
 
+  // Full exact counts (e.g. 12,345 / 187,000) for the hover tooltip.
+  const used = tokens.toLocaleString();
+  const total = limit.toLocaleString();
+
   return (
     <div
       className={`composer-ctx ${level}`}
       role="img"
-      aria-label={`Context ${pct}% — ${fmtCtx(tokens)} of ${fmtCtx(limit)} tokens`}
-      title={`Context: ${fmtCtx(tokens)} / ${fmtCtx(limit)} tokens (${pct}%)\nCompacts automatically near the top.`}
+      aria-label={`Context ${pct}% — ${used} of ${total} tokens used. PAI auto-compacts when the limit is reached.`}
     >
       <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
         <circle
@@ -55,6 +49,15 @@ export function ContextRing({ tokens, limit }: { tokens: number; limit: number }
         />
       </svg>
       <span className="composer-ctx-pct">{pct}</span>
+      <div className="composer-ctx-tip" role="tooltip">
+        <span className="composer-ctx-tip-count">
+          {used} <span className="composer-ctx-tip-sep">/</span> {total}
+        </span>
+        <span className="composer-ctx-tip-label">tokens used ({pct}%)</span>
+        <span className="composer-ctx-tip-note">
+          PAI auto-compacts when the limit is reached.
+        </span>
+      </div>
     </div>
   );
 }
