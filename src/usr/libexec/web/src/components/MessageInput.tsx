@@ -184,6 +184,15 @@ export function MessageInput({
       className={`composer ${isShell ? "shell" : ""} ${overclockDraft ? "overclock" : ""}`}
       onSubmit={submit}
     >
+      {overclockDraft && (
+        <div className="composer-overclock-tab">
+          <span className="composer-overclock-tab-label">Overclocked</span>
+          <span className="composer-overclock-tab-desc">
+            PAI will continue working until a specific condition is fulfilled.
+          </span>
+        </div>
+      )}
+      <div className="composer-row">
       <button
         className="composer-stop"
         type="button"
@@ -206,14 +215,6 @@ export function MessageInput({
         <Gauge aria-hidden="true" focusable="false" />
       </button>
       <div className="composer-field">
-        {overclockDraft && (
-          <div className="composer-overclock-tab">
-            <span className="composer-overclock-tab-label">Overclocked</span>
-            <span className="composer-overclock-tab-desc">
-              PAI will continue working until a specific condition is fulfilled.
-            </span>
-          </div>
-        )}
         <textarea
           ref={inputRef}
           className="composer-input"
@@ -269,6 +270,7 @@ export function MessageInput({
       >
         ↑
       </button>
+      </div>
     </form>
   );
 }

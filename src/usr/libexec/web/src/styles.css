@@ -1181,8 +1181,7 @@ button {
 
 .composer {
   display: flex;
-  align-items: flex-end;
-  gap: 9px;
+  flex-direction: column;
   margin: 14px 16px 16px;
   padding: 8px;
   background: var(--surface-raised);
@@ -1191,6 +1190,12 @@ button {
   flex: 0 0 auto;
   transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease),
     background 0.2s var(--ease);
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
 }
 
 .composer:focus-within {
@@ -1255,25 +1260,16 @@ button {
   color: #6b5a3a;
 }
 
-/* The overclock tab is a folder tab sitting on this panel edge. */
-.composer.overclock .composer-input {
-  border-top: 1px solid color-mix(in srgb, var(--teal) 30%, var(--border));
-  padding-top: 9px;
-}
-
+/* The overclock banner is a full-width header strip above the input row. */
 .composer-overclock-tab {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 4px 8px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 0 -1px;
-  padding: 4px 11px 6px;
-  border: 1px solid color-mix(in srgb, var(--teal) 30%, var(--border));
-  border-bottom: none;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: color-mix(in srgb, var(--teal) 10%, var(--surface-raised));
+  margin: -2px -2px 8px;
+  padding: 6px 9px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--teal) 30%, var(--border));
+  background: transparent;
   animation: fade-in 0.18s var(--ease) both;
 }
 
@@ -2610,10 +2606,13 @@ button {
   }
 
   .composer {
-    gap: 7px;
     margin: 10px;
     padding: 7px;
     padding-bottom: max(7px, env(safe-area-inset-bottom));
+  }
+
+  .composer-row {
+    gap: 7px;
   }
 
   .composer-input {
