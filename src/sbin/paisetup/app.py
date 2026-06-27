@@ -9,6 +9,9 @@ into on a fresh dev install). Two dialogues, in order:
   2. Packages — pick extra drivers from the registry via a menuconfig-style
      curses picker and install them. (PAI bundles are configured by paiadd, not
      picked here; baseline subagents/infra drivers are force-installed.)
+  3. Full Disk Access — when an FDA-gated driver (imessage/email) is installed
+     but access is denied, point the user at the Privacy pane (macOS has no
+     prompt for FDA). Guidance only; see fda.py.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from bin import paiman
 
 from . import picker
 from .apikey import ensure_api_key
+from .fda import ensure_full_disk_access
 from .inventory import Item, discover
 
 
@@ -134,46 +138,50 @@ def main(argv: list[str] | None = None) -> int:
 
     install_order = ("driver", "skill", "subagent")
     total = sum(len(selected.get(k, [])) for k in install_order)
-    if total == 0:
-        print("paisetup: nothing to install.")
-        return 0
-
-    print(f"\nInstalling {total} package(s)...")
     failures: list[str] = []
-    for kind in install_order:
-        for name in selected.get(kind, []):
-            it = items_by_key.get((kind, name))
-            arg = _install_arg(it) if it is not None else name
-            print(f"\n--- paiman install {arg} ---")
+    if total == 0:
+        print("paisetup: nothing new to install.")
+    else:
+        print(f"\nInstalling {total} package(s)...")
+        for kind in install_order:
+            for name in selected.get(kind, []):
+                it = items_by_key.get((kind, name))
+                arg = _install_arg(it) if it is not None else name
+                print(f"\n--- paiman install {arg} ---")
+                try:
+                    # --no-reload: each install would otherwise emit its own
+                    # kernel:reload_config, and a full reconcile (drain every PAI
+                    # lock + re-stitch all homes) per package serializes into a
+                    # storm. Suppress here; emit one reload after the batch below.
+                    rc = paiman.main(["install", "--no-reload", arg])
+                except SystemExit as e:
+                    rc = e.code if isinstance(e.code, int) else 1
+                except Exception as e:
+                    print(f"paisetup: install of {name!r} failed: {e}", file=sys.stderr)
+                    rc = 1
+                if rc != 0:
+                    failures.append(name)
+
+        if total - len(failures) > 0:
+            # One reconcile for the whole batch: re-stitches homes so newly
+            # installed skills/prompts surface, and re-discovers drivers so they
+            # start, all without a kernel reboot.
             try:
-                # --no-reload: each install would otherwise emit its own
-                # kernel:reload_config, and a full reconcile (drain every PAI
-                # lock + re-stitch all homes) per package serializes into a
-                # storm. Suppress here; emit one reload after the batch below.
-                rc = paiman.main(["install", "--no-reload", arg])
-            except SystemExit as e:
-                rc = e.code if isinstance(e.code, int) else 1
+                from boot import processes as _processes
+                _processes.emit_event({"kind": "kernel:reload_config",
+                                       "source": "paisetup", "action": "install"})
             except Exception as e:
-                print(f"paisetup: install of {name!r} failed: {e}", file=sys.stderr)
-                rc = 1
-            if rc != 0:
-                failures.append(name)
+                print(f"paisetup: warning — could not emit kernel:reload_config: {e}",
+                      file=sys.stderr)
+        print()
+        print(f"paisetup: installed {total - len(failures)} package(s).")
 
-    installed_any = total - len(failures) > 0
-    if installed_any:
-        # One reconcile for the whole batch: re-stitches homes so newly
-        # installed skills/prompts surface, and re-discovers drivers so they
-        # start, all without a kernel reboot.
-        try:
-            from boot import processes as _processes
-            _processes.emit_event({"kind": "kernel:reload_config",
-                                   "source": "paisetup", "action": "install"})
-        except Exception as e:
-            print(f"paisetup: warning — could not emit kernel:reload_config: {e}",
-                  file=sys.stderr)
+    # FDA guidance runs regardless of whether anything was installed this run —
+    # imessage/email may already be on disk from a prior setup, and the grant is
+    # what's actually missing. No-op unless an FDA-gated driver is present and
+    # access is denied (see fda.ensure_full_disk_access).
+    ensure_full_disk_access(_pai_root())
 
-    print()
-    print(f"paisetup: installed {total - len(failures)} package(s).")
     if failures:
         print(f"paisetup: failed: {', '.join(failures)}", file=sys.stderr)
         return 1

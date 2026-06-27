@@ -145,6 +145,10 @@ def test_auto_install_items_merged_into_install(monkeypatch) -> None:
         "pai": [],
     }
     monkeypatch.setattr(paisetup_app, "_tty_available", lambda: True)
+    # Keep the flow hermetic: don't prompt for a key or pop System Settings
+    # against the real ~/.pai during the install-loop test.
+    monkeypatch.setattr(paisetup_app, "ensure_api_key", lambda root: None)
+    monkeypatch.setattr(paisetup_app, "ensure_full_disk_access", lambda root: None)
     monkeypatch.setattr(paisetup_app, "discover", lambda: groups)
     # Owner picks only whatsapp from the visible drivers.
     monkeypatch.setattr(paisetup_app.picker, "run", lambda g: {"driver": ["whatsapp"]})
@@ -230,3 +234,89 @@ def test_ensure_api_key_noninteractive_warns_no_write(tmp_path: Path, monkeypatc
     apikey.ensure_api_key(tmp_path)
     assert "DEEPSEEK_API_KEY not set" in capsys.readouterr().err
     assert not (tmp_path / ".env").exists()
+
+
+# --- Full Disk Access guidance ----------------------------------------------
+
+from sbin.paisetup import fda  # noqa: E402
+
+
+def _make_driver(root: Path, name: str) -> None:
+    (root / "usr" / "lib" / "drivers" / name).mkdir(parents=True, exist_ok=True)
+
+
+def test_installed_fda_drivers_detects_on_disk(tmp_path: Path) -> None:
+    _make_driver(tmp_path, "imessage")
+    _make_driver(tmp_path, "whatsapp")  # not FDA-gated
+    assert fda.installed_fda_drivers(tmp_path) == ["imessage"]
+
+
+def test_host_terminal_maps_known_and_unknown(monkeypatch) -> None:
+    monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
+    assert fda._host_terminal() == "iTerm"
+    monkeypatch.setenv("TERM_PROGRAM", "something-weird")
+    assert fda._host_terminal() == "your terminal app"
+
+
+def test_has_fda_granted_on_readable_probe(tmp_path: Path, monkeypatch) -> None:
+    readable = tmp_path / "chat.db"
+    readable.write_bytes(b"x")
+    monkeypatch.setattr(fda, "_FDA_PROBES", (readable,))
+    assert fda._has_full_disk_access() is True
+
+
+def test_has_fda_denied_on_permission_error(tmp_path: Path, monkeypatch) -> None:
+    denied = tmp_path / "chat.db"
+    denied.write_bytes(b"x")
+    denied.chmod(0o000)
+    absent = tmp_path / "nope.db"
+    monkeypatch.setattr(fda, "_FDA_PROBES", (denied, absent))
+    try:
+        assert fda._has_full_disk_access() is False
+    finally:
+        denied.chmod(0o600)  # let pytest clean up tmp_path
+
+
+def test_has_fda_unknown_when_all_absent(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(fda, "_FDA_PROBES", (tmp_path / "a", tmp_path / "b"))
+    assert fda._has_full_disk_access() is None
+
+
+def test_ensure_fda_noop_off_macos(tmp_path: Path, monkeypatch, capsys) -> None:
+    _make_driver(tmp_path, "imessage")
+    monkeypatch.setattr(fda.sys, "platform", "linux")
+    fda.ensure_full_disk_access(tmp_path)
+    assert capsys.readouterr().out == ""
+
+
+def test_ensure_fda_noop_without_gated_driver(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(fda.sys, "platform", "darwin")
+    monkeypatch.setattr(fda, "_has_full_disk_access", lambda: False)
+    # no FDA driver on disk
+    fda.ensure_full_disk_access(tmp_path)
+    assert capsys.readouterr().out == ""
+
+
+def test_ensure_fda_noop_when_granted(tmp_path: Path, monkeypatch, capsys) -> None:
+    _make_driver(tmp_path, "imessage")
+    monkeypatch.setattr(fda.sys, "platform", "darwin")
+    monkeypatch.setattr(fda, "_has_full_disk_access", lambda: True)
+    opened: list = []
+    monkeypatch.setattr(fda.subprocess, "run", lambda *a, **k: opened.append(a))
+    fda.ensure_full_disk_access(tmp_path)
+    assert capsys.readouterr().out == ""
+    assert opened == []  # pane never opened
+
+
+def test_ensure_fda_guides_and_opens_pane_when_denied(tmp_path: Path, monkeypatch, capsys) -> None:
+    _make_driver(tmp_path, "imessage")
+    monkeypatch.setattr(fda.sys, "platform", "darwin")
+    monkeypatch.setattr(fda, "_has_full_disk_access", lambda: False)
+    monkeypatch.setenv("TERM_PROGRAM", "Apple_Terminal")
+    opened: list = []
+    monkeypatch.setattr(fda.subprocess, "run", lambda cmd, **k: opened.append(cmd))
+    fda.ensure_full_disk_access(tmp_path)
+    out = capsys.readouterr().out
+    assert "Full Disk Access" in out
+    assert "Terminal" in out  # host terminal named
+    assert len(opened) == 1 and "Privacy_AllFilesAccess" in opened[0][1]
