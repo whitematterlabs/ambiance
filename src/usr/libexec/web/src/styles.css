@@ -173,64 +173,14 @@ button {
   min-width: 0;
 }
 
-/* The wordmark reads as a shell prompt line: a clay chevron, PAI typed in mono,
-   and a block cursor that turns green when the kernel is up — the logo itself is
-   a live status light. PAI is PID 1; this says "a system you talk to." */
-.brand-mark {
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--mono);
-  line-height: 1;
+/* Owner-supplied PAI wordmark. Fills with the header ink (currentColor) so it
+   adapts to light/dark; height-locked to the header line. */
+.brand-logo {
+  display: block;
+  height: 24px;
+  width: auto;
+  color: var(--text);
   user-select: none;
-}
-
-.brand-sigil {
-  margin-right: 9px;
-  color: var(--accent);
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.brand-name {
-  font-family: var(--mono);
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  /* letter-spacing pushes a trailing gap after the I; pull the cursor back so it
-     sits one character-cell away, like a real terminal caret. */
-  margin-right: 1px;
-}
-
-.brand-cursor {
-  width: 9px;
-  height: 19px;
-  border-radius: 1.5px;
-  background: var(--dim);
-  transition: background 0.3s var(--ease), box-shadow 0.3s var(--ease);
-  animation: cursor-blink 1.15s steps(1, end) infinite;
-}
-
-.brand-mark[data-kernel="up"] .brand-cursor {
-  background: var(--ok);
-  box-shadow: 0 0 8px -1px color-mix(in srgb, var(--ok) 70%, transparent);
-}
-
-@keyframes cursor-blink {
-  0%,
-  55% {
-    opacity: 1;
-  }
-  56%,
-  100% {
-    opacity: 0.12;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brand-cursor {
-    animation: none;
-    opacity: 1;
-  }
 }
 
 .kernel-toggle {
