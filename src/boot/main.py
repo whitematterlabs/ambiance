@@ -167,6 +167,24 @@ async def _drain_elapsed_timers(heap: list[T.TimerEntry], now: datetime) -> None
                 pass
 
 
+async def _safe_handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
+    """Backstop around _handle_event_file.
+
+    A malformed event is already quarantined in read_event, but any
+    downstream bug in event handling must not take down the supervisor
+    (PID 1) either — symmetric with the timer-handler guard above. Control
+    flow (_RestartRequested, CancelledError) is BaseException, so it still
+    propagates through this `except Exception`.
+    """
+    try:
+        await _handle_event_file(path, heap)
+    except Exception as exc:
+        print(
+            f"[kernel] event handler failed for {path.name}: {exc!r}; continuing",
+            flush=True,
+        )
+
+
 async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
     event = read_event(path)
     if event is None:
@@ -1026,7 +1044,7 @@ async def run() -> None:
             event_task = asyncio.create_task(watcher.next())
             if timeout is None:
                 await event_task
-                await _handle_event_file(event_task.result(), heap)
+                await _safe_handle_event_file(event_task.result(), heap)
             else:
                 sleep_task = asyncio.create_task(asyncio.sleep(timeout))
                 done, pending = await asyncio.wait(
@@ -1036,7 +1054,7 @@ async def run() -> None:
                 for t in pending:
                     t.cancel()
                 if event_task in done:
-                    await _handle_event_file(event_task.result(), heap)
+                    await _safe_handle_event_file(event_task.result(), heap)
     except asyncio.CancelledError:
         # SIGINT/SIGTERM handler cancels main_task; that's the expected
         # shutdown path, not a crash. Let `finally` run the orderly drain

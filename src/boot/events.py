@@ -90,18 +90,48 @@ class EventWatcher:
         return await self.queue.get()
 
 
+def _quarantine(path: Path, exc: Exception) -> None:
+    """Move a malformed event out of the bus so it can't take down PID 1.
+
+    A single poison event (e.g. a driver/watcher that wrote unquoted YAML)
+    must never crash the supervisor. We move it aside for inspection — into
+    a sibling `events.bad/` the FS watcher does not observe — and log; the
+    kernel keeps draining.
+    """
+    bad_dir = path.parent.parent / "events.bad"
+    dest = bad_dir / path.name
+    try:
+        bad_dir.mkdir(parents=True, exist_ok=True)
+        path.rename(dest)
+    except OSError:
+        dest = path  # best-effort; the finally-unlink below still consumes it
+    print(
+        f"[kernel] quarantined malformed event {path.name}: {exc!r} -> {dest}",
+        flush=True,
+    )
+
+
 def read_event(path: Path) -> Optional[dict]:
     """Parse an event file and consume it (delete from disk).
 
     Returns None if the file is gone — racy proc-watcher / consumer
-    interleavings can hand us a path that's already been read+unlinked.
+    interleavings can hand us a path that's already been read+unlinked — or
+    if the file is malformed YAML, in which case it is quarantined rather
+    than allowed to propagate and crash the supervisor.
     """
     try:
         with path.open() as f:
-            data = yaml.safe_load(f) or {}
+            raw = f.read()
     except FileNotFoundError:
         return None
+    try:
+        data = yaml.safe_load(raw) or {}
+    except yaml.YAMLError as exc:
+        _quarantine(path, exc)
+        return None
     finally:
+        # Consume-on-read: drop it from the bus. If _quarantine already
+        # moved it, this is a no-op (FileNotFoundError).
         try:
             path.unlink()
         except FileNotFoundError:
