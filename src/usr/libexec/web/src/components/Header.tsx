@@ -76,7 +76,15 @@ export function Header({
   return (
     <header className="header">
       <div className="brand">
-        <span className="brand-name">PAI</span>
+        <span
+          className="brand-mark"
+          data-kernel={kernelRunning ? "up" : "down"}
+          title={kernelRunning ? "Kernel running" : "Kernel stopped"}
+        >
+          <span className="brand-sigil" aria-hidden="true">❯</span>
+          <span className="brand-name">PAI</span>
+          <span className="brand-cursor" aria-hidden="true" />
+        </span>
         <button
           className="kernel-toggle"
           type="button"
