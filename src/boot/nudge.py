@@ -81,6 +81,27 @@ def _is_ad_hoc_subagent(spec: dict) -> bool:
     )
 
 
+def _proc_already_resolved(slug: str) -> bool:
+    """True if the proc was resolved/reaped *during* its own turn.
+
+    A subagent's standard exit (`bin/subagent done` / `reply --done`) and a
+    parent `subagent kill` both resolve the child's proc — and reap it — from
+    inside the turn that's now ending. The kernel's post-turn exit (auto-finish
+    fallback + the ephemeral resolve) reads `pai_spec` captured at turn *start*,
+    so without this guard it would race the child's own exit: re-deliver a
+    duplicate `subagent:response` to the parent and then fail its now-redundant
+    `P.resolve` with ProcessNotFound ("subagent auto-finish failed"). If the
+    child already finished itself, the kernel has nothing left to do.
+    """
+    try:
+        status = P.read_status(slug)
+    except (ProcessNotFound, FileNotFoundError):
+        # Proc dir reaped (or reaped then partially recreated by the
+        # history write) — the child resolved itself.
+        return True
+    return status in P.TERMINAL_STATUSES
+
+
 def _auto_finish_subagent_plain_reply(
     *,
     pai_slug: str,
@@ -1026,6 +1047,12 @@ async def _nudge_body(
 
     _apply_history_action(pai_slug, history_path)
 
+    # The child may have ended its turn by resolving its own proc (the standard
+    # `bin/subagent done` exit) or been killed by its parent mid-turn. In either
+    # case the kernel's post-turn exit below would clash with that — duplicate
+    # response + a failing redundant resolve — so detect it once and stand down.
+    already_resolved = _proc_already_resolved(pai_slug)
+
     auto_finished = False
     if reply:
         visible_reply = reply_filter(reply) if reply_filter else reply
@@ -1034,6 +1061,7 @@ async def _nudge_body(
         if (
             visible_reply
             and parent_pid is not None
+            and not already_resolved
             and _is_ad_hoc_subagent(pai_spec)
         ):
             auto_finished = _auto_finish_subagent_plain_reply(
@@ -1061,7 +1089,7 @@ async def _nudge_body(
         except ProcessNotFound:
             pass
 
-    if is_ephemeral and not auto_finished:
+    if is_ephemeral and not auto_finished and not already_resolved:
         try:
             P.resolve(pai_slug, "completed")
         except ProcessNotFound:

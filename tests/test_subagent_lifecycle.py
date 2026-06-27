@@ -352,6 +352,88 @@ def test_nudge_env_exposes_resolved_pai_result_dir(
     )
 
 
+def test_self_finished_subagent_with_trailing_text_does_not_double_exit(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A child that calls `bin/subagent done` *and* leaves trailing assistant
+    text must not trigger the kernel's auto-finish fallback on top of its own
+    exit. The child reaps its own /proc during the turn; the stale turn-start
+    spec must not make the kernel emit a second subagent:response and then fail
+    its redundant P.resolve with ProcessNotFound ("auto-finish failed")."""
+    child_slug = "child-self-done"
+    child_pid = _spawn_parent_child(child_slug=child_slug)
+    parent_home = P.HOME_DIR / "root"
+    parent_home.mkdir(parents=True)
+
+    def fake_home_for(slug: str) -> Path:
+        home = P.HOME_DIR / slug
+        home.mkdir(parents=True, exist_ok=True)
+        return home
+
+    async def fake_run_turn(*args, history=None, **kwargs):
+        # Simulate the child invoking `bin/subagent done --result result.md`
+        # mid-turn: emit the real done response to the parent, then reap its
+        # own proc — exactly what bin/subagent's _resolve_done does.
+        result_dir = parent_home / "workspace" / child_slug
+        result_dir.mkdir(parents=True, exist_ok=True)
+        (result_dir / "result.md").write_text("real report\n")
+        result_ref = f"workspace/{child_slug}/result.md"
+        P.emit_event(
+            {
+                "source": "subagent",
+                "kind": "subagent:response",
+                "target_pid": 1,
+                "sender_pid": child_pid,
+                "text": f"done: {result_ref}",
+                "done": True,
+                "result": result_ref,
+            }
+        )
+        P.resolve(child_slug, "completed", notify_parent=False)
+        messages = list(history or [])
+        messages.append(
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "All set — report saved."}],
+            }
+        )
+        # Model leaves a trailing summary sentence after the done tool call.
+        return "All set — report saved.", messages
+
+    monkeypatch.setattr(nudge_mod, "HOME_DIR", P.HOME_DIR, raising=True)
+    monkeypatch.setattr(nudge_mod, "PROC_DIR", P.PROC_DIR, raising=True)
+    monkeypatch.setattr(nudge_mod.stitch, "home_for", fake_home_for)
+    monkeypatch.setattr(nudge_mod.bootstrap, "build_system_prompt", lambda **kwargs: "system")
+    monkeypatch.setattr(nudge_mod.bootstrap, "build_user_turn", lambda *args, **kwargs: "user")
+    monkeypatch.setattr(nudge_mod.llm, "run_turn", fake_run_turn)
+
+    asyncio.run(
+        nudge_mod._nudge_body(
+            reason="peer message",
+            slug=None,
+            context=None,
+            pai_pid=child_pid,
+            pai_slug=child_slug,
+            from_=1,
+            from_kind="pai",
+        )
+    )
+
+    events = _events(P.EVENTS_DIR)
+    responses = [e for e in events if e.get("kind") == "subagent:response"]
+    # Exactly one done response — the child's own. No auto-fallback duplicate.
+    assert len(responses) == 1, responses
+    assert responses[0].get("auto_fallback") is not True
+    assert responses[0]["text"] == f"done: workspace/{child_slug}/result.md"
+
+    # The child's own result must not be clobbered by the fallback writer.
+    handoff = parent_home / "workspace" / child_slug / "result.md"
+    assert handoff.read_text() == "real report\n"
+
+    # The kernel must not have tried (and failed) a redundant second exit.
+    assert "auto-finish failed" not in capsys.readouterr().out
+
+
 def test_plain_text_subagent_reply_auto_finishes(
     live_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
