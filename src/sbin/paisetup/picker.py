@@ -16,12 +16,13 @@ SECTION_TITLES = {
 
 VISIBLE_KINDS = tuple(SECTION_TITLES)
 
-# Drivers are infrastructure and stay checked as a group. A couple of subagents
-# are owner-facing enough to install by default without making every subagent
+# Drivers are infrastructure and stay checked as a group. A few subagents are
+# owner-facing enough to install by default without making every subagent
 # opt-out.
 AUTO_CHECKED_KINDS = frozenset({"driver"})
 AUTO_CHECKED_ITEMS = frozenset({
     ("subagent", "browse"),
+    ("subagent", "computer-use"),
     ("subagent", "scout"),
 })
 

@@ -66,7 +66,7 @@ def test_picker_hides_skills_section() -> None:
     ]
 
 
-def test_picker_auto_checks_drivers_browse_and_scout() -> None:
+def test_picker_auto_checks_drivers_browse_computer_use_and_scout() -> None:
     rows = picker._build_rows({
         "driver": [_item(kind="driver", name="calendar")],
         "subagent": [
@@ -84,7 +84,7 @@ def test_picker_auto_checks_drivers_browse_and_scout() -> None:
     assert states == {
         ("driver", "calendar"): True,
         ("subagent", "browse"): True,
-        ("subagent", "computer-use"): False,
+        ("subagent", "computer-use"): True,
         ("subagent", "scout"): True,
     }
 
@@ -114,7 +114,11 @@ def test_json_catalog_hides_skills_and_marks_default_checked(monkeypatch, capsys
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["auto_checked"] == ["driver"]
-    assert payload["auto_checked_refs"] == ["subagents/browse", "subagents/scout"]
+    assert payload["auto_checked_refs"] == [
+        "subagents/browse",
+        "subagents/computer-use",
+        "subagents/scout",
+    ]
     assert set(payload["groups"]) == {"driver", "subagent"}
     defaults = {
         (kind, item["name"]): item["default_checked"]
@@ -124,6 +128,6 @@ def test_json_catalog_hides_skills_and_marks_default_checked(monkeypatch, capsys
     assert defaults == {
         ("driver", "calendar"): True,
         ("subagent", "browse"): True,
-        ("subagent", "computer-use"): False,
+        ("subagent", "computer-use"): True,
         ("subagent", "scout"): True,
     }
