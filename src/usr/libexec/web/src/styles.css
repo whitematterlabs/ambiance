@@ -158,6 +158,8 @@ button {
   min-height: 62px;
   padding: 12px 28px;
   flex: 0 0 auto;
+  position: relative;
+  z-index: 50;
   border-bottom: 1px solid var(--border);
   background: var(--header-bg);
   backdrop-filter: blur(16px) saturate(1.1);
