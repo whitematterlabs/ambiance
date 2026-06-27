@@ -21,8 +21,16 @@ import sqlite3
 
 import pytest
 
-from drivers.email.macmail import accounts as A
-from drivers.email.macmail import inbound
+# The email/macmail driver is homed in pairegistry and only importable when
+# installed under usr/lib/drivers/. It's been superseded by mailv2, which is
+# what ships on most roots — skip cleanly rather than erroring at collection.
+pytest.importorskip(
+    "drivers.email.macmail",
+    reason="macmail email driver not installed (superseded by mailv2)",
+)
+
+from drivers.email.macmail import accounts as A  # noqa: E402
+from drivers.email.macmail import inbound  # noqa: E402
 
 
 def _row(rowid: int) -> dict:

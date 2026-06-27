@@ -8,19 +8,34 @@ import pytest
 
 @pytest.fixture
 def laid_out_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    import importlib
+    import os
+
     from bin import paifs_init
 
     # These phase tests only need the base FHS skeleton. Avoid installing
     # kernel-essential bundles from the external paiman registry during setup.
     monkeypatch.setattr(paifs_init, "seed_kernel_essentials", lambda _root: None)
     paifs_init.lay_out(tmp_path)
-    monkeypatch.setenv("PAI_ROOT", str(tmp_path))
-    # Re-import paths so PAI_ROOT picks up the env var.
-    import importlib
 
+    # Re-import paths so PAI_ROOT picks up the env var. The reload mutates the
+    # *module* global, which monkeypatch can't undo — so manage the env var by
+    # hand and reload paths back on teardown. Otherwise paths.PAI_ROOT leaks the
+    # last tmp dir into every later test (nudge._history_path_display reads it
+    # dynamically and breaks).
     import boot.paths as paths
+
+    old_env = os.environ.get("PAI_ROOT")
+    os.environ["PAI_ROOT"] = str(tmp_path)
     importlib.reload(paths)
-    return tmp_path
+    try:
+        yield tmp_path
+    finally:
+        if old_env is None:
+            os.environ.pop("PAI_ROOT", None)
+        else:
+            os.environ["PAI_ROOT"] = old_env
+        importlib.reload(paths)
 
 
 def test_sanity_passes_on_complete_layout(laid_out_root: Path) -> None:

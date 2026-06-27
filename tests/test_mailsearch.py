@@ -20,7 +20,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-import drivers.email as _de
+# The email driver is homed in pairegistry and only importable when installed
+# under usr/lib/drivers/. Superseded by mailv2 on most roots — skip cleanly
+# rather than erroring at collection.
+_de = pytest.importorskip(
+    "drivers.email",
+    reason="email driver not installed (superseded by mailv2)",
+)
 
 _REG_ROOT = Path(_de.__file__).resolve().parents[2]
 _MS_PATH = _REG_ROOT / "bin" / "mailsearch" / "mailsearch.py"

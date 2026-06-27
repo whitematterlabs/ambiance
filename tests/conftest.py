@@ -22,6 +22,7 @@ if _usr_lib not in sys.path:
     sys.path.insert(0, _usr_lib)
 
 from boot import config as C
+from boot import paths as PA
 from boot import processes as P
 
 
@@ -35,6 +36,12 @@ def live_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(P, "HOME_DIR", live, raising=True)
     monkeypatch.setattr(P, "PROC_DIR", proc, raising=True)
     monkeypatch.setattr(P, "EVENTS_DIR", events, raising=True)
+    # Keep the FHS invariant: HOME_DIR lives under PAI_ROOT. Code that maps a
+    # transcript back to a namespace-absolute path (nudge._history_path_display)
+    # reads paths.PAI_ROOT dynamically; without this it stays the real ~/.pai
+    # and `.relative_to()` raises against the tmp home.
+    monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(P, "PAI_ROOT", tmp_path, raising=True)
     return live
 
 
