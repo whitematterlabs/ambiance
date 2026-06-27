@@ -60,6 +60,25 @@ export function usePhraseActivation(options: PhraseActivationOptions): void {
     if (!needle) return;
 
     let disposed = false;
+
+    // Pre-warm the mic permission the moment phrase activation turns on, rather
+    // than waiting for a PTT press to be the thing that ever prompts. Browser
+    // SpeechRecognition silently no-ops (or dies with `not-allowed`) when the
+    // microphone permission hasn't been granted yet, which is why the wake word
+    // looked dead until you'd hit push-to-talk at least once. Grabbing — and
+    // immediately releasing — a getUserMedia stream forces the permission dialog
+    // up front; the recogniser below then has the grant it needs to actually
+    // hear anything.
+    void (async () => {
+      try {
+        const stream = await navigator.mediaDevices?.getUserMedia?.({ audio: true });
+        // We only wanted the permission grant — don't hold the mic open.
+        stream?.getTracks().forEach((track) => track.stop());
+      } catch {
+        /* denied or unavailable — rec.onerror surfaces the not-allowed below */
+      }
+    })();
+
     const rec = new Ctor();
     rec.continuous = true;
     rec.interimResults = false;

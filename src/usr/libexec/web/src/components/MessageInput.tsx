@@ -195,7 +195,9 @@ export function MessageInput({
 
   return (
     <form
-      className={`composer ${isShell ? "shell" : ""} ${overclockDraft ? "overclock" : ""}`}
+      className={`composer ${isShell ? "shell" : ""} ${overclockDraft ? "overclock" : ""} ${
+        recordingState === "recording" ? "recording" : ""
+      }`}
       onSubmit={submit}
     >
       {overclockDraft && (

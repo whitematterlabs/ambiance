@@ -1293,6 +1293,25 @@ button {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 16%, transparent);
 }
 
+/* Recording: a breathing red glow on the whole bar so it's obvious the mic is
+   live (PTT can't be seen otherwise until it's done). Persists regardless of
+   focus, and outranks the focus-within glow above. */
+.composer.recording,
+.composer.recording:focus-within {
+  border-color: var(--fail);
+  animation: composer-recording-glow 1.6s var(--ease) infinite;
+}
+
+@keyframes composer-recording-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fail) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--fail) 38%, transparent);
+  }
+}
+
 .composer-field {
   display: flex;
   flex: 1 1 auto;
