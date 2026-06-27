@@ -162,3 +162,71 @@ def test_auto_install_items_merged_into_install(monkeypatch) -> None:
     # Chosen whatsapp + hidden auto-install items present in the registry.
     assert set(installed) == {"whatsapp", "calendar", "browse", "computer-use"}
     # ax/imessage/notification weren't in the registry groups -> skipped.
+
+
+# --- API-key dialogue --------------------------------------------------------
+
+from sbin.paisetup import apikey  # noqa: E402
+
+
+def _seed_config(root: Path, provider: str = "deepseek") -> None:
+    (root / "etc").mkdir(parents=True, exist_ok=True)
+    (root / "etc" / "config.yaml").write_text(
+        f"pais:\n  - name: pai\n    provider: {provider}\n    model: x\n"
+    )
+
+
+def test_ensure_api_key_reads_seeded_provider(tmp_path: Path) -> None:
+    _seed_config(tmp_path, "openai")
+    assert apikey._seeded_provider(tmp_path) == "openai"
+
+
+def test_ensure_api_key_skips_when_in_env(tmp_path: Path, monkeypatch, capsys) -> None:
+    _seed_config(tmp_path, "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-live")
+    apikey.ensure_api_key(tmp_path)
+    assert "found in environment" in capsys.readouterr().out
+    assert not (tmp_path / ".env").exists()  # never written
+
+
+def test_ensure_api_key_skips_when_in_env_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    _seed_config(tmp_path, "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("DEEPSEEK_API_KEY=sk-fromfile\n")
+    apikey.ensure_api_key(tmp_path)
+    out = capsys.readouterr().out
+    assert ".env" in out and "found" in out
+    # File left untouched (no duplicate appended).
+    assert (tmp_path / ".env").read_text() == "DEEPSEEK_API_KEY=sk-fromfile\n"
+
+
+def test_ensure_api_key_prompts_and_writes(tmp_path: Path, monkeypatch) -> None:
+    _seed_config(tmp_path, "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(apikey.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(apikey.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(apikey.getpass, "getpass", lambda prompt="": "sk-typed")
+    apikey.ensure_api_key(tmp_path)
+    env = tmp_path / ".env"
+    assert env.read_text() == "DEEPSEEK_API_KEY=sk-typed\n"
+    assert (env.stat().st_mode & 0o777) == 0o600
+
+
+def test_ensure_api_key_blank_input_skips_write(tmp_path: Path, monkeypatch) -> None:
+    _seed_config(tmp_path, "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(apikey.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(apikey.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(apikey.getpass, "getpass", lambda prompt="": "   ")
+    apikey.ensure_api_key(tmp_path)
+    assert not (tmp_path / ".env").exists()
+
+
+def test_ensure_api_key_noninteractive_warns_no_write(tmp_path: Path, monkeypatch, capsys) -> None:
+    _seed_config(tmp_path, "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(apikey.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(apikey.sys.stdout, "isatty", lambda: False)
+    apikey.ensure_api_key(tmp_path)
+    assert "DEEPSEEK_API_KEY not set" in capsys.readouterr().err
+    assert not (tmp_path / ".env").exists()

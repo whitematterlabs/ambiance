@@ -1,20 +1,31 @@
 """paisetup — interactive registry installer + PAI configurator.
 
-Runs at the end of install.sh, after paifs-init. Lets the user pick extra
-packages from the registry (drivers, skills, PAI bundles, subagents) via a
-menuconfig-style curses picker, installs them, and for any selected PAI
-bundle hands off to paiadd's interactive wizard.
+Runs at the end of install.sh, after paifs-init (and is what paifs-init chains
+into on a fresh dev install). Two dialogues, in order:
+
+  1. API key — ensure the seeded provider's key is on disk before anything
+     boots, so the fleet doesn't come up keyless and fail silently. Idempotent;
+     short-circuits when install.sh already captured it. See apikey.py.
+  2. Packages — pick extra drivers from the registry via a menuconfig-style
+     curses picker and install them. (PAI bundles are configured by paiadd, not
+     picked here; baseline subagents/infra drivers are force-installed.)
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 from bin import paiman
 
 from . import picker
+from .apikey import ensure_api_key
 from .inventory import Item, discover
+
+
+def _pai_root() -> Path:
+    return Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai")))
 
 
 def _tty_available() -> bool:
@@ -84,6 +95,11 @@ def main(argv: list[str] | None = None) -> int:
     if not _tty_available():
         print("paisetup: non-interactive shell — skipping. Run `paisetup` later to add packages.")
         return 0
+
+    # Key dialogue first: a fleet with no key boots but fails silently on the
+    # first turn, so ask before the package picker. Idempotent — short-circuits
+    # when install.sh already captured it (see apikey.ensure_api_key).
+    ensure_api_key(_pai_root())
 
     print("Discovering registry packages...")
     try:
