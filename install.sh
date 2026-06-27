@@ -19,8 +19,14 @@ ENV_FILE="$PAI_ROOT/.env"
 CONFIG_FILE="$PAI_ROOT/etc/config.yaml"
 RELEASE_BASE="${PAI_RELEASE_BASE:-https://github.com/whitematterlabs/pai/releases/latest/download}"
 
+# Interactivity for a `curl … | sh` install. The catch: stdin is the *pipe*
+# carrying this very script, NOT the user's terminal — so `[ -t 0 ]` is false
+# and naive `read`s would silently self-skip. That's the bug where the one-liner
+# seeded a keyless default install with no provider choice and no package
+# picker. Detect a human by stdout being a tty plus a readable controlling
+# terminal, and read every prompt from /dev/tty (never stdin) below.
 interactive=0
-if [ -t 0 ] && [ -t 1 ]; then interactive=1; fi
+if [ -t 1 ] && [ -r /dev/tty ]; then interactive=1; fi
 
 # --- uv ----------------------------------------------------------------------
 # Install the uv static binary if it isn't already reachable. uv drives the
@@ -107,7 +113,7 @@ elif [ "$interactive" -eq 1 ]; then
   echo "  2) DeepSeek"
   echo "  3) GPT-5.5       (OpenAI)"
   printf "Choose [1/2/3] (default 1): "
-  read -r choice
+  read -r choice < /dev/tty
   case "$choice" in
     2) PROVIDER=deepseek;  MODEL=deepseek-v4-pro ;;
     3) PROVIDER=openai;    MODEL=gpt-5.5 ;;
@@ -162,7 +168,7 @@ ensure_api_key() {
     return 0
   fi
   printf "Enter %s (input hidden, leave blank to skip): " "$var"
-  read -rs key; echo
+  read -rs key < /dev/tty; echo
   if [ -z "$key" ]; then
     echo "    skipped — add $var to $ENV_FILE before starting PAI." >&2
     return 0
@@ -179,9 +185,36 @@ if [ -n "$PROVIDER" ]; then
 fi
 
 # --- guided first-run setup --------------------------------------------------
+# paisetup's curses picker (and its own key prompt) need the terminal on stdin,
+# which under `curl … | sh` is the pipe — so feed it /dev/tty. Skip cleanly when
+# there's no terminal at all (true headless / piped-output install).
 echo "==> paisetup"
-( cd "$VER_DIR" && uv run paisetup ) || true
+if [ "$interactive" -eq 1 ]; then
+  ( cd "$VER_DIR" && uv run paisetup < /dev/tty ) || true
+else
+  echo "    non-interactive — skipping package picker. Run 'paisetup' later to add packages."
+fi
 
 echo
 echo "PAI $VER installed. Runtime root: $PAI_ROOT"
-echo "Start it with: pai start    (or update later with: pai update)"
+
+# --- start now ---------------------------------------------------------------
+# Don't leave the user at a shell wondering what's next: offer to launch PAI on
+# either surface right here. `pai start[ --web]` runs in the foreground (the TUI
+# or the web server), so exec hands the terminal straight to it.
+if [ "$interactive" -eq 1 ]; then
+  echo
+  echo "Start PAI now?"
+  echo "  1) Web        (browser console)"
+  echo "  2) Terminal   (TUI)"
+  echo "  3) Not now"
+  printf "Choose [1/2/3] (default 1): "
+  read -r start_choice < /dev/tty
+  case "$start_choice" in
+    3) echo "Start it later with: pai start    (or: pai start --web)" ;;
+    2) echo "==> starting PAI (terminal)"; cd "$VER_DIR" && exec uv run pai start < /dev/tty ;;
+    *) echo "==> starting PAI (web)";      cd "$VER_DIR" && exec uv run pai start --web < /dev/tty ;;
+  esac
+else
+  echo "Start it with: pai start    (or update later with: pai update)"
+fi
