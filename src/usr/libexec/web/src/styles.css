@@ -168,7 +168,7 @@ button {
 
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   min-width: 0;
 }
@@ -180,43 +180,6 @@ button {
   font-weight: 560;
   letter-spacing: -0.01em;
   line-height: 1;
-}
-
-.conn-status {
-  position: relative;
-  margin-left: 4px;
-  padding-left: 16px;
-  color: var(--dim);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-/* A small breathing mark instead of a hard status dot. */
-.conn-status::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  transform: translateY(-50%);
-  border-radius: 50%;
-  background: var(--dim);
-  transition: background 0.4s var(--ease);
-}
-
-.conn-status.on {
-  color: var(--muted);
-}
-
-.conn-status.on::before {
-  background: var(--ok);
-  animation: pulse-soft 2.6s var(--ease) infinite;
-}
-
-.conn-status.off::before {
-  background: var(--border-strong);
 }
 
 .kernel-toggle {
@@ -2583,13 +2546,6 @@ button {
 
   .brand-name {
     font-size: 21px;
-  }
-
-  .conn-status {
-    width: 14px;
-    padding-left: 14px;
-    overflow: hidden;
-    text-indent: 999px;
   }
 
   .kernel-toggle {

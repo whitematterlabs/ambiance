@@ -77,14 +77,6 @@ export function Header({
     <header className="header">
       <div className="brand">
         <span className="brand-name">PAI</span>
-        <span
-          className={`conn-status ${connected ? "on" : "off"}`}
-          role="status"
-          aria-label={connected ? "Connected" : "Disconnected"}
-          title={connected ? "Connected" : "Disconnected"}
-        >
-          {connected ? "Online" : "Offline"}
-        </span>
         <button
           className="kernel-toggle"
           type="button"
