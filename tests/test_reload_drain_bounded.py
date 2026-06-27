@@ -61,3 +61,44 @@ def test_reload_config_drain_is_bounded(
             M._pai_locks.clear()
 
     asyncio.run(scenario())
+
+
+def test_reload_config_logs_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The handler must log who requested the reload (and any action/name).
+
+    Event files are deleted once consumed, so this log line is the only forensic
+    trail for telling an intentional reload from a back-to-back storm.
+    """
+    proc = tmp_path / "proc"
+    events = tmp_path / "events"
+    home = tmp_path / "home"
+    for d in (proc, events, home):
+        d.mkdir()
+    monkeypatch.setattr(M.P, "PROC_DIR", proc, raising=True)
+    monkeypatch.setattr(M.P, "EVENTS_DIR", events, raising=True)
+    monkeypatch.setattr(M.P, "HOME_DIR", home, raising=True)
+
+    async def _noop_async(*a, **k):
+        return None
+
+    monkeypatch.setattr(M, "_reconcile_drivers", _noop_async, raising=True)
+    monkeypatch.setattr(M.C, "reconcile_from_config", lambda *a, **k: None, raising=True)
+    monkeypatch.setattr(M.C, "load_config", lambda *a, **k: {}, raising=True)
+    monkeypatch.setattr(M.litellm_proxy, "reconcile", _noop_async, raising=True)
+    M._pai_locks.clear()
+
+    asyncio.run(
+        M._handle_reload_config(
+            {"kind": "kernel:reload_config", "source": "paictl", "action": "stop", "name": "whatsapp-in"}
+        )
+    )
+
+    out = capsys.readouterr().out
+    assert "reload_config: requested by paictl" in out
+    assert "stop" in out and "whatsapp-in" in out
+
+    # A bare/sourceless event must still log, attributed as unknown — never crash.
+    asyncio.run(M._handle_reload_config())
+    assert "reload_config: requested by unknown" in capsys.readouterr().out

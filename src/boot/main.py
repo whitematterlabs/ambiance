@@ -559,7 +559,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         _dispatch_nudge(target_pid, "backfill", context=event)
 
     elif kind == "kernel:reload_config":
-        await _handle_reload_config()
+        await _handle_reload_config(event)
 
     elif kind == "kernel:restart":
         await _handle_restart()
@@ -737,7 +737,7 @@ async def _handle_restart() -> None:
     raise _RestartRequested()
 
 
-async def _handle_reload_config() -> None:
+async def _handle_reload_config(event: dict | None = None) -> None:
     """Reconcile drivers promptly, then drain nudges + reconcile PAIs.
 
     Driver reconcile runs *before* draining per-PAI locks: a runaway driver
@@ -750,6 +750,16 @@ async def _handle_reload_config() -> None:
     driver registry inconsistent with /proc — otherwise the next boot sees
     stale `running`/`cancelled` status that blocks respawn.
     """
+    # Attribute the reload: every emitter (paictl/paiman/paiadd/paidel/web/
+    # paisetup) stamps a `source` and often an `action`/`name`. Logging it is
+    # the only way to tell a single intentional reload from a back-to-back
+    # storm after the fact — the event files are deleted once consumed.
+    event = event or {}
+    source = event.get("source") or "unknown"
+    extra = {k: v for k, v in event.items() if k not in ("kind", "source")}
+    detail = f" {extra}" if extra else ""
+    print(f"[kernel] reload_config: requested by {source}{detail}", flush=True)
+
     try:
         await asyncio.shield(_reconcile_drivers())
     except Exception as e:
