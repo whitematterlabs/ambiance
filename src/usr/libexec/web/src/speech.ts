@@ -129,6 +129,12 @@ export class SpeechQueue {
     this.backend = backend;
   }
 
+  // True while an utterance is mid-flight. Voice *input* (phrase activation)
+  // reads this to mute itself so PAI's own TTS doesn't trip the wake word.
+  get speaking(): boolean {
+    return this.draining;
+  }
+
   setErrorReporter(reporter: SpeechErrorReporter | null): void {
     // Duck-typed: forwarded to backends that expose `onError` (ServerSpeechBackend
     // does). Keeps SpeechBackend itself minimal.

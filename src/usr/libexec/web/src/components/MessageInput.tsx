@@ -5,6 +5,7 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Gauge } from "lucide-react";
 import { ContextRing } from "./ContextRing";
@@ -16,6 +17,7 @@ export function MessageInput({
   onTranscribeAudio,
   onVoiceStatus,
   prefill,
+  pushToTalk = false,
   overclockRunning = false,
   ctxTokens = 0,
   ctxLimit = 0,
@@ -26,6 +28,7 @@ export function MessageInput({
   onTranscribeAudio: (audio: Blob) => Promise<string>;
   onVoiceStatus: (status: string) => void;
   prefill?: { text: string; nonce: number } | null;
+  pushToTalk?: boolean;
   overclockRunning?: boolean;
   ctxTokens?: number;
   ctxLimit?: number;
@@ -164,11 +167,18 @@ export function MessageInput({
     try {
       const transcript = (await onTranscribeAudio(audio)).trim();
       if (transcript) {
-        setValue((prev) => {
-          const existing = prev.trim();
-          return existing ? `${existing} ${transcript}` : transcript;
-        });
-        onVoiceStatus("voice: transcript ready");
+        if (pushToTalk) {
+          // Hold-to-talk is a deliberate gesture, so send immediately rather
+          // than dropping the words into the composer for a manual press.
+          onVoiceStatus("voice: sending…");
+          onSubmit(transcript);
+        } else {
+          setValue((prev) => {
+            const existing = prev.trim();
+            return existing ? `${existing} ${transcript}` : transcript;
+          });
+          onVoiceStatus("voice: transcript ready");
+        }
       } else {
         onVoiceStatus("voice: no speech detected");
       }
@@ -236,26 +246,52 @@ export function MessageInput({
       </div>
       {isShell && <span className="composer-tag">shell</span>}
       <button
-        className={`composer-mic ${recordingState}`}
+        className={`composer-mic ${recordingState} ${pushToTalk ? "ptt" : ""}`}
         type="button"
         disabled={disabled || !canRecord || recordingState === "transcribing"}
-        onClick={recordingState === "recording" ? stopRecording : startRecording}
+        // Push-to-talk: hold to record, release (or drag off) to send. Otherwise
+        // the mic is a click-to-toggle that drops the transcript in the composer.
+        {...(pushToTalk
+          ? {
+              onPointerDown: (e: ReactPointerEvent) => {
+                e.preventDefault();
+                void startRecording();
+              },
+              onPointerUp: (e: ReactPointerEvent) => {
+                e.preventDefault();
+                stopRecording();
+              },
+              onPointerLeave: () => {
+                if (recordingState === "recording") stopRecording();
+              },
+            }
+          : {
+              onClick: recordingState === "recording" ? stopRecording : startRecording,
+            })}
         aria-pressed={recordingState === "recording"}
         title={
-          canRecord
-            ? recordingState === "recording"
-              ? "Stop recording"
+          !canRecord
+            ? "Voice input unavailable in this browser"
+            : recordingState === "recording"
+              ? pushToTalk
+                ? "Release to send"
+                : "Stop recording"
               : recordingState === "transcribing"
                 ? "Transcribing"
-                : "Record voice input"
-            : "Voice input unavailable in this browser"
+                : pushToTalk
+                  ? "Hold to talk"
+                  : "Record voice input"
         }
         aria-label={
           recordingState === "recording"
-            ? "Stop recording"
+            ? pushToTalk
+              ? "Release to send"
+              : "Stop recording"
             : recordingState === "transcribing"
               ? "Transcribing"
-              : "Record voice input"
+              : pushToTalk
+                ? "Hold to talk"
+                : "Record voice input"
         }
       >
         <MicIcon />

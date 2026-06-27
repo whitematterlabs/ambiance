@@ -15,6 +15,12 @@ export function Header({
   voiceSpeed,
   onVoiceIdChange,
   onVoiceSpeedChange,
+  pushToTalk,
+  onTogglePushToTalk,
+  phraseActivation,
+  onTogglePhraseActivation,
+  phraseSupported,
+  wakePhrase,
 }: {
   connected: boolean;
   kernelRunning: boolean;
@@ -28,6 +34,12 @@ export function Header({
   voiceSpeed: number;
   onVoiceIdChange: (id: string | null) => void;
   onVoiceSpeedChange: (speed: number) => void;
+  pushToTalk: boolean;
+  onTogglePushToTalk: () => void;
+  phraseActivation: boolean;
+  onTogglePhraseActivation: () => void;
+  phraseSupported: boolean;
+  wakePhrase: string;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -134,6 +146,54 @@ export function Header({
               <span className="voice-popover-title">Voice</span>
               <span className="voice-popover-current">{selectedName}</span>
             </div>
+            <div className="voice-section">
+              <span className="voice-section-title">Activation</span>
+              <button
+                type="button"
+                className="voice-switch"
+                role="switch"
+                aria-checked={pushToTalk}
+                onClick={onTogglePushToTalk}
+              >
+                <span className="voice-switch-copy">
+                  <span className="voice-switch-name">Push-to-talk</span>
+                  <span className="voice-switch-blurb">Hold the mic, release to send</span>
+                </span>
+                <span className="voice-switch-track" aria-hidden="true">
+                  <span className="voice-switch-thumb" />
+                </span>
+              </button>
+              <button
+                type="button"
+                className="voice-switch"
+                role="switch"
+                aria-checked={phraseActivation}
+                onClick={onTogglePhraseActivation}
+                disabled={!phraseSupported}
+                title={
+                  phraseSupported
+                    ? undefined
+                    : "Phrase activation needs the Web Speech API (try Chrome or Edge)"
+                }
+              >
+                <span className="voice-switch-copy">
+                  <span className="voice-switch-name">Phrase activation</span>
+                  <span className="voice-switch-blurb">
+                    {phraseSupported ? (
+                      <>
+                        Say <em>"{wakePhrase}"</em> to talk
+                      </>
+                    ) : (
+                      "Not supported in this browser"
+                    )}
+                  </span>
+                </span>
+                <span className="voice-switch-track" aria-hidden="true">
+                  <span className="voice-switch-thumb" />
+                </span>
+              </button>
+            </div>
+            <span className="voice-section-title voice-section-title--list">Read aloud</span>
             <ul className="voice-list">
               <li>
                 <button

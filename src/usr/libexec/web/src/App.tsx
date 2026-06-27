@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { ActivityEntry, ActivityState, ingest, initialActivity } from "./activity";
 import { ServerSpeechBackend, SpeechQueue } from "./speech";
+import { DEFAULT_WAKE_PHRASE, speechRecognitionSupported, usePhraseActivation } from "./voiceActivation";
 import { deriveStatus } from "./status";
 import * as api from "./api";
 import { onUnauthorized, setAuthToken, withTokenParam } from "./auth";
@@ -69,6 +70,14 @@ export function App() {
     const n = raw ? parseFloat(raw) : NaN;
     return Number.isFinite(n) ? n : 1.1;
   });
+  // Voice *input* activation modes (independent of the read-aloud toggle above).
+  const [pushToTalk, setPushToTalk] = useState(
+    () => localStorage.getItem("voicePushToTalk") === "true",
+  );
+  const [phraseActivation, setPhraseActivation] = useState(
+    () => localStorage.getItem("voicePhraseActivation") === "true",
+  );
+  const [phraseSupported] = useState(speechRecognitionSupported);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("theme");
     if (saved === "dark" || saved === "light") return saved;
@@ -157,6 +166,12 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("voiceSpeed", String(voiceSpeed));
   }, [voiceSpeed]);
+  useEffect(() => {
+    localStorage.setItem("voicePushToTalk", String(pushToTalk));
+  }, [pushToTalk]);
+  useEffect(() => {
+    localStorage.setItem("voicePhraseActivation", String(phraseActivation));
+  }, [phraseActivation]);
 
   useEffect(() => {
     localStorage.setItem("voiceEnabled", String(voiceEnabled));
@@ -297,6 +312,18 @@ export function App() {
         : `sent → pid ${pid}, waiting for kernel…`,
     );
   }, []);
+
+  // Hands-free input: listen for the wake phrase and send what follows. Muted
+  // while PAI is speaking so its own TTS can't trip the wake word.
+  usePhraseActivation({
+    enabled: phraseActivation,
+    phrase: DEFAULT_WAKE_PHRASE,
+    onCommand: (text) => {
+      void handleSubmit(text);
+    },
+    onStatus: setStatus,
+    isMuted: () => Boolean(voiceQueue.current?.speaking),
+  });
 
   // --- keybindings ---
   const selectByIndex = useCallback((i: number) => {
@@ -532,6 +559,12 @@ export function App() {
         voiceSpeed={voiceSpeed}
         onVoiceIdChange={setVoiceId}
         onVoiceSpeedChange={setVoiceSpeed}
+        pushToTalk={pushToTalk}
+        onTogglePushToTalk={() => setPushToTalk((v) => !v)}
+        phraseActivation={phraseActivation}
+        onTogglePhraseActivation={() => setPhraseActivation((v) => !v)}
+        phraseSupported={phraseSupported}
+        wakePhrase={DEFAULT_WAKE_PHRASE}
       />
       <FleetTabs
         fleet={fleet}
@@ -611,6 +644,7 @@ export function App() {
               onTranscribeAudio={handleTranscribeAudio}
               onVoiceStatus={setStatus}
               prefill={composerDraft}
+              pushToTalk={pushToTalk}
               overclockRunning={activeOverclockRunning}
               ctxTokens={activeProc?.ctx_tokens ?? 0}
               ctxLimit={activeProc?.ctx_limit ?? 0}

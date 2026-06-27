@@ -377,6 +377,111 @@ button {
   color: var(--muted);
 }
 
+.voice-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 6px 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.voice-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 0 4px 2px;
+}
+
+.voice-section-title--list {
+  display: block;
+  padding: 10px 4px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.voice-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+
+.voice-switch:hover,
+.voice-switch:focus-visible {
+  background: var(--surface-soft);
+  border-color: var(--border);
+  outline: none;
+}
+
+.voice-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.voice-switch-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.voice-switch-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.voice-switch-blurb {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.voice-switch-blurb em {
+  font-style: normal;
+  color: var(--text);
+}
+
+.voice-switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background 0.16s var(--ease);
+}
+
+.voice-switch[aria-checked="true"] .voice-switch-track {
+  background: var(--accent-deep);
+}
+
+.voice-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.16s var(--ease);
+}
+
+.voice-switch[aria-checked="true"] .voice-switch-thumb {
+  transform: translateX(14px);
+}
+
 .voice-list {
   list-style: none;
   margin: 0;
