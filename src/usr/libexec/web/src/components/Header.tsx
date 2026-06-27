@@ -20,6 +20,7 @@ export function Header({
   phraseActivation,
   onTogglePhraseActivation,
   phraseSupported,
+  localListener,
   wakePhrase,
 }: {
   connected: boolean;
@@ -39,6 +40,10 @@ export function Header({
   phraseActivation: boolean;
   onTogglePhraseActivation: () => void;
   phraseSupported: boolean;
+  // True when the local `voice` driver's host-mic listener is running. Then
+  // phrase activation rides the host mic (kernel-side wake + STT) regardless of
+  // browser SpeechRecognition support; otherwise it falls back to the browser.
+  localListener: boolean;
   wakePhrase: string;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -169,17 +174,21 @@ export function Header({
                 role="switch"
                 aria-checked={phraseActivation}
                 onClick={onTogglePhraseActivation}
-                disabled={!phraseSupported}
+                disabled={!phraseSupported && !localListener}
                 title={
-                  phraseSupported
+                  phraseSupported || localListener
                     ? undefined
-                    : "Phrase activation needs the Web Speech API (try Chrome or Edge)"
+                    : "Phrase activation needs the local voice driver or the Web Speech API (try Chrome or Edge)"
                 }
               >
                 <span className="voice-switch-copy">
                   <span className="voice-switch-name">Phrase activation</span>
                   <span className="voice-switch-blurb">
-                    {phraseSupported ? (
+                    {localListener ? (
+                      <>
+                        Say <em>"{wakePhrase}"</em> to talk (host mic)
+                      </>
+                    ) : phraseSupported ? (
                       <>
                         Say <em>"{wakePhrase}"</em> to talk
                       </>

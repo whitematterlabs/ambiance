@@ -78,6 +78,11 @@ export function App() {
     () => localStorage.getItem("voicePhraseActivation") === "true",
   );
   const [phraseSupported] = useState(speechRecognitionSupported);
+  // Host-mic voice activity (local `voice` driver), surfaced as a "Speaking: …"
+  // composer indicator. Set from the `voice` SSE message; cleared on a timer.
+  const [voiceHeard, setVoiceHeard] = useState<{ phase: "listening" | "utterance"; text: string } | null>(
+    null,
+  );
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("theme");
     if (saved === "dark" || saved === "light") return saved;
@@ -92,6 +97,7 @@ export function App() {
   const voiceEnabledRef = useRef(voiceEnabled);
   const lastSpokenLen = useRef<Record<number, number>>({});
   const pendingCloneSlug = useRef<string | null>(null);
+  const voiceClearTimer = useRef<number | null>(null);
   const voiceBackend = useRef<ServerSpeechBackend | null>(null);
   if (voiceBackend.current === null) voiceBackend.current = new ServerSpeechBackend();
   const voiceQueue = useRef<SpeechQueue | null>(null);
@@ -273,10 +279,35 @@ export function App() {
         case "provider":
           setProvider(msg.provider);
           break;
+        case "voice": {
+          // Host-mic listener fired. "listening" = wake word landed (no text
+          // yet); "utterance" = the phrase was heard (already routed to the PAI
+          // by the kernel — the reply lands via the normal thread SSE). We only
+          // paint the indicator and surface the heard phrase, then auto-clear.
+          if (voiceClearTimer.current !== null) window.clearTimeout(voiceClearTimer.current);
+          if (msg.phase === "listening") {
+            setVoiceHeard({ phase: "listening", text: "" });
+            // Safety net: clear if no utterance follows (silence/false trigger).
+            voiceClearTimer.current = window.setTimeout(() => setVoiceHeard(null), 16000);
+          } else {
+            const heard = (msg.text ?? "").trim();
+            setVoiceHeard({ phase: "utterance", text: heard });
+            voiceClearTimer.current = window.setTimeout(() => setVoiceHeard(null), 4000);
+          }
+          break;
+        }
       }
     };
     return () => es.close();
   }, [applyFleet]);
+
+  // Clear the listening timer if the component unmounts mid-utterance.
+  useEffect(
+    () => () => {
+      if (voiceClearTimer.current !== null) window.clearTimeout(voiceClearTimer.current);
+    },
+    [],
+  );
 
   // --- input: message or !shell ---
   const handleSubmit = useCallback(async (text: string, options?: { overclock?: boolean }) => {
@@ -313,10 +344,19 @@ export function App() {
     );
   }, []);
 
-  // Hands-free input: listen for the wake phrase and send what follows. Muted
-  // while PAI is speaking so its own TTS can't trip the wake word.
+  // Is the local host-mic listener (the `voice` driver's `voice-in` proc) up?
+  // When it is, the kernel owns wake detection + STT and routes utterances to
+  // the PAI directly — the browser SpeechRecognition fallback below stands down
+  // (it would double-fire on the same words) and we ride host-mic SSE instead.
+  const localVoiceActive = procs.some(
+    (p) => p.slug === "voice-in" && p.status.startsWith("running"),
+  );
+
+  // Hands-free input (cloud/remote fallback): listen for the wake phrase in the
+  // browser and send what follows. Disabled when the local host listener is
+  // active. Muted while PAI is speaking so its own TTS can't trip the wake word.
   usePhraseActivation({
-    enabled: phraseActivation,
+    enabled: phraseActivation && !localVoiceActive,
     phrase: DEFAULT_WAKE_PHRASE,
     onCommand: (text) => {
       void handleSubmit(text);
@@ -564,6 +604,7 @@ export function App() {
         phraseActivation={phraseActivation}
         onTogglePhraseActivation={() => setPhraseActivation((v) => !v)}
         phraseSupported={phraseSupported}
+        localListener={localVoiceActive}
         wakePhrase={DEFAULT_WAKE_PHRASE}
       />
       <FleetTabs
@@ -645,6 +686,7 @@ export function App() {
               onVoiceStatus={setStatus}
               prefill={composerDraft}
               pushToTalk={pushToTalk}
+              listening={voiceHeard}
               overclockRunning={activeOverclockRunning}
               ctxTokens={activeProc?.ctx_tokens ?? 0}
               ctxLimit={activeProc?.ctx_limit ?? 0}

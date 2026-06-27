@@ -391,6 +391,20 @@ class Hub:
                 }
             )
 
+            # Voice activity also rides a dedicated, lightweight `voice` message
+            # so the composer can show "Speaking: …" (wake fired) and the final
+            # phrase heard — without the client having to special-case the noisy
+            # generic event feed. Only the live sighting carries kind/text; the
+            # `_gone` (consumed) echo doesn't, so skip it.
+            if not consumed and source == "voice" and kind in ("listening", "utterance"):
+                self._broadcast(
+                    {
+                        "type": "voice",
+                        "phase": kind,
+                        "text": str(payload.get("text") or "") if kind == "utterance" else "",
+                    }
+                )
+
         # Only created/moved files are new events; on_any would double-fire.
         class _EvHandler(FileSystemEventHandler):
             def on_created(self, event):

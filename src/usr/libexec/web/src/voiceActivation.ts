@@ -1,20 +1,22 @@
-// Voice *input* on the web surface. Two activation styles share this file's
-// helpers; the components own the UI:
+// Phrase activation — the **cloud/remote fallback** path for hands-free voice.
 //
-//   • Push-to-talk  — hold the composer mic, release to transcribe + send.
-//     Lives in MessageInput (MediaRecorder → /api/stt), this file only exposes
-//     the wake-word path.
-//   • Phrase activation — hands-free. A continuous browser SpeechRecognition
-//     session listens for a wake phrase ("hey alexa"); the words after it are
-//     submitted as a message. This uses the browser's own transcription, so it
-//     works even when the server STT key is absent.
+// The primary phrase-activation path is the local `voice` driver: the host mic
+// runs openWakeWord + whisper on-device and the kernel routes `voice:utterance`
+// straight to the PAI (the web only renders a "Speaking: …" indicator). This
+// file is what runs when there is no local host listener — e.g. the remote
+// (ngrok) surface, or a machine without the `voice` driver installed. It drives
+// a continuous browser SpeechRecognition session that listens for the wake word
+// and submits the words after it, using the browser's own transcription so it
+// works even when no server STT key is present.
 //
 // SpeechRecognition is still vendor-prefixed (webkit) and untyped in lib.dom,
 // so everything here is `any` behind a narrow surface.
 
 import { useEffect, useRef } from "react";
 
-export const DEFAULT_WAKE_PHRASE = "hey alexa";
+// Matches the local driver's openWakeWord model (`alexa`), so the same word
+// works whether the host mic or this browser fallback is doing the listening.
+export const DEFAULT_WAKE_PHRASE = "alexa";
 
 type SpeechRecognitionCtor = new () => any;
 

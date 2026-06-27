@@ -18,6 +18,7 @@ export function MessageInput({
   onVoiceStatus,
   prefill,
   pushToTalk = false,
+  listening = null,
   overclockRunning = false,
   ctxTokens = 0,
   ctxLimit = 0,
@@ -29,6 +30,9 @@ export function MessageInput({
   onVoiceStatus: (status: string) => void;
   prefill?: { text: string; nonce: number } | null;
   pushToTalk?: boolean;
+  // Host-mic listening activity from the local `voice` driver. Display-only —
+  // the kernel already routed the utterance to the PAI.
+  listening?: { phase: "listening" | "utterance"; text: string } | null;
   overclockRunning?: boolean;
   ctxTokens?: number;
   ctxLimit?: number;
@@ -199,6 +203,16 @@ export function MessageInput({
           <span className="composer-overclock-tab-label">Overclocked</span>
           <span className="composer-overclock-tab-desc">
             PAI will continue working until a specific condition is fulfilled.
+          </span>
+        </div>
+      )}
+      {listening && (
+        <div className="composer-listening" role="status" aria-live="polite">
+          <span className="composer-listening-dot" aria-hidden="true" />
+          <span className="composer-listening-text">
+            {listening.phase === "utterance" && listening.text
+              ? `Heard: "${listening.text}"`
+              : "Speaking…"}
           </span>
         </div>
       )}

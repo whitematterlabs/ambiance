@@ -62,4 +62,8 @@ export type ServerMessage =
   | { type: "thread"; pid: number; messages: ThreadMessage[] }
   | { type: "event"; at: string; source: string; kind: string; target: string; pai?: string; consumed: boolean }
   | { type: "log"; line: string }
-  | { type: "provider"; provider: string };
+  | { type: "provider"; provider: string }
+  // Host-mic voice activity forwarded from the kernel: "listening" the instant
+  // the wake word fires (no text yet), "utterance" once the phrase is
+  // transcribed (the kernel already routed it to the PAI — this is display-only).
+  | { type: "voice"; phase: "listening" | "utterance"; text?: string };

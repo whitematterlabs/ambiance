@@ -19,9 +19,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import requests
 import yaml
 
+from . import voice
 from bin import paiclone
 from bin import paictl
 from bin import paidel
@@ -185,33 +185,15 @@ def stop_kernel() -> dict:
     return status
 
 
-# --- text-to-speech (voice mode) ---
+# --- text-to-speech / speech-to-text (voice) ---
 #
-# The single server-side swap point for voice mode. ElevenLabs remains the
-# preferred backend when ELEVENLABS_API_KEY is configured; otherwise macOS `say`
-# writes AAC/M4A with the system default voice. The API key stays here and never
-# reaches the browser; the frontend POSTs text to /api/tts.
-
-_ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
-_DEFAULT_MODEL_ID = "eleven_turbo_v2_5"  # low-latency
-_OPENAI_TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions"
-_DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
-
-
-def _reload_dotenv() -> None:
-    """Re-read .env.local / .env from $PAI_ROOT and the repo, same order as
-    boot/__init__.py. Lets the user drop a fresh key into the file mid-session
-    and have voice mode work on the next request without restarting the server.
-    override=False matches boot's behavior so a shell-exported value still wins.
-    """
-    from dotenv import load_dotenv
-
-    pai_root = Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai")))
-    code_root = Path(__file__).resolve().parents[5]
-    for base in (pai_root, code_root):
-        load_dotenv(base / ".env.local")
-        load_dotenv(base / ".env")
+# Engine-agnostic: these two functions keep their signatures (server.py calls
+# them unchanged) but delegate to whatever voice provider package is installed
+# and configured, resolved by `voice.resolve_provider`. The actual engines
+# (ElevenLabs/OpenAI for cloud, whisper.cpp/`say` for local) live in those
+# packages — `pai_web` no longer names an engine. The only residual engine here
+# is the macOS-`say` last-resort below, so TTS never hard-fails when no voice
+# package is installed.
 
 
 def synthesize_speech(
@@ -220,39 +202,20 @@ def synthesize_speech(
     voice_id: str | None = None,
     speed: float | None = None,
 ) -> SpeechAudio:
-    """Swap point: turn text into playable audio bytes.
+    """Turn text into playable audio bytes via the resolved TTS provider.
 
-    Reads ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID and ELEVENLABS_MODEL_ID from
-    the environment (loaded from ~/.pai/.env.local by boot/__init__.py). When no
-    ElevenLabs key is available, falls back to macOS `say` using the system
-    default voice.
+    Dispatches to the installed/configured voice package (local `voice` →
+    whisper/`say`, or `voice_cloud` → ElevenLabs). When no package provides TTS,
+    falls back to the built-in macOS `say` last-resort so voice never hard-fails.
 
-    Per-call ``voice_id`` and ``speed`` overrides come from the browser so the
-    user can pick a voice without restarting; both fall back to env / defaults.
-    They apply only to ElevenLabs; the macOS fallback intentionally leaves voice
-    selection to System Settings.
+    Per-call ``voice_id`` / ``speed`` come from the browser; providers that
+    ignore them (the local/`say` path) simply use the system voice.
     """
-    api_key = os.environ.get("ELEVENLABS_API_KEY")
-    if not api_key:
-        _reload_dotenv()
-        api_key = os.environ.get("ELEVENLABS_API_KEY")
-    if not api_key:
-        return _synthesize_speech_macos_say(text)
-    chosen_voice = voice_id or os.environ.get("ELEVENLABS_VOICE_ID") or _DEFAULT_VOICE_ID
-    model_id = os.environ.get("ELEVENLABS_MODEL_ID") or _DEFAULT_MODEL_ID
-    payload: dict = {"text": text, "model_id": model_id}
-    if speed is not None:
-        payload["voice_settings"] = {"speed": max(0.7, min(1.2, float(speed)))}
-
-    resp = requests.post(
-        _ELEVENLABS_TTS_URL.format(voice_id=chosen_voice),
-        headers={"xi-api-key": api_key, "accept": "audio/mpeg"},
-        params={"output_format": "mp3_44100_128"},
-        json=payload,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return SpeechAudio(resp.content, "audio/mpeg")
+    provider = voice.resolve_provider("tts")
+    if provider is not None:
+        data, mime = provider.synthesize(text, voice_id=voice_id, speed=speed)
+        return SpeechAudio(data, mime)
+    return _synthesize_speech_macos_say(text)
 
 
 def _synthesize_speech_macos_say(text: str) -> SpeechAudio:
@@ -332,38 +295,26 @@ def transcribe_speech(
     language: str | None = None,
     prompt: str | None = None,
 ) -> str:
-    """Swap point: turn recorded browser audio into text. v1 = OpenAI STT."""
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    if not audio:
-        raise ValueError("empty audio")
+    """Turn recorded browser audio into text via the resolved STT provider.
 
-    model = os.environ.get("OPENAI_TRANSCRIBE_MODEL") or _DEFAULT_TRANSCRIBE_MODEL
-    data = {"model": model, "response_format": "json"}
-    configured_language = language or os.environ.get("OPENAI_TRANSCRIBE_LANGUAGE")
-    configured_prompt = prompt or os.environ.get("OPENAI_TRANSCRIBE_PROMPT")
-    if configured_language:
-        data["language"] = configured_language
-    if configured_prompt:
-        data["prompt"] = configured_prompt
-
-    resp = requests.post(
-        _OPENAI_TRANSCRIPTIONS_URL,
-        headers={"Authorization": f"Bearer {api_key}"},
-        data=data,
-        files={"file": (filename, audio, content_type)},
-        timeout=60,
+    Dispatches to the installed/configured voice package (local `voice` →
+    whisper.cpp, or `voice_cloud` → OpenAI). Unlike TTS there is no built-in
+    last-resort, so when no package provides STT this raises — the web surface
+    surfaces it as "install a voice package".
+    """
+    provider = voice.resolve_provider("stt")
+    if provider is None:
+        raise RuntimeError(
+            "no speech-to-text provider installed; run "
+            "`paiman install voice` (local) or `paiman install voice_cloud`"
+        )
+    return provider.transcribe(
+        audio,
+        content_type=content_type,
+        filename=filename,
+        language=language,
+        prompt=prompt,
     )
-    resp.raise_for_status()
-    try:
-        payload = resp.json()
-    except ValueError as e:
-        raise RuntimeError("transcription response was not JSON") from e
-    text = payload.get("text")
-    if not isinstance(text, str):
-        raise RuntimeError("transcription response missing text")
-    return text.strip()
 
 
 def _slug_for_pid(pid: int) -> str:
