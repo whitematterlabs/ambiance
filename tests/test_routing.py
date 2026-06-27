@@ -183,11 +183,12 @@ def test_build_system_prompt_no_custom_when_missing(
     assert "<custom>" not in out_missing
 
 
-def test_owner_profile_block_present_for_fleet_and_subagent(
+def test_owner_profile_block_gated_to_owner_facing_pais(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The canonical owner profile is injected into every PAI's prompt — fleet
-    # members and subagents alike (both flow through build_system_prompt).
+    # The canonical owner profile is injected only for owner-facing fleet PAIs.
+    # root (pid 1, internal) and subagents (parent set) never talk to the owner
+    # directly, so the block is omitted from their prompts to save window budget.
     profile = tmp_path / "var" / "lib" / "owner" / "profile.md"
     profile.parent.mkdir(parents=True)
     profile.write_text("# Owner\nName: Sam\nTimezone: PT\n")
@@ -201,8 +202,10 @@ def test_owner_profile_block_present_for_fleet_and_subagent(
     out_subagent = bootstrap.build_system_prompt(
         pai=7, parent=2, prompt_path=None, boilerplate=[]
     )
-    assert "<owner-profile>" in out_subagent
-    assert "Name: Sam" in out_subagent
+    assert "<owner-profile>" not in out_subagent
+
+    out_root = bootstrap.build_system_prompt(pai=1, prompt_path=None, boilerplate=[])
+    assert "<owner-profile>" not in out_root
 
 
 def test_owner_profile_block_absent_when_missing(

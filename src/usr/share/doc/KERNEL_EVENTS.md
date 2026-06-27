@@ -5,9 +5,51 @@ drop YAML files into the event spool; the supervisor (`boot/main.py`)
 reads them in arrival order, routes by `kind`, and either dispatches a
 nudge or handles the event in-band.
 
-This file documents (a) where events live on disk, (b) the YAML schema
-of an event file, (c) the full kind taxonomy with emitter/consumer
-pairs, and (d) backfill behavior after kernel downtime.
+This file documents (a) the model-facing `reason` strings a PAI sees on a
+nudge and how to handle each, (b) where events live on disk, (c) the YAML
+schema of an event file, (d) the full kind taxonomy with emitter/consumer
+pairs, and (e) backfill behavior after kernel downtime.
+
+## Nudge reasons (what a PAI sees)
+
+When the kernel wakes a PAI it sets a `reason` on the turn. The on-disk
+`kind` taxonomy below is the emitter's view; this section is the receiver's.
+Default handling for each:
+
+- `owner message` — incoming message. Read the thread, decide whether to reply.
+- `proc completed` / `proc failed` / `proc expired` — a service you (or the
+  kernel) started has finished; the event's `slug` names it. Read
+  `proc/{slug}/log.md` if present; for a finished subagent, its report and
+  artifacts are handed off under `workspace/{slug}/` (e.g.
+  `workspace/{slug}/result.md`) — its own `proc/{slug}/` is already reaped.
+  Then produce a short summary as your assistant reply (the kernel posts it
+  to the me/ thread for you); include the outcome and, for failures, the
+  reason if obvious. Suppress the summary only if the service is internal
+  maintenance (nightly consolidation, sweeps) and nothing notable happened —
+  call `NOOP` instead of a one-line filler reply. Do NOT echo the summary
+  into the me/ thread yourself.
+- `schedule fired` — a timed reminder fired (schedule with no `run:`).
+  Surface it to the owner if the reminder was meant for them; otherwise do
+  whatever the reminder asked for.
+- `cron fired (rc=N)` — a cron-with-run service's per-fire subprocess
+  finished. Check the log for its output. Summarize to the owner only when
+  the result is actionable, surprising, failed, or otherwise notable (the
+  kernel posts it for you — don't echo it). For successful high-frequency or
+  purely-internal crons with nothing notable, call `NOOP` — the owner can
+  set `announce: false` on the spec to suppress the nudge entirely.
+- `deadline reached` — a service hit its deadline without completing.
+  Investigate and report.
+- `send failed` — an outbound message couldn't be delivered (e.g. the
+  recipient isn't on iMessage and SMS relay is unavailable). Context has
+  `thread`, `text`, and `reason`. Tell the owner so they can follow up
+  manually; the line you wrote is still in the thread file but was never
+  sent. Don't silently retry — the cursor already advanced.
+- `nudge failed` — another PAI's turn raised before producing a reply (LLM
+  API error, credit outage, transport bug). You receive this only if you are
+  root. Context has `target` (slug), `target_pid`, `original_reason` (what
+  they were being nudged for), and `error` (the exception repr). The kernel
+  does not retry — the original event is gone. Decide whether to tell the
+  owner, re-nudge the target later, or just note it and move on.
 
 ## Where events live
 
