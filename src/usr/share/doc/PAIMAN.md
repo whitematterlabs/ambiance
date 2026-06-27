@@ -117,14 +117,14 @@ permission not yet granted) and print the one-liner to run later, so the
 batch install isn't marked failed — it is expected to be re-runnable and
 idempotent.
 
-**Worked example — `mailv2`.** Its one-time history backfill reads the
+**Worked example — `email`.** Its one-time history backfill reads the
 TCC-protected Mail.app Envelope Index (needs Full Disk Access on the
 terminal) and can outlast the 120s install cap, so it is a `setup` hook
-(`bash usr/lib/drivers/mailv2/libexec/backfill.sh`), not an `install`
+(`bash usr/lib/drivers/email/libexec/backfill.sh`), not an `install`
 hook. On an interactive install it prompts and runs (migrating a legacy
 flat tree first if present, then backfilling — both resumable +
 idempotent); on a headless bootstrap it is skipped and the owner runs
-`cd ~/.pai && usr/bin/python -m drivers.mailv2.macmail.backfill` after
+`cd ~/.pai && usr/bin/python -m drivers.email.macmail.backfill` after
 granting access. `whatsapp` follows the same split: a headless `install`
 hook stages the Baileys bridge + deps, an interactive `setup` hook runs
 the QR pairing.
@@ -317,12 +317,15 @@ it in two stages, and that is where a bundle's hooks (above) actually fire.
   below). It is called with `--no-setup`, which suppresses paifs-init
   *chaining into* `paisetup` (install.sh runs `paisetup` itself next) — it
   does **not** suppress paiman's per-bundle setup hooks. Owner-facing
-  drivers like `mailv2` / `imessage` / `macmail` are **not** seeded here.
+  drivers like `email` / `imessage` / `macmail` are **not** seeded here.
 - **Stage 2 — `paisetup` is the interactive picker** (`src/sbin/paisetup`).
   It runs only when stdin+stdout are a TTY (a piped/CI `install.sh` prints
-  "non-interactive shell — skipping" and installs nothing extra). In the
-  curses checklist **every `driver` is auto-checked** (`AUTO_CHECKED_KINDS
-  = {"driver"}`), so `mailv2` is selected by default. paisetup calls
+  "non-interactive shell — skipping" and installs nothing extra). The
+  picker surfaces **only drivers** as owner choices; visible drivers are
+  auto-checked (`AUTO_CHECKED_KINDS = {"driver"}`) so `email` is selected by
+  default. A fixed set (`AUTO_INSTALL_ITEMS` — `browse`, `computer-use`, and
+  the `ax`/`calendar`/`imessage`/`notification` drivers) is force-installed
+  silently and never rendered. paisetup calls
   `paiman.main(["install", "--no-reload", …])` **in-process**, so the TTY
   propagates and each bundle's `hooks.setup` is offered right there. One
   `kernel:reload_config` is emitted after the whole batch, not per package.
@@ -330,7 +333,7 @@ it in two stages, and that is where a bundle's hooks (above) actually fire.
 Net effect for a hook author: a `setup` hook fires during an **interactive**
 `./install.sh` (once for each picked bundle, default-yes), and is deferred
 with a "run later" line on any **headless** install — which is exactly when
-a TCC/Full-Disk-Access-gated step like the `mailv2` backfill can't succeed
+a TCC/Full-Disk-Access-gated step like the `email` backfill can't succeed
 anyway. See "Install hooks vs setup hooks" above.
 
 ### Seed set
@@ -350,10 +353,9 @@ tight seed set declared as module constants in `src/bin/paifs_init.py`:
   kernel-provided tool or first-boot flow the PAI cannot reasonably invent on
   its own. `grow-capability` handles registry discovery/installation only; it
   does not pull a coding-agent dependency.
-- `KERNEL_SEED_BINS` — `memorize`, `remember`, `mailsearch`,
-  `imessage-history`. The memory-usage and owner-onboarding boilerplate in
-  the default prompts references them directly; without them installed the
-  contract is inert.
+- `KERNEL_SEED_BINS` — `memorize`, `remember`, `imessage-history`. The
+  memory-usage and owner-onboarding boilerplate in the default prompts
+  references them directly; without them installed the contract is inert.
 - `KERNEL_SEED_PAIS` — `librarian-pai`. Sole writer to shared/private
   MEMORY indexes; reserved fleet member so reconcile spawns it on first
   boot.

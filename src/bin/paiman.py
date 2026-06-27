@@ -39,7 +39,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -273,6 +276,55 @@ def _clone(url: str, into: Path) -> Path:
     return into
 
 
+def _github_tarball_url(loc: str) -> str | None:
+    """Derive the codeload tarball URL for a GitHub https registry, or None if
+    `loc` isn't a recognizable GitHub URL.
+
+    Used as a git-less fallback so a fresh machine (no git) can still resolve
+    the registry over plain HTTPS. Mirrors `_clone`'s `@ref` split; the ref
+    defaults to `main`. Returns a URL of the form
+    `https://github.com/<owner>/<repo>/archive/refs/heads/<ref>.tar.gz`.
+    """
+    if "@" in loc and not loc.startswith("git@"):
+        loc, ref = loc.rsplit("@", 1)
+    else:
+        ref = "main"
+    loc = loc.removeprefix("git+")
+    if loc.startswith("github.com/"):
+        loc = "https://" + loc
+    if not loc.startswith(("https://github.com/", "http://github.com/")):
+        return None
+    path = loc.split("github.com/", 1)[1].strip("/")
+    path = path.removesuffix(".git")
+    parts = path.split("/")
+    if len(parts) < 2 or not parts[0] or not parts[1]:
+        return None
+    owner, repo = parts[0], parts[1]
+    return f"https://github.com/{owner}/{repo}/archive/refs/heads/{ref}.tar.gz"
+
+
+def _fetch_tarball(url: str, into: Path) -> Path:
+    """Download `url`, extract it under `into`, and return the single top-level
+    directory it contains (GitHub codeload tarballs wrap everything in one
+    `<repo>-<ref>/` dir, which is the registry root)."""
+    into.mkdir(parents=True, exist_ok=True)
+    archive = into / "registry.tar.gz"
+    try:
+        with urllib.request.urlopen(url, timeout=300) as resp:
+            archive.write_bytes(resp.read())
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise SystemExit(f"paiman: could not fetch registry tarball {url}: {e}") from e
+    with tarfile.open(archive) as tf:
+        tf.extractall(into, filter="tar")
+    archive.unlink(missing_ok=True)
+    tops = [d for d in into.iterdir() if d.is_dir()]
+    if len(tops) != 1:
+        raise SystemExit(
+            f"paiman: unexpected registry tarball layout ({len(tops)} top-level dirs)"
+        )
+    return tops[0]
+
+
 class _Registry:
     """Lazy handle to the registry. Caches the cloned/local path for the
     lifetime of one install invocation so deps can be resolved without
@@ -288,7 +340,16 @@ class _Registry:
         loc = os.environ.get("PAIMAN_REGISTRY", DEFAULT_REGISTRY)
         if _is_url(loc):
             dest = self._work / "registry"
-            self._path = _clone(loc, dest)
+            # Git-less fallback: a fresh machine may have no git. If the
+            # registry is a GitHub https URL, fetch its codeload tarball over
+            # plain HTTPS instead of cloning. With git present, clone as before.
+            tarball_url = (
+                _github_tarball_url(loc) if shutil.which("git") is None else None
+            )
+            if tarball_url is not None:
+                self._path = _fetch_tarball(tarball_url, dest)
+            else:
+                self._path = _clone(loc, dest)
         else:
             p = Path(loc).expanduser()
             if not p.is_dir():

@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import os
 import signal
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from boot.init import check_layout
@@ -19,6 +24,11 @@ from boot.paths import PAI_ROOT, REPO_ROOT
 
 
 UPDATE_READY_NOTICE = "*** PAI is ready to update! ***"
+
+# Where end-user (tarball) installs fetch releases. install.sh writes a
+# var/lib/.release marker; its presence flips `pai update` from the git-pull
+# path (dev checkout) to the download-and-swap path below.
+DEFAULT_RELEASE_BASE = "https://github.com/whitematterlabs/pai/releases/latest/download"
 
 
 @dataclass(frozen=True)
@@ -93,6 +103,21 @@ def cmd_start(args: argparse.Namespace) -> int:
 
 def _check_for_update_on_start() -> None:
     print("==> update check")
+    marker = _release_marker()
+    if marker is not None:
+        try:
+            latest = _latest_release_version(_release_base())
+        except SystemExit as e:
+            print(f"pai start: update check skipped — {e}", file=sys.stderr)
+            return
+        print(f"installed: {marker}")
+        print(f"latest: {latest}")
+        if latest and latest != marker:
+            print(UPDATE_READY_NOTICE)
+            print("next: pai update")
+        else:
+            print("status: up to date")
+        return
     try:
         status = _read_update_status(REPO_ROOT, fetch=True)
     except SystemExit as e:
@@ -228,7 +253,211 @@ def _reprovision_after_update(repo: Path, *, no_web: bool) -> int:
     return 0
 
 
+# ---------- tarball (end-user) update path ----------
+
+def _release_marker() -> str | None:
+    """Return the installed version recorded by install.sh, or None for a dev
+    (git) checkout. Its presence routes `pai update` through the tarball path."""
+    try:
+        text = (PAI_ROOT / "var" / "lib" / ".release").read_text().strip()
+    except OSError:
+        return None
+    return text or None
+
+
+def _release_base() -> str:
+    return os.environ.get("PAI_RELEASE_BASE", DEFAULT_RELEASE_BASE)
+
+
+def _opt_pai() -> Path:
+    return PAI_ROOT / "opt" / "pai"
+
+
+def _download_text(url: str) -> str:
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            return resp.read().decode("utf-8")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise SystemExit(f"pai update: could not fetch {url}: {e}") from e
+
+
+def _download(url: str, dest: Path) -> None:
+    try:
+        with urllib.request.urlopen(url, timeout=300) as resp:
+            data = resp.read()
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise SystemExit(f"pai update: download failed {url}: {e}") from e
+    dest.write_bytes(data)
+
+
+def _latest_release_version(base: str) -> str:
+    ver = _download_text(f"{base}/version.txt").strip()
+    if not ver:
+        raise SystemExit(f"pai update: empty version.txt at {base}")
+    return ver
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _installed_versions() -> list[str]:
+    """Version dir names under opt/pai, newest first; excludes the `current`
+    symlink."""
+    opt = _opt_pai()
+    if not opt.is_dir():
+        return []
+    dirs = [d for d in opt.iterdir() if d.is_dir() and not d.is_symlink()]
+    dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    return [d.name for d in dirs]
+
+
+def _repoint_current(ver: str) -> None:
+    link = _opt_pai() / "current"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(ver)  # relative to opt/pai/
+
+
+def _write_release_marker(ver: str) -> None:
+    dest = PAI_ROOT / "var" / "lib" / ".release"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"{ver}\n")
+
+
+def _gc_versions(keep: int = 2) -> None:
+    """Retain the `keep` newest version dirs (plus whatever `current` points
+    at); remove older ones."""
+    opt = _opt_pai()
+    link = opt / "current"
+    current = link.resolve() if link.is_symlink() else None
+    dirs = [d for d in opt.iterdir() if d.is_dir() and not d.is_symlink()]
+    dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    for d in dirs[keep:]:
+        if current is not None and d.resolve() == current:
+            continue
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _reprovision_tarball(ver_dir: Path) -> int:
+    """Sync the env from the lockfile and re-run paifs-init from `ver_dir` so
+    every FHS symlink/.pth/shim repoints at this version. Web dist/ ships
+    prebuilt in the tarball, so there is no pnpm step."""
+    uv = shutil.which("uv")
+    if uv is None:
+        print(
+            "pai update: `uv` is required to reprovision; install uv and rerun.",
+            file=sys.stderr,
+        )
+        return 1
+    print("==> uv sync")
+    _run_checked([uv, "sync"], cwd=ver_dir)
+    print("==> paifs-init")
+    _run_checked([uv, "run", "paifs-init", "--no-setup"], cwd=ver_dir)
+    return 0
+
+
+def _download_and_extract(base: str, ver: str) -> Path:
+    """Download + verify the release tarball and extract it to opt/pai/<ver>."""
+    ver_dir = _opt_pai() / ver
+    with tempfile.TemporaryDirectory(prefix="pai-update-") as tmp:
+        tarball = Path(tmp) / "pai.tar.gz"
+        print("==> downloading pai.tar.gz")
+        _download(f"{base}/pai.tar.gz", tarball)
+        try:
+            expected = _download_text(f"{base}/pai.tar.gz.sha256").split()[0]
+        except SystemExit:
+            expected = ""
+        if expected:
+            actual = _sha256(tarball)
+            if actual != expected:
+                raise SystemExit(
+                    f"pai update: checksum mismatch (expected {expected}, got {actual})"
+                )
+        if ver_dir.exists():
+            shutil.rmtree(ver_dir)
+        ver_dir.mkdir(parents=True)
+        print(f"==> extracting to {ver_dir}")
+        with tarfile.open(tarball) as tf:
+            tf.extractall(ver_dir, filter="tar")
+    return ver_dir
+
+
+def _cmd_update_tarball(args: argparse.Namespace, current_ver: str) -> int:
+    if args.rollback:
+        return _rollback_tarball(current_ver)
+
+    base = _release_base()
+    try:
+        latest = _latest_release_version(base)
+    except SystemExit as e:
+        if args.check:
+            print(f"installed: {current_ver}")
+            print(f"status: could not reach release server — {e}", file=sys.stderr)
+            return 0
+        raise
+
+    print(f"installed: {current_ver}")
+    print(f"latest: {latest}")
+
+    if args.check:
+        if latest == current_ver:
+            print("status: up to date")
+        else:
+            print(f"status: update available ({latest})")
+            print("next: pai update")
+        return 0
+
+    if latest == current_ver:
+        print("pai update: already on the latest release")
+        return 0
+
+    ver_dir = _download_and_extract(base, latest)
+    if args.no_reprovision:
+        print("pai update: extracted; skipped reprovision")
+    else:
+        rc = _reprovision_tarball(ver_dir)
+        if rc != 0:
+            return rc
+    _repoint_current(latest)
+    _write_release_marker(latest)
+    _gc_versions(keep=2)
+    print(f"pai update: now on {latest}")
+    return 0
+
+
+def _rollback_tarball(current_ver: str) -> int:
+    candidates = [v for v in _installed_versions() if v != current_ver]
+    if not candidates:
+        print("pai update: no prior version to roll back to", file=sys.stderr)
+        return 1
+    prior = candidates[0]
+    print(f"==> rolling back to {prior}")
+    rc = _reprovision_tarball(_opt_pai() / prior)
+    if rc != 0:
+        return rc
+    _repoint_current(prior)
+    _write_release_marker(prior)
+    print(f"pai update: rolled back to {prior}")
+    return 0
+
+
 def cmd_update(args: argparse.Namespace) -> int:
+    marker = _release_marker()
+    if marker is not None:
+        return _cmd_update_tarball(args, marker)
+    if getattr(args, "rollback", False):
+        print(
+            "pai update: --rollback applies to tarball installs only "
+            "(no var/lib/.release marker found)",
+            file=sys.stderr,
+        )
+        return 1
+
     status = _read_update_status(REPO_ROOT, fetch=not args.no_fetch)
     _print_update_status(status)
 
@@ -308,6 +537,11 @@ def main(argv: list[str] | None = None) -> int:
         "--no-reprovision",
         action="store_true",
         help="pull source only; skip uv sync and paifs-init",
+    )
+    update.add_argument(
+        "--rollback",
+        action="store_true",
+        help="(tarball installs) repoint to the previous installed version",
     )
     update.set_defaults(func=cmd_update)
 

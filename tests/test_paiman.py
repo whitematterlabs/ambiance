@@ -430,3 +430,42 @@ def test_list_installed(fhs_root: Path, capsys: pytest.CaptureFixture) -> None:
     out = capsys.readouterr().out
     assert "testskill" in out
     assert "testbin" in out
+
+
+# ---------- git-less registry: GitHub URL -> codeload tarball ----------
+
+@pytest.mark.parametrize(
+    "loc,expected",
+    [
+        (
+            "https://github.com/whitematterlabs/pairegistry",
+            "https://github.com/whitematterlabs/pairegistry/archive/refs/heads/main.tar.gz",
+        ),
+        (
+            "https://github.com/whitematterlabs/pairegistry.git",
+            "https://github.com/whitematterlabs/pairegistry/archive/refs/heads/main.tar.gz",
+        ),
+        (
+            "https://github.com/whitematterlabs/pairegistry@dev",
+            "https://github.com/whitematterlabs/pairegistry/archive/refs/heads/dev.tar.gz",
+        ),
+        (
+            "github.com/owner/repo",
+            "https://github.com/owner/repo/archive/refs/heads/main.tar.gz",
+        ),
+    ],
+)
+def test_github_tarball_url_derivation(loc: str, expected: str) -> None:
+    assert paiman._github_tarball_url(loc) == expected
+
+
+@pytest.mark.parametrize(
+    "loc",
+    [
+        "https://gitlab.com/owner/repo",
+        "https://example.com/owner/repo",
+        "https://github.com/onlyowner",
+    ],
+)
+def test_github_tarball_url_rejects_non_github(loc: str) -> None:
+    assert paiman._github_tarball_url(loc) is None

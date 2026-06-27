@@ -182,3 +182,119 @@ def test_start_update_check_shows_ready_notice_when_behind(
     out = capsys.readouterr().out
     assert pai.UPDATE_READY_NOTICE in out
     assert "status: update available (2 commit(s) behind)" in out
+
+
+# ---------- tarball (end-user) update path ----------
+
+def _seed_marker(root: Path, ver: str) -> None:
+    (root / "var" / "lib").mkdir(parents=True, exist_ok=True)
+    (root / "var" / "lib" / ".release").write_text(f"{ver}\n")
+
+
+def test_release_marker_absent_is_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pai, "PAI_ROOT", tmp_path / "pai")
+    assert pai._release_marker() is None
+
+
+def test_update_tarball_check_reports_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "pai"
+    _seed_marker(root, "0.1.0")
+    monkeypatch.setattr(pai, "PAI_ROOT", root)
+    monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.2.0")
+
+    assert pai.main(["update", "--check"]) == 0
+
+    out = capsys.readouterr().out
+    assert "installed: 0.1.0" in out
+    assert "status: update available (0.2.0)" in out
+    assert "next: pai update" in out
+
+
+def test_update_tarball_check_up_to_date(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "pai"
+    _seed_marker(root, "0.2.0")
+    monkeypatch.setattr(pai, "PAI_ROOT", root)
+    monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.2.0")
+
+    assert pai.main(["update", "--check"]) == 0
+    assert "status: up to date" in capsys.readouterr().out
+
+
+def test_update_tarball_downloads_and_repoints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "pai"
+    _seed_marker(root, "0.1.0")
+    (root / "opt" / "pai" / "0.1.0").mkdir(parents=True)
+    monkeypatch.setattr(pai, "PAI_ROOT", root)
+    monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.2.0")
+
+    extracted: list[str] = []
+
+    def fake_extract(base: str, ver: str) -> Path:
+        d = root / "opt" / "pai" / ver
+        d.mkdir(parents=True, exist_ok=True)
+        extracted.append(ver)
+        return d
+
+    reprov: list[Path] = []
+    monkeypatch.setattr(pai, "_download_and_extract", fake_extract)
+    monkeypatch.setattr(
+        pai, "_reprovision_tarball", lambda d: reprov.append(d) or 0
+    )
+
+    assert pai.main(["update"]) == 0
+
+    assert extracted == ["0.2.0"]
+    assert reprov == [root / "opt" / "pai" / "0.2.0"]
+    assert (root / "opt" / "pai" / "current").resolve() == root / "opt" / "pai" / "0.2.0"
+    assert (root / "var" / "lib" / ".release").read_text().strip() == "0.2.0"
+
+
+def test_update_tarball_rollback_picks_prior(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    root = tmp_path / "pai"
+    opt = root / "opt" / "pai"
+    (opt / "0.1.0").mkdir(parents=True)
+    (opt / "0.2.0").mkdir(parents=True)
+    # Make 0.2.0 the newer dir so rollback targets 0.1.0.
+    os.utime(opt / "0.1.0", (1000, 1000))
+    os.utime(opt / "0.2.0", (2000, 2000))
+    _seed_marker(root, "0.2.0")
+    monkeypatch.setattr(pai, "PAI_ROOT", root)
+
+    reprov: list[Path] = []
+    monkeypatch.setattr(
+        pai, "_reprovision_tarball", lambda d: reprov.append(d) or 0
+    )
+
+    assert pai.main(["update", "--rollback"]) == 0
+
+    assert reprov == [opt / "0.1.0"]
+    assert (opt / "current").resolve() == opt / "0.1.0"
+    assert (root / "var" / "lib" / ".release").read_text().strip() == "0.1.0"
+
+
+def test_rollback_rejected_without_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(pai, "PAI_ROOT", tmp_path / "pai")
+    assert pai.main(["update", "--rollback"]) == 1
+    assert "tarball installs only" in capsys.readouterr().err

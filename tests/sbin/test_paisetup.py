@@ -46,55 +46,55 @@ def test_install_arg_bare_name_last_resort() -> None:
     assert _install_arg(it) == "x"
 
 
-def test_picker_hides_skills_section() -> None:
+def test_picker_shows_only_visible_driver_choices() -> None:
+    # Only drivers are surfaced; PAI bundles and subagents never render, and
+    # force-installed drivers (calendar) are hidden too.
     rows = picker._build_rows({
-        "driver": [_item(kind="driver", name="calendar")],
+        "driver": [
+            _item(kind="driver", name="whatsapp"),
+            _item(kind="driver", name="calendar"),  # AUTO_INSTALL -> hidden
+        ],
         "skill": [_item(kind="skill", name="drive-macos-ui")],
         "pai": [_item(kind="pai", name="calendar-agent")],
-        "subagent": [_item(kind="subagent", name="browse")],
+        "subagent": [_item(kind="subagent", name="browse")],  # AUTO_INSTALL -> hidden
     })
 
-    assert [r.kind for r in rows if r.is_header] == ["driver", "pai", "subagent"]
+    assert [r.kind for r in rows if r.is_header] == ["driver"]
     assert [
         (r.kind, r.item.name)
         for r in rows
         if not r.is_header and r.item is not None
-    ] == [
-        ("driver", "calendar"),
-        ("pai", "calendar-agent"),
-        ("subagent", "browse"),
-    ]
+    ] == [("driver", "whatsapp")]
 
 
-def test_picker_auto_checks_drivers_browse_computer_use_and_scout() -> None:
+def test_auto_install_items_are_hidden() -> None:
+    assert picker.is_hidden("subagent", "browse")
+    assert picker.is_hidden("subagent", "computer-use")
+    assert picker.is_hidden("driver", "calendar")
+    assert not picker.is_hidden("driver", "whatsapp")
+
+
+def test_visible_drivers_checked_by_default() -> None:
     rows = picker._build_rows({
-        "driver": [_item(kind="driver", name="calendar")],
-        "subagent": [
-            _item(kind="subagent", name="browse"),
-            _item(kind="subagent", name="computer-use"),
-            _item(kind="subagent", name="scout"),
-        ],
+        "driver": [_item(kind="driver", name="whatsapp")],
     })
-
     states = {
         (r.kind, r.item.name): r.checked
         for r in rows
         if not r.is_header and r.item is not None
     }
-    assert states == {
-        ("driver", "calendar"): True,
-        ("subagent", "browse"): True,
-        ("subagent", "computer-use"): True,
-        ("subagent", "scout"): True,
-    }
+    assert states == {("driver", "whatsapp"): True}
 
 
-def test_json_catalog_hides_skills_and_marks_default_checked(monkeypatch, capsys) -> None:
+def test_json_catalog_shows_only_visible_drivers(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         paisetup_app,
         "discover",
         lambda: {
-            "driver": [_item(kind="driver", name="calendar", ref="drivers/calendar")],
+            "driver": [
+                _item(kind="driver", name="whatsapp", ref="drivers/whatsapp"),
+                _item(kind="driver", name="calendar", ref="drivers/calendar"),  # hidden
+            ],
             "skill": [
                 _item(
                     kind="skill",
@@ -103,9 +103,7 @@ def test_json_catalog_hides_skills_and_marks_default_checked(monkeypatch, capsys
                 )
             ],
             "subagent": [
-                _item(kind="subagent", name="browse", ref="subagents/browse"),
-                _item(kind="subagent", name="computer-use", ref="subagents/computer-use"),
-                _item(kind="subagent", name="scout", ref="subagents/scout"),
+                _item(kind="subagent", name="browse", ref="subagents/browse"),  # hidden
             ],
         },
     )
@@ -115,19 +113,52 @@ def test_json_catalog_hides_skills_and_marks_default_checked(monkeypatch, capsys
 
     assert payload["auto_checked"] == ["driver"]
     assert payload["auto_checked_refs"] == [
+        "drivers/ax",
+        "drivers/calendar",
+        "drivers/imessage",
+        "drivers/notification",
         "subagents/browse",
         "subagents/computer-use",
-        "subagents/scout",
     ]
-    assert set(payload["groups"]) == {"driver", "subagent"}
+    assert set(payload["groups"]) == {"driver"}
     defaults = {
         (kind, item["name"]): item["default_checked"]
         for kind, items in payload["groups"].items()
         for item in items
     }
-    assert defaults == {
-        ("driver", "calendar"): True,
-        ("subagent", "browse"): True,
-        ("subagent", "computer-use"): True,
-        ("subagent", "scout"): True,
+    assert defaults == {("driver", "whatsapp"): True}
+
+
+def test_auto_install_items_merged_into_install(monkeypatch) -> None:
+    """Hidden force-install items install alongside the owner's picks, even when
+    not chosen; ones absent from the registry are skipped silently."""
+    groups = {
+        "driver": [
+            _item(kind="driver", name="calendar", ref="drivers/calendar"),
+            _item(kind="driver", name="whatsapp", ref="drivers/whatsapp"),
+        ],
+        "subagent": [
+            _item(kind="subagent", name="browse", ref="subagents/browse"),
+            _item(kind="subagent", name="computer-use", ref="subagents/computer-use"),
+        ],
+        "skill": [],
+        "pai": [],
     }
+    monkeypatch.setattr(paisetup_app, "_tty_available", lambda: True)
+    monkeypatch.setattr(paisetup_app, "discover", lambda: groups)
+    # Owner picks only whatsapp from the visible drivers.
+    monkeypatch.setattr(paisetup_app.picker, "run", lambda g: {"driver": ["whatsapp"]})
+    monkeypatch.setattr(paisetup_app, "_install_arg", lambda it: it.name)
+
+    installed: list[str] = []
+    monkeypatch.setattr(
+        paisetup_app.paiman, "main",
+        lambda argv: (installed.append(argv[-1]), 0)[1],
+    )
+    import boot.processes as _proc
+    monkeypatch.setattr(_proc, "emit_event", lambda e: None)
+
+    assert paisetup_app.main([]) == 0
+    # Chosen whatsapp + hidden auto-install items present in the registry.
+    assert set(installed) == {"whatsapp", "calendar", "browse", "computer-use"}
+    # ax/imessage/notification weren't in the registry groups -> skipped.

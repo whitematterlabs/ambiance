@@ -1,35 +1,95 @@
 #!/usr/bin/env bash
-# PAI bootstrap: install deps, then provision ~/.pai/.
+# PAI bootstrap — the `curl … | sh` install/update target.
+#
+#   curl -fsSL https://raw.githubusercontent.com/whitematterlabs/pai/main/install.sh | sh
+#
+# Zero prerequisites on the target machine: this script installs the `uv`
+# static binary itself, downloads a prebuilt release tarball (source +
+# uv.lock + prebuilt web dist/), and lets `uv sync` pull prebuilt wheels —
+# no Node, no compiler, no git required.
+#
+# Test/dev override: set PAI_LOCAL_TARBALL=/path/to/pai.tar.gz to install from
+# a local artifact (e.g. one just built by `pairelease`) instead of fetching a
+# published release. PAI_VERSION pins the version dir; otherwise it is read
+# from a sibling version.txt, else timestamped.
 set -euo pipefail
-
-cd "$(dirname "$0")"
-
-if ! command -v uv >/dev/null 2>&1; then
-  echo "error: uv not found. install it from https://docs.astral.sh/uv/ and re-run." >&2
-  exit 1
-fi
 
 PAI_ROOT="${PAI_ROOT:-$HOME/.pai}"
 ENV_FILE="$PAI_ROOT/.env"
 CONFIG_FILE="$PAI_ROOT/etc/config.yaml"
+RELEASE_BASE="${PAI_RELEASE_BASE:-https://github.com/whitematterlabs/pai/releases/latest/download}"
 
 interactive=0
 if [ -t 0 ] && [ -t 1 ]; then interactive=1; fi
 
-echo "==> uv sync"
-uv sync
+# --- uv ----------------------------------------------------------------------
+# Install the uv static binary if it isn't already reachable. uv drives the
+# whole Python provisioning chain (venv + lockfile sync).
+if ! command -v uv >/dev/null 2>&1; then
+  echo "==> installing uv"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  # uv's installer drops the binary in ~/.local/bin (or $XDG_BIN_HOME); make it
+  # reachable for the rest of this shell.
+  export PATH="${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/.cargo/bin:$PATH"
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  echo "error: uv install did not put 'uv' on PATH. Open a new shell or add ~/.local/bin to PATH and re-run." >&2
+  exit 1
+fi
 
-echo "==> web frontend (pnpm)"
-if command -v pnpm >/dev/null 2>&1; then
-  if ( cd src/usr/libexec/web && pnpm install && pnpm build ); then
-    echo "    web surface built — launch with: pai start --web"
+# --- obtain the release tarball ---------------------------------------------
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+TARBALL="$WORK/pai.tar.gz"
+
+if [ -n "${PAI_LOCAL_TARBALL:-}" ]; then
+  echo "==> using local tarball: $PAI_LOCAL_TARBALL"
+  cp "$PAI_LOCAL_TARBALL" "$TARBALL"
+  if [ -n "${PAI_VERSION:-}" ]; then
+    VER="$PAI_VERSION"
+  elif [ -f "$(dirname "$PAI_LOCAL_TARBALL")/version.txt" ]; then
+    VER="$(tr -d '[:space:]' < "$(dirname "$PAI_LOCAL_TARBALL")/version.txt")"
   else
-    echo "    warning: web frontend build failed; 'pai start --web' unavailable." >&2
+    VER="local-$(date +%Y%m%d%H%M%S)"
   fi
 else
-  echo "    skipped: pnpm not found (https://pnpm.io)." >&2
-  echo "    run 'pnpm install && pnpm build' in src/usr/libexec/web to enable 'pai start --web'." >&2
+  echo "==> resolving latest version"
+  VER="$(curl -fsSL "$RELEASE_BASE/version.txt" | tr -d '[:space:]')"
+  if [ -z "$VER" ]; then
+    echo "error: could not resolve the latest version from $RELEASE_BASE/version.txt" >&2
+    exit 1
+  fi
+  echo "    version $VER"
+  echo "==> downloading pai.tar.gz"
+  curl -fsSL "$RELEASE_BASE/pai.tar.gz" -o "$TARBALL"
+  curl -fsSL "$RELEASE_BASE/pai.tar.gz.sha256" -o "$WORK/pai.tar.gz.sha256"
+  echo "==> verifying checksum"
+  EXPECTED="$(awk '{print $1}' "$WORK/pai.tar.gz.sha256")"
+  if command -v shasum >/dev/null 2>&1; then
+    ACTUAL="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
+  else
+    ACTUAL="$(sha256sum "$TARBALL" | awk '{print $1}')"
+  fi
+  if [ "$EXPECTED" != "$ACTUAL" ]; then
+    echo "error: checksum mismatch (expected $EXPECTED, got $ACTUAL)" >&2
+    exit 1
+  fi
 fi
+
+# --- extract into the versioned code dir ------------------------------------
+VER_DIR="$PAI_ROOT/opt/pai/$VER"
+echo "==> extracting to $VER_DIR"
+rm -rf "$VER_DIR"
+mkdir -p "$VER_DIR"
+tar -xzf "$TARBALL" -C "$VER_DIR"
+# Repoint the rollback/bookkeeping pointer. Runtime resolution does not depend
+# on it (paifs-init runs from the concrete <ver> dir below), but `pai update`
+# and rollback use it to find the prior version.
+ln -sfn "$VER" "$PAI_ROOT/opt/pai/current"
+
+# --- python env from the lockfile -------------------------------------------
+echo "==> uv sync"
+( cd "$VER_DIR" && uv sync )
 
 # --- default model -----------------------------------------------------------
 # Pick the provider+model the fleet boots on. The choice is baked into the seed
@@ -51,19 +111,29 @@ elif [ "$interactive" -eq 1 ]; then
   case "$choice" in
     2) PROVIDER=deepseek;  MODEL=deepseek-v4-pro ;;
     3) PROVIDER=openai;    MODEL=gpt-5.5 ;;
-    *) PROVIDER=anthropic; MODEL=claude-opus-4-7 ;;
+    *) PROVIDER=anthropic; MODEL=claude-opus-4-8 ;;
   esac
   echo "    default model: $MODEL ($PROVIDER)"
 else
-  echo "==> non-interactive shell — seeding the deepseek default."
+  echo "==> non-interactive shell — seeding the default."
 fi
 
+# --- provision the FHS -------------------------------------------------------
+# Run paifs-init from the concrete version dir so it rewrites usr/src / boot /
+# web / doc symlinks, the _pai_src.pth, and the bin/sbin shims to point at
+# THIS <ver>. This is also the update mechanism: a new <ver> just re-runs this.
 echo "==> paifs-init"
 if [ -n "$PROVIDER" ] && [ -n "$MODEL" ]; then
-  uv run paifs-init --no-setup --default-provider "$PROVIDER" --default-model "$MODEL" "$@"
+  ( cd "$VER_DIR" && uv run paifs-init --no-setup --default-provider "$PROVIDER" --default-model "$MODEL" )
 else
-  uv run paifs-init --no-setup "$@"
+  ( cd "$VER_DIR" && uv run paifs-init --no-setup )
 fi
+
+# --- release marker ----------------------------------------------------------
+# Records the installed version and signals `pai update` that this is a tarball
+# install (vs a dev git checkout), so it takes the download-and-swap path.
+mkdir -p "$PAI_ROOT/var/lib"
+printf '%s\n' "$VER" > "$PAI_ROOT/var/lib/.release"
 
 # --- API key -----------------------------------------------------------------
 # Ask only for the chosen provider's key, and only if it isn't already reachable
@@ -81,7 +151,7 @@ ensure_api_key() {
     echo "    $var found in environment — not stored."
     return 0
   fi
-  for f in "$PAI_ROOT/.env.local" "$PAI_ROOT/.env" ".env.local" ".env"; do
+  for f in "$PAI_ROOT/.env.local" "$PAI_ROOT/.env"; do
     if [ -f "$f" ] && grep -qE "^${var}=" "$f"; then
       echo "    $var found in $f."
       return 0
@@ -108,8 +178,10 @@ if [ -n "$PROVIDER" ]; then
   ensure_api_key "$PROVIDER"
 fi
 
+# --- guided first-run setup --------------------------------------------------
 echo "==> paisetup"
-uv run paisetup || true
+( cd "$VER_DIR" && uv run paisetup ) || true
 
 echo
-echo "PAI installed. Runtime root: $PAI_ROOT"
+echo "PAI $VER installed. Runtime root: $PAI_ROOT"
+echo "Start it with: pai start    (or update later with: pai update)"

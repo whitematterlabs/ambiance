@@ -8,26 +8,39 @@ from dataclasses import dataclass
 from .inventory import Item
 
 
+# Only drivers are surfaced as owner choices now. PAI bundles are configured by
+# paiadd, not picked here; subagents are all force-installed (see below).
 SECTION_TITLES = {
     "driver": "Drivers",
-    "pai": "PAI bundles",
-    "subagent": "Subagents",
 }
 
 VISIBLE_KINDS = tuple(SECTION_TITLES)
 
-# Drivers are infrastructure and stay checked as a group. A few subagents are
-# owner-facing enough to install by default without making every subagent
-# opt-out.
-AUTO_CHECKED_KINDS = frozenset({"driver"})
-AUTO_CHECKED_ITEMS = frozenset({
+# Force-installed on every setup and never shown as a choice. These are still
+# *discovered* by inventory (so we can install them) — just not rendered in the
+# picker or the PAI.app catalog. browse + computer-use are baseline agent
+# capability; ax/calendar/imessage/notification are infrastructure drivers the
+# owner shouldn't have to reason about.
+AUTO_INSTALL_ITEMS = frozenset({
+    ("driver", "ax"),
+    ("driver", "calendar"),
+    ("driver", "imessage"),
+    ("driver", "notification"),
     ("subagent", "browse"),
     ("subagent", "computer-use"),
-    ("subagent", "scout"),
 })
+
+# Visible drivers stay checked by default (opt-out) — the owner can uncheck the
+# ones they don't want (e.g. whatsapp, voice).
+AUTO_CHECKED_KINDS = frozenset({"driver"})
 
 # Back-compat for callers that only understand kind-level defaults.
 AUTO_CHECKED = AUTO_CHECKED_KINDS
+
+
+def is_hidden(kind: str, name: str) -> bool:
+    """True for items force-installed silently — excluded from every picker."""
+    return (kind, name) in AUTO_INSTALL_ITEMS
 
 
 @dataclass
@@ -39,10 +52,11 @@ class Row:
 
 
 def is_auto_checked(kind: str, item: Item) -> bool:
-    return kind in AUTO_CHECKED_KINDS or (kind, item.name) in AUTO_CHECKED_ITEMS
+    return kind in AUTO_CHECKED_KINDS
 
 
 def auto_checked_refs() -> list[str]:
+    """Typed registry refs for the force-installed set, for the PAI.app twin."""
     plural = {
         "driver": "drivers",
         "pai": "pais",
@@ -50,14 +64,14 @@ def auto_checked_refs() -> list[str]:
     }
     return sorted(
         f"{plural.get(kind, kind + 's')}/{name}"
-        for kind, name in AUTO_CHECKED_ITEMS
+        for kind, name in AUTO_INSTALL_ITEMS
     )
 
 
 def _build_rows(groups: dict[str, list[Item]]) -> list[Row]:
     rows: list[Row] = []
     for kind in VISIBLE_KINDS:
-        items = groups.get(kind) or []
+        items = [it for it in (groups.get(kind) or []) if not is_hidden(kind, it.name)]
         rows.append(Row(kind=kind, is_header=True, item=None, checked=False))
         for it in items:
             checked = it.installed or is_auto_checked(kind, it)

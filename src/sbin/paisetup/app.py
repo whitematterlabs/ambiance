@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from bin import paiman, paiadd
+from bin import paiman
 
 from . import picker
 from .inventory import Item, discover
@@ -68,9 +68,9 @@ def _emit_catalog_json() -> int:
                     "default_checked": it.installed or picker.is_auto_checked(kind, it),
                 }
                 for it in groups.get(kind, [])
+                if not picker.is_hidden(kind, it.name)
             ]
             for kind in picker.VISIBLE_KINDS
-            if kind != "pai"
         },
     }
     print(json.dumps(payload))
@@ -97,14 +97,6 @@ def main(argv: list[str] | None = None) -> int:
         print("paisetup: cancelled.")
         return 0
 
-    install_order = ("driver", "skill", "subagent", "pai")
-    total = sum(len(selected.get(k, [])) for k in install_order)
-    if total == 0:
-        print("paisetup: nothing to install.")
-        return 0
-
-    print(f"\nInstalling {total} package(s)...")
-    failures: list[str] = []
     # The picker hands back bare names; map each (kind, name) back to its
     # discovered Item so _install_arg can recover an argument paiman can
     # actually resolve (live source path, else typed ref — see _install_arg).
@@ -112,6 +104,26 @@ def main(argv: list[str] | None = None) -> int:
     for kind, items in groups.items():
         for it in items:
             items_by_key[(kind, it.name)] = it
+
+    # Force-installed capabilities the picker never shows (browse, computer-use,
+    # infra drivers). Merge them into the selection, skipping any already on
+    # disk or absent from the registry.
+    for kind, name in picker.AUTO_INSTALL_ITEMS:
+        it = items_by_key.get((kind, name))
+        if it is None or it.installed:
+            continue
+        bucket = selected.setdefault(kind, [])
+        if name not in bucket:
+            bucket.append(name)
+
+    install_order = ("driver", "skill", "subagent")
+    total = sum(len(selected.get(k, [])) for k in install_order)
+    if total == 0:
+        print("paisetup: nothing to install.")
+        return 0
+
+    print(f"\nInstalling {total} package(s)...")
+    failures: list[str] = []
     for kind in install_order:
         for name in selected.get(kind, []):
             it = items_by_key.get((kind, name))
@@ -135,9 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     if installed_any:
         # One reconcile for the whole batch: re-stitches homes so newly
         # installed skills/prompts surface, and re-discovers drivers so they
-        # start, all without a kernel reboot. paiadd (below) emits its own
-        # reload, but instances may be configured even when no packages land,
-        # so emit unconditionally here when anything installed.
+        # start, all without a kernel reboot.
         try:
             from boot import processes as _processes
             _processes.emit_event({"kind": "kernel:reload_config",
@@ -146,25 +156,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"paisetup: warning — could not emit kernel:reload_config: {e}",
                   file=sys.stderr)
 
-    pai_bundles = selected.get("pai", [])
-    configured: list[str] = []
-    for bundle in pai_bundles:
-        if bundle in failures:
-            continue
-        print(f"\n--- paiadd {bundle} (configure instance) ---")
-        try:
-            rc = paiadd.main([bundle])
-        except SystemExit as e:
-            rc = e.code if isinstance(e.code, int) else 1
-        except KeyboardInterrupt:
-            print(f"paisetup: skipped configuring {bundle}.")
-            continue
-        if rc == 0:
-            configured.append(bundle)
-
     print()
-    print(f"paisetup: installed {total - len(failures)} package(s), "
-          f"configured {len(configured)} PAI instance(s).")
+    print(f"paisetup: installed {total - len(failures)} package(s).")
     if failures:
         print(f"paisetup: failed: {', '.join(failures)}", file=sys.stderr)
         return 1

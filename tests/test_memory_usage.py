@@ -39,7 +39,7 @@ def test_memory_tools_seeded_for_fresh_roots() -> None:
 
 
 def test_owner_onboarding_tools_seeded_for_fresh_roots() -> None:
-    assert "mailsearch" in paifs_init.KERNEL_SEED_BINS
+    assert "inbox" in paifs_init.KERNEL_SEED_BINS
     assert "imessage-history" in paifs_init.KERNEL_SEED_BINS
 
 

@@ -64,22 +64,34 @@ the web surface.
 
 ## Install
 
-Clone the kernel repository:
+End users do not need `uv`, Node/`pnpm`, or `git`. One line installs everything:
 
 ```bash
-git clone https://github.com/whitematterlabs/pai.git
-cd pai
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/whitematterlabs/pai/main/install.sh | sh
 ```
 
-The installer will:
+The installer downloads a prebuilt release tarball (source + `uv.lock` + a
+prebuilt web `dist/`) into `~/.pai/opt/pai/<version>/`, installs the `uv` static
+binary if missing, runs `uv sync` against the lockfile (prebuilt wheels — no
+compiler), and provisions the runtime. It will:
 
-- Run `uv sync`.
-- Build the web frontend when `pnpm` is available.
+- Install `uv` automatically if it is not already present.
 - Provision the runtime filesystem at `$PAI_ROOT`, defaulting to `~/.pai`.
 - Seed the kernel, privileged tools, default prompts, and shims.
 - Ask for a default model provider in an interactive shell.
 - Offer the interactive `paisetup` capability picker.
+
+Developers work from a checkout instead, which keeps source edits live:
+
+```bash
+git clone https://github.com/whitematterlabs/pai.git
+cd pai
+uv sync && uv run paifs-init
+```
+
+(Building the web surface for a dev checkout needs `pnpm`; release tarballs ship
+it prebuilt.) Cut a release tarball with `pairelease` (dev box needs `pnpm`,
+`git`, and — for `--publish` — `gh`).
 
 After installation, start PAI:
 
@@ -113,15 +125,24 @@ Check for source updates:
 pai update --check
 ```
 
-Update the checkout, refresh dependencies, rebuild the web frontend, and
-reprovision runtime shims:
+Update:
 
 ```bash
 pai update
 ```
 
-`pai update` refuses to pull over local source changes. Commit or stash your
-changes first.
+For a tarball install (the `curl … | sh` path), `pai update` downloads the
+latest release into a new `~/.pai/opt/pai/<version>/`, reprovisions, and
+repoints `current` — your runtime state under `etc/`, `var/`, and `home/` is
+left untouched. Roll back to the previous version with:
+
+```bash
+pai update --rollback
+```
+
+For a dev checkout, `pai update` instead pulls the git source, refreshes
+dependencies, rebuilds the web frontend, and reprovisions shims. It refuses to
+pull over local source changes — commit or stash them first.
 
 ## Companion Registry
 

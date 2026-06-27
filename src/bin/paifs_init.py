@@ -132,12 +132,12 @@ KERNEL_SEED_SKILLS: tuple[str, ...] = (
 
 # Bins the kernel's seed prompts/skills require on first boot.
 # `memorize` and `remember` are invoked by every PAI via the memory-usage
-# boilerplate; `mailsearch` and `imessage-history` are required by the
-# first-run owner onboarding skill.
+# boilerplate; `inbox` (mail) and `imessage-history` are required by the
+# first-run owner onboarding skill and the default-prompt email boilerplate.
 KERNEL_SEED_BINS: tuple[str, ...] = (
     "memorize",
     "remember",
-    "mailsearch",
+    "inbox",
     "imessage-history",
 )
 
@@ -248,6 +248,7 @@ SBIN_SCRIPTS: frozenset[str] = frozenset({
     "init",
     "pai",
     "emit-event",
+    "pairelease",
     "migrate",
     "reboot",
     "reset",

@@ -87,7 +87,7 @@ created: 2026-04-30
 
 ### Account discovery — `~/Projects/pairegistry/drivers/email/macmail/accounts.py`
 
-Shared source of truth for inbound, outbound, and `mailsearch`. Asks Mail.app via AppleScript (`osascript`) at boot and hourly:
+Shared source of truth for the inbound and outbound drivers. Asks Mail.app via AppleScript (`osascript`) at boot and hourly:
 
 - `id of account` → UUID (matches the `account_uuid` parsed from `mb.url`)
 - `email addresses of account` → all canonical addresses (primary + aliases like iCloud Hide-My-Email relay addresses)
