@@ -78,7 +78,7 @@ match it feature-for-feature.
 - Table columns: `slug, pid, type, parent, ctx, when`. Source: `ProcList`.
 - Tree-ordered (roots first, subagents indented with box-drawing prefixes).
   Source: `order_as_tree`, `tree_prefix`.
-- `type` inferred: pai / driver / cron / timer / service / deadline.
+- `type` inferred: pai / subagent:<name> / driver / cron / timer / service / deadline.
   Source: `_infer_type`.
 - `ctx` = last LLM prompt-window tokens, compact-formatted (`12.3k`/`187k`/`1.2M`).
   Source: `_read_ctx_tokens`, `_fmt_ctx`.

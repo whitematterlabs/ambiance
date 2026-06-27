@@ -159,6 +159,12 @@ def _read_ctx_tokens(slug: str) -> int:
 
 def _infer_type(spec: dict) -> str:
     if spec.get("kind") == "pai":
+        # A subagent always carries a parent pid; the root PAI does not.
+        # Surface which agent it is: subagent:<package> (browse, scout, …),
+        # falling back to the slug or a generic label for unpackaged spawns.
+        if spec.get("parent"):
+            name = spec.get("package") or spec.get("slug") or "pai"
+            return f"subagent:{name}"
         return "pai"
     if spec.get("kind") == "driver":
         return "driver"
