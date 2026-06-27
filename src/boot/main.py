@@ -1035,15 +1035,16 @@ async def run() -> None:
     await _reconcile_drivers()
     await litellm_proxy.reconcile()
 
-    # Fleet is up — greet the owner. Route a synthetic kernel:online through
-    # the normal wake_on/fallback router so PAIs can opt in via
-    # wake_on: ["kernel:online"]; with none configured it lands on the
-    # fallback PAI (pid 1), the same path owner messages take. Fires on every
-    # boot, including kernel:restart re-execs.
-    for pid in _route_to_pids("kernel:online"):
+    # Fleet is up — greet the owner. Route a synthetic `online` kind through
+    # the normal wake_on/fallback router. The kind is deliberately NOT under
+    # `kernel:*` so root's kernel-internal glob doesn't swallow it; with no
+    # PAI opting in via wake_on: ["online"], it falls through to the
+    # owner-facing fallback PAI — the same one that handles owner messages.
+    # Fires on every boot, including kernel:restart re-execs.
+    for pid in _route_to_pids("online"):
         _dispatch_nudge(
             pid,
-            "kernel:online",
+            "online",
             context={
                 "instruction": (
                     "You just came online after a (re)boot. Greet your owner "
