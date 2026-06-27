@@ -444,7 +444,7 @@ def _memory_index_block(home: Path) -> str:
     )
 
 
-def _owner_profile_block(home: Path, pai: int, parent: Optional[int]) -> str:
+def _owner_profile_block(home: Path) -> str:
     """Inject the canonical owner profile, if present, into the system prompt.
 
     Resolves off the module-global PAI_ROOT (not `home`): the profile is a
@@ -453,11 +453,9 @@ def _owner_profile_block(home: Path, pai: int, parent: Optional[int]) -> str:
     `_read_or_empty` (not `_read_index`) so the block vanishes entirely when
     the file is absent or empty — no empty shell.
 
-    Gated to owner-facing fleet PAIs only: root (pid 1, internal) and
-    subagents (`parent is not None`) never talk to the owner directly, so the
-    profile is dead weight in their window. Mirrors `_default_boilerplate`."""
-    if pai == 1 or parent is not None:
-        return ""
+    Injected for every PAI — root and subagents included. They act on the
+    owner's behalf, so the owner's preferences, key people, and comm style are
+    load-bearing context, not dead weight."""
     body = _read_or_empty(PAI_ROOT / "var/lib/owner/profile.md").strip()
     if not body:
         return ""
@@ -622,7 +620,7 @@ def build_system_prompt(
         _custom_block(prompt_dir, prompt_path)
         + _boilerplate_blocks(boilerplate)
         + _memory_index_block(home)
-        + _owner_profile_block(home, pai, parent)
+        + _owner_profile_block(home)
         + _runtime_blocks(pai, parent, home, persub)
         + "~ $ "
     )
