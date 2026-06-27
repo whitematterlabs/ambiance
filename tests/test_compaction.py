@@ -195,6 +195,137 @@ def test_concurrent_nudges_queue_behind_compaction(live_dir: Path) -> None:
     assert order[2:] == ["first", "second"]
 
 
+def test_compact_action_resets_window_gauge(live_dir: Path) -> None:
+    # When the PAI calls bin/compact, the live history shrinks but
+    # last_window_tokens still holds the pre-compact (huge) count until the
+    # next turn measures. Applying the compact must zero the gauge, else the
+    # next nudge's threshold check fires a redundant compaction.
+    _spawn("epsilon", pid=20, compact_threshold=1000)
+    _write_tokens("epsilon", 5000)
+    history_path = _write_history("epsilon", 6)
+    proc_dir = P.HOME_DIR / "proc" / "epsilon"
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        if "kernel:compact" in user:
+            (proc_dir / ".history-action").write_text("compact\nSummary.\n")
+        return ("ok", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "ok"},
+        ])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=20, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    tokens = json.loads((proc_dir / "tokens").read_text())
+    assert tokens["last_window_tokens"] == 0
+
+
+# --- Hardline compaction: kernel-enforced at the hard threshold, no model
+# --- cooperation, no cooldown — the backstop for a runaway window.
+
+
+def test_hard_threshold_forces_kernel_compact_without_model(live_dir: Path) -> None:
+    _spawn("hardalpha", pid=40, compact_threshold=1000, hard_compact_threshold=10000)
+    _write_tokens("hardalpha", 50000)  # well past the hard line
+    history_path = _write_history("hardalpha", 8)
+    proc_dir = P.HOME_DIR / "proc" / "hardalpha"
+
+    calls: list[str] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        # The kernel must NOT send a cooperative kernel:compact turn — it
+        # compacts history itself. So the only turn here is the original nudge.
+        calls.append("compact" if "kernel:compact" in user else "original")
+        return ("ok", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "ok"},
+        ])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=40, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    # No cooperative compact turn — kernel did it directly.
+    assert calls == ["original"]
+    # History was archived under a -hardcompact tag.
+    archives = list((proc_dir / "history").glob("*-hardcompact.jsonl"))
+    assert len(archives) == 1
+    archived = [json.loads(ln) for ln in archives[0].read_text().splitlines() if ln.strip()]
+    assert len(archived) == 8
+    # The original turn ran against the breadcrumb stub (2 msgs) + its own 2.
+    live = [json.loads(ln) for ln in history_path.read_text().splitlines() if ln.strip()]
+    assert live[0]["content"].startswith("[prior context kernel hard-compacted")
+    assert live[1]["content"] == "Understood. Continuing."
+    # Window gauge zeroed by the hard compaction.
+    tokens = json.loads((proc_dir / "tokens").read_text())
+    assert tokens["last_window_tokens"] == 0
+
+
+def test_hard_compact_bypasses_cooldown(live_dir: Path) -> None:
+    # Even if a compaction "just happened" (cooldown active), a window past the
+    # hard line must still force a kernel compaction — the cooldown only gates
+    # the soft cooperative path.
+    import time as _time
+    _spawn("hardbeta", pid=41, compact_threshold=1000, hard_compact_threshold=10000)
+    _write_tokens("hardbeta", 50000)
+    history_path = _write_history("hardbeta", 4)
+    proc_dir = P.HOME_DIR / "proc" / "hardbeta"
+    # Mark a compaction as having just happened — soft path would be suppressed.
+    N._recently_compacted["hardbeta"] = _time.monotonic()
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        return ("ok", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "ok"},
+        ])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=41, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    archives = list((proc_dir / "history").glob("*-hardcompact.jsonl"))
+    assert len(archives) == 1
+
+
+def test_under_hard_threshold_uses_soft_path(live_dir: Path) -> None:
+    # Between the soft and hard lines, the cooperative compact nudge still
+    # fires — the hardline doesn't pre-empt it.
+    _spawn("hardgamma", pid=42, compact_threshold=1000, hard_compact_threshold=100000)
+    _write_tokens("hardgamma", 5000)  # over soft, under hard
+    history_path = _write_history("hardgamma", 4)
+    proc_dir = P.HOME_DIR / "proc" / "hardgamma"
+
+    calls: list[str] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        if "kernel:compact" in user:
+            calls.append("compact")
+            (proc_dir / ".history-action").write_text("compact\nSummary.\n")
+        else:
+            calls.append("original")
+        return ("ok", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "ok"},
+        ])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=42, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    assert calls == ["compact", "original"]
+    # Soft path, not hard: no -hardcompact archive.
+    assert list((proc_dir / "history").glob("*-hardcompact.jsonl")) == []
+
+
 # --- Hard-limit recovery: when the model never compacted and history blew
 # --- past the provider's context window, the kernel resets it itself.
 

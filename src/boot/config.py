@@ -42,7 +42,7 @@ RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 CONFIG_MANAGED_FIELDS = (
     "description", "prompt", "prompt_dir", "boilerplate", "provider",
     "model", "wake_on", "fallback", "parent", "persistent", "active",
-    "dependencies", "compact_threshold",
+    "dependencies", "compact_threshold", "hard_compact_threshold",
 )
 
 # Fields a `dependencies:` entry can carry (each entry materializes a persub
@@ -184,6 +184,20 @@ def _validate_pai_entry(entry: dict, *, source: str, config_path: Path) -> None:
         if not isinstance(ct, int) or isinstance(ct, bool) or ct <= 0:
             raise ConfigError(
                 f"{source}: entry {name!r} compact_threshold must be a positive int"
+            )
+    if "hard_compact_threshold" in entry:
+        hct = entry["hard_compact_threshold"]
+        if not isinstance(hct, int) or isinstance(hct, bool) or hct <= 0:
+            raise ConfigError(
+                f"{source}: entry {name!r} hard_compact_threshold must be a positive int"
+            )
+        # The hardline backstop must sit above the soft threshold, else it
+        # would pre-empt the cooperative compaction it's meant to back up.
+        soft = entry.get("compact_threshold")
+        if isinstance(soft, int) and not isinstance(soft, bool) and hct <= soft:
+            raise ConfigError(
+                f"{source}: entry {name!r} hard_compact_threshold ({hct}) must be "
+                f"greater than compact_threshold ({soft})"
             )
     if "dependencies" in entry:
         deps = entry["dependencies"]

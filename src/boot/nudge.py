@@ -39,6 +39,18 @@ from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
 # `compact_threshold:` in /etc/config.yaml.
 DEFAULT_COMPACT_THRESHOLD = 150_000
 
+# Hardline (kernel-enforced) compaction threshold (tokens). The soft
+# threshold above only *asks* the PAI to call `bin/compact` — it can be
+# ignored by the model and is suppressed by the post-compaction cooldown,
+# so a PAI flooded with nudges (or one whose single turn ingests a huge
+# read) can keep climbing far past it. Once `last_window_tokens` crosses
+# THIS line, the kernel compacts the history itself — no model
+# cooperation, no cooldown — before delivering the next queued nudge.
+# It's the backstop; the cooperative `bin/compact` path stays the
+# graceful primary. Override per-PAI with `hard_compact_threshold:` in
+# /etc/config.yaml.
+DEFAULT_HARD_COMPACT_THRESHOLD = 400_000
+
 # Post-turn skill-candidate trigger. After a non-trivial turn the kernel nudges
 # librarian-pai to consider distilling the just-finished workflow into a SKILL.md
 # (the procedural twin of `memorize`). Librarian is the sole skills writer.
@@ -260,6 +272,22 @@ def _append_to_me_thread(pai_pid: int, text: str) -> None:
         f.write(f"[{hm}] pai: {body}\n")
 
 
+def _reset_window_gauge(proc_dir: Path) -> None:
+    """Zero `last_window_tokens` in a PAI's token rollup. Called whenever the
+    live history is reset/compacted out from under the gauge so the next
+    threshold check reads the post-reset reality, not the stale pre-reset
+    count. Best-effort — a malformed/absent tokens file is not fatal."""
+    tokens_path = proc_dir / "tokens"
+    if not tokens_path.exists():
+        return
+    try:
+        data = json.loads(tokens_path.read_text())
+        data["last_window_tokens"] = 0
+        tokens_path.write_text(json.dumps(data))
+    except Exception:
+        pass
+
+
 def _save_history(path: Path, messages: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = "".join(json.dumps(m) + "\n" for m in messages)
@@ -300,14 +328,7 @@ def _clear_history(pai_slug: str, history_path: Path, label: str = "clear") -> O
     if archived:
         shutil.copy(history_path, archive_path)
     _save_history(history_path, [])
-    tokens_path = proc_dir / "tokens"
-    if tokens_path.exists():
-        try:
-            data = json.loads(tokens_path.read_text())
-            data["last_window_tokens"] = 0
-            tokens_path.write_text(json.dumps(data))
-        except Exception:
-            pass
+    _reset_window_gauge(proc_dir)
     return archive_path if archived else None
 
 
@@ -347,6 +368,11 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
             {"role": "assistant", "content": "Understood. Continuing."},
         ]
         _save_history(history_path, compacted)
+        # Zero the window gauge — same as the clear path. `last_window_tokens`
+        # still holds the pre-compact (huge) count until the next turn runs;
+        # leaving it stale would make the next nudge's threshold check fire a
+        # redundant compaction against history that's already tiny.
+        _reset_window_gauge(proc_dir)
         try:
             append_log(pai_slug, f"context compacted — archived to {rel_archive}")
         except ProcessNotFound:
@@ -432,14 +458,44 @@ def _emergency_reset_history(pai_slug: str, history_path: Path) -> str:
     _save_history(history_path, [])
     # Reset the token rollup so the soft-compaction threshold doesn't keep
     # firing against the now-stale (pre-reset) window size.
-    tokens_path = proc_dir / "tokens"
-    if tokens_path.exists():
-        try:
-            data = json.loads(tokens_path.read_text())
-            data["last_window_tokens"] = 0
-            tokens_path.write_text(json.dumps(data))
-        except Exception:
-            pass
+    _reset_window_gauge(proc_dir)
+    try:
+        return str(archive_path.relative_to(PROC_DIR.parent))
+    except ValueError:
+        return str(archive_path)
+
+
+def _hard_compact_history(
+    pai_slug: str, history_path: Path, last_window: int, hard_threshold: int
+) -> str:
+    """Kernel-enforced compaction at the hard threshold — runs between turns,
+    needs no model cooperation, and bypasses the soft-path cooldown.
+
+    Unlike `_emergency_reset_history` (which fires reactively on an observed
+    provider overflow and wipes to empty), this fires *proactively* the moment
+    the standing window crosses `hard_threshold`, and leaves a one-line
+    breadcrumb in the user/assistant shape the cooperative `bin/compact` path
+    uses — so role alternation stays valid and the PAI knows its prior context
+    was dropped. The graceful primary remains the model calling `bin/compact`
+    with a real summary; this only catches the runaway. Returns the archive
+    path (relative to PAI_ROOT) for logging."""
+    proc_dir = PROC_DIR / pai_slug
+    archive_dir = proc_dir / "history"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+    archive_path = archive_dir / f"{ts}-hardcompact.jsonl"
+    if history_path.exists():
+        shutil.copy(history_path, archive_path)
+    breadcrumb = (
+        f"[prior context kernel hard-compacted at {last_window} tokens "
+        f"(exceeded {hard_threshold}) — summarize as you go and call "
+        f"bin/compact yourself to avoid this]"
+    )
+    _save_history(history_path, [
+        {"role": "user", "content": breadcrumb},
+        {"role": "assistant", "content": "Understood. Continuing."},
+    ])
+    _reset_window_gauge(proc_dir)
     try:
         return str(archive_path.relative_to(PROC_DIR.parent))
     except ValueError:
@@ -553,6 +609,36 @@ async def _maybe_compact_locked(pai_pid: int, pai_slug: str) -> None:
     except ProcessNotFound:
         pai_spec = {}
     threshold = pai_spec.get("compact_threshold") or DEFAULT_COMPACT_THRESHOLD
+    hard_threshold = (pai_spec.get("hard_compact_threshold")
+                      or DEFAULT_HARD_COMPACT_THRESHOLD)
+
+    # Hardline path: the window has run away past anything the cooperative
+    # `bin/compact` path could be trusted to recover. Compact kernel-side now,
+    # no model cooperation and no cooldown — we're between turns (the prior
+    # turn already released; later nudges are queued behind this lock), so this
+    # is exactly "stop the PAI after its current turn and drain the queue
+    # against a fresh context."
+    if last_window >= hard_threshold:
+        _recently_compacted[pai_slug] = time.monotonic()
+        rel_archive = _hard_compact_history(
+            pai_slug, _history_path(pai_slug), last_window, hard_threshold
+        )
+        try:
+            append_log(
+                pai_slug,
+                f"kernel: hard-compacted (last_window={last_window} >= "
+                f"{hard_threshold}) — archived to {rel_archive}",
+            )
+        except ProcessNotFound:
+            pass
+        print(
+            f"[kernel] hard-compaction: pai={pai_slug} "
+            f"last_window={last_window} hard_threshold={hard_threshold} "
+            f"— archived to {rel_archive}",
+            flush=True,
+        )
+        return
+
     cooled = (time.monotonic() - _recently_compacted.get(pai_slug, 0.0)
               < _COMPACT_COOLDOWN_SECS)
     if last_window < threshold or cooled:
