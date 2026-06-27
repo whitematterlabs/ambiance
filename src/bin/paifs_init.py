@@ -247,6 +247,7 @@ BUNDLE_SEED_CONTENT: tuple[tuple[str, str], ...] = (
 SBIN_SCRIPTS: frozenset[str] = frozenset({
     "init",
     "pai",
+    "emit-event",
     "migrate",
     "reboot",
     "reset",
