@@ -233,6 +233,20 @@ export function App() {
           for (const [pid, m] of Object.entries(msg.threads)) t[Number(pid)] = m;
           setThreads(t);
           applyFleet(msg.fleet);
+          // Seed the log + activity panes with the kernel.log backlog so a
+          // fresh connection isn't a blank "waiting for kernel.log…".
+          if (msg.log_backlog?.length) {
+            setLogLines(cap([], msg.log_backlog));
+            let st = activityState.current;
+            const entries: ActivityEntry[] = [];
+            for (const line of msg.log_backlog) {
+              const r = ingest(st, line);
+              st = r.state;
+              if (r.entries.length) entries.push(...r.entries);
+            }
+            activityState.current = st;
+            if (entries.length) setActivity((prev) => cap(prev, entries));
+          }
           break;
         }
         case "procs":

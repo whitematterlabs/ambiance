@@ -56,7 +56,7 @@ export interface ShellEntry {
 }
 
 export type ServerMessage =
-  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; threads: Record<string, ThreadMessage[]> }
+  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[] }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
   | { type: "thread"; pid: number; messages: ThreadMessage[] }

@@ -45,6 +45,39 @@ from sbin.tui.state import (
 )
 
 
+# How many recent kernel.log lines to ship in the initial snapshot. Matches
+# the client-side ring-buffer cap (CAP in App.tsx).
+_LOG_BACKLOG_LINES = 500
+
+
+def _read_log_tail(path: Path, n: int) -> list[str]:
+    """Last `n` non-empty lines of `path`, or [] if it can't be read.
+
+    Reads a bounded tail from EOF rather than the whole file — kernel.log
+    grows without bound.
+    """
+    if n <= 0:
+        return []
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    # ~512 bytes/line is generous; read enough to cover n lines.
+    want = min(size, n * 512)
+    try:
+        with path.open("rb") as f:
+            f.seek(size - want)
+            data = f.read(want)
+    except OSError:
+        return []
+    text = data.decode("utf-8", errors="replace")
+    if want < size:
+        # Drop the (likely partial) first line.
+        text = text.split("\n", 1)[-1] if "\n" in text else ""
+    lines = [ln for ln in text.splitlines() if ln]
+    return lines[-n:]
+
+
 # --- message format (matches widgets._style_message split) -----------------
 
 
@@ -273,6 +306,11 @@ class Hub:
                 "fleet": list(self._fleet),
                 "procs": list(self._procs),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
+                # The live tail only streams *new* lines (starts at EOF), so a
+                # fresh client would see an empty feed despite a populated log.
+                # Ship the recent backlog so the log/activity panes have context
+                # on connect.
+                "log_backlog": _read_log_tail(KERNEL_LOG, _LOG_BACKLOG_LINES),
             }
 
     # -- lifecycle --
