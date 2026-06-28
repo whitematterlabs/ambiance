@@ -26,6 +26,24 @@ from boot import paths as PA
 from boot import processes as P
 
 
+@pytest.fixture(autouse=True)
+def _isolate_event_queue(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Safety net: no test may emit into the *live* kernel's event queue.
+
+    `processes.EVENTS_DIR` is import-cached to the real `$PAI_ROOT/run/pai/
+    events/`. A test that monkeypatches only `paths.PAI_ROOT` (e.g. the paiman
+    `fhs_root` fixture) leaves `processes.EVENTS_DIR` pointed at `~/.pai`, so
+    `paiman install` during the suite drops `kernel:reload_config` files that
+    the running kernel consumes — draining nudges and reaping in-flight
+    subagents on the developer's live machine.
+
+    Redirect it to a throwaway dir for every test. Autouse fixtures are set up
+    before explicitly-requested ones, so fixtures like `live_dir` that set
+    `P.EVENTS_DIR` themselves still win where a test needs to inspect emits.
+    """
+    monkeypatch.setattr(P, "EVENTS_DIR", tmp_path / "events", raising=True)
+
+
 @pytest.fixture
 def live_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     live = tmp_path / "home"

@@ -89,7 +89,30 @@ def _release_pid_lock() -> None:
     _lock_fd = None
 
 
+def _ensure_stable_cwd() -> None:
+    """Pin the kernel's cwd to $PAI_ROOT, which never moves at runtime.
+
+    The kernel is typically launched from the release dir (e.g.
+    `~/.pai/opt/pai/<ver>/`). That directory is *swappable*: `pai update`
+    deletes and re-extracts it under the running process. Once the cwd inode
+    is gone, `os.getcwd()` and any cwd-less subprocess spawn raise a bare
+    `FileNotFoundError(2, 'No such file or directory')` — which surfaces as a
+    fatal "nudge failed" mid-turn and reaps whatever subagent was running.
+    $PAI_ROOT itself is stable (only `opt/` underneath it gets swapped), so
+    chdir'ing here makes getcwd and inherited-cwd children resolve against a
+    directory that survives updates and re-execs.
+    """
+    try:
+        os.chdir(paths.PAI_ROOT)
+    except OSError as e:
+        # Pre-sanity: a missing root is reported cleanly by sanity.run() below.
+        print(f"[boot] warn: could not chdir to PAI_ROOT: {e!r}", flush=True)
+
+
 def boot() -> int:
+    # First, before getcwd or any child spawn can trip over a swapped-out
+    # release dir: pin cwd to the stable $PAI_ROOT.
+    _ensure_stable_cwd()
     # Before anything spawns a child: ensure the PAI bin dirs are on PATH. A
     # Finder-launched .app gives us no shell PATH, so without this the kernel's
     # subprocesses (services, hooks, header helpers) can't find PAI tools.

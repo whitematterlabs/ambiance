@@ -419,6 +419,12 @@ _TRANSIENT_MARKERS = (
     "503",
     "502",
     "temporarily unavailable",
+    # Empty / malformed response body from the provider. Seen as
+    # `bad response: JSONDecodeError('Expecting value: line 1 column 1
+    # (char 0)'): b''` when the upstream returns a 200 with no body — a
+    # transient hiccup, not an actionable failure. Retry once.
+    "expecting value",
+    "jsondecodeerror",
 )
 
 # Brief backoff before the kernel retries a turn that hit a transient provider

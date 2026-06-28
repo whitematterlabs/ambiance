@@ -61,6 +61,29 @@ def test_transient_error_twice_gives_up_without_storm(live_dir: Path) -> None:
     assert calls == ["call", "call"]  # exactly two attempts, no infinite loop
 
 
+def test_empty_response_body_is_transient(live_dir: Path) -> None:
+    """A 200-with-no-body from the provider surfaces as a JSONDecodeError
+    ('Expecting value: ... char 0'). That's a hiccup, not an actionable
+    failure — it must retry once, not reap the (sub)agent."""
+    _spawn("omega", pid=16)
+    calls: list[str] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        calls.append("call")
+        if len(calls) == 1:
+            raise RuntimeError(
+                "bad response: JSONDecodeError('Expecting value: line 1 "
+                "column 1 (char 0)'): b''"
+            )
+        return ("ok", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "ok"},
+        ])
+
+    _run(fake_run_turn, to=16)
+    assert calls == ["call", "call"]  # retried once, then succeeded
+
+
 def test_non_transient_error_does_not_retry(live_dir: Path) -> None:
     _spawn("zeta", pid=15)
     calls: list[str] = []
