@@ -2381,6 +2381,144 @@ button {
   cursor: default;
 }
 
+/* ---------- Welcome / capability dialog ---------- */
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  background: rgba(43, 41, 38, 0.5);
+  backdrop-filter: blur(6px);
+  z-index: 230;
+  animation: fade-in 0.2s var(--ease) both;
+}
+
+.welcome-card {
+  width: 520px;
+  max-width: 100%;
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 40px 90px -30px rgba(43, 41, 38, 0.55);
+  animation: palette-in 0.32s var(--ease-out) both;
+  overflow: hidden;
+}
+
+.welcome-head {
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.welcome-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.welcome-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.welcome-list {
+  list-style: none;
+  margin: 0;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.welcome-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  transition: background 0.14s var(--ease);
+}
+
+.welcome-item:hover {
+  background: var(--surface-soft);
+}
+
+.welcome-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+.welcome-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.welcome-item-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.welcome-item-body {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.welcome-item-body code,
+.welcome-item-body kbd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.welcome-item-body strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.welcome-actions {
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.welcome-start {
+  min-height: 40px;
+  padding: 0 22px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  transition: background 0.14s var(--ease);
+}
+
+.welcome-start:hover {
+  background: var(--accent-deep);
+}
+
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar {
   width: 11px;

@@ -23,6 +23,7 @@ import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { WelcomeDialog } from "./components/WelcomeDialog";
 
 const CAP = 500; // ring-buffer cap for log/activity/events
 type MobileView = "chat" | "activity";
@@ -52,6 +53,11 @@ export function App() {
   const [confirmDelete, setConfirmDelete] = useState<FleetMember | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Show the welcome/capability tour automatically on the very first boot,
+  // then never again unless the owner re-opens it via the header "?" button.
+  const [welcomeOpen, setWelcomeOpen] = useState(
+    () => localStorage.getItem("welcomeSeen") !== "true",
+  );
   const [mobileView, setMobileView] = useState<MobileView>("chat");
   const [authNeeded, setAuthNeeded] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
@@ -620,6 +626,7 @@ export function App() {
         phraseSupported={phraseSupported}
         localListener={localVoiceActive}
         wakePhrase={DEFAULT_WAKE_PHRASE}
+        onShowWelcome={() => setWelcomeOpen(true)}
       />
       <FleetTabs
         fleet={fleet}
@@ -734,6 +741,14 @@ export function App() {
           busy={deleteBusy}
           onConfirm={runDelete}
           onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+      {welcomeOpen && (
+        <WelcomeDialog
+          onClose={() => {
+            localStorage.setItem("welcomeSeen", "true");
+            setWelcomeOpen(false);
+          }}
         />
       )}
       {authNeeded && (

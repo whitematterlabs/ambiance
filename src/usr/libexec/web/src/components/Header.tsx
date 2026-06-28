@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Moon, Sun } from "lucide-react";
+import { HelpCircle, Moon, Sun } from "lucide-react";
 import { VOICE_OPTIONS } from "../speech";
 import { Logo } from "./Logo";
 
@@ -23,6 +23,7 @@ export function Header({
   phraseSupported,
   localListener,
   wakePhrase,
+  onShowWelcome,
 }: {
   connected: boolean;
   kernelRunning: boolean;
@@ -46,6 +47,7 @@ export function Header({
   // browser SpeechRecognition support; otherwise it falls back to the browser.
   localListener: boolean;
   wakePhrase: string;
+  onShowWelcome: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -89,6 +91,15 @@ export function Header({
         </button>
       </div>
       <span className="spacer" />
+      <button
+        className="ghost-button theme-toggle"
+        type="button"
+        onClick={onShowWelcome}
+        title="What can PAI do?"
+        aria-label="What can PAI do?"
+      >
+        <HelpCircle size={15} aria-hidden="true" />
+      </button>
       <button
         className="ghost-button theme-toggle"
         type="button"
