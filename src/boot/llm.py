@@ -31,6 +31,33 @@ from .processes import ProcessNotFound, append_log
 MAX_TOKENS = 4096
 MAX_ITERATIONS = 200
 
+# Max characters of a single tool result fed back to the model. A command that
+# dumps megabytes (cat huge.log, find /, a runaway loop) would otherwise inflate
+# one turn's prompt past the provider's context window — the very next
+# messages.create in the loop 400s ("maximum context length ... requested N
+# tokens"). That failure is unrecoverable by the history-reset overflow path
+# (nudge._emergency_reset_history): the bloat is generated *within* the turn, so
+# the retry reproduces it and dies fatally, reaping any running subagent. Capping
+# the model-bound copy head+tail guarantees one tool call can never blow the
+# window. The full output is still printed/logged to the TTY — only the copy
+# sent back to the model is truncated. ~50K tokens at ~4 chars/token.
+MAX_TOOL_RESULT_CHARS = 200_000
+
+
+def _cap_tool_result(text: str) -> str:
+    """Truncate an oversized tool result to a head+tail with an elision marker.
+    Strings within budget pass through unchanged."""
+    if len(text) <= MAX_TOOL_RESULT_CHARS:
+        return text
+    half = MAX_TOOL_RESULT_CHARS // 2
+    elided = len(text) - 2 * half
+    marker = (
+        f"\n\n[... {elided} characters elided by kernel — tool output exceeded "
+        f"the {MAX_TOOL_RESULT_CHARS}-char cap; the full output is in the "
+        f"TTY/log. Re-run narrowed (head/tail/grep/sed -n) to see more ...]\n\n"
+    )
+    return text[:half] + marker + text[-half:]
+
 
 def _append_narration_to_me_thread(pai_pid: str, line: str) -> None:
     """Mirror interim text-block narration into the owner-facing me/ thread
@@ -363,7 +390,8 @@ async def _loop(
                     "type": "tool_result",
                     "tool_use_id": use.id,
                     "content": expand_image_refs(
-                        rendered, base_dir=_tool_result_base_dir(env)
+                        _cap_tool_result(rendered),
+                        base_dir=_tool_result_base_dir(env),
                     ),
                 })
             elif use.name == shell_tool.TOOL_NAME:
@@ -383,7 +411,8 @@ async def _loop(
                     "type": "tool_result",
                     "tool_use_id": use.id,
                     "content": expand_image_refs(
-                        rendered, base_dir=_tool_result_base_dir(env)
+                        _cap_tool_result(rendered),
+                        base_dir=_tool_result_base_dir(env),
                     ),
                 })
             elif use.name == noop_tool.TOOL_NAME:
