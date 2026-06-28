@@ -1,6 +1,8 @@
-/* PAI web — a warm, editorial console. Ivory paper, clay accent, a wonky
-   old-style serif for voice and a quiet humanist sans for everything you read.
-   No status pills, no candy dots — hierarchy comes from type, space, and ink. */
+/* PAI web — a warm systems console. Ivory paper, clay accent. Mono is the
+   personality face: process identifiers (chat title, fleet tabs, status) are set
+   in IBM Plex Mono so they read like the process labels they are; a quiet
+   humanist sans carries prose and chrome. No status pills, no candy dots —
+   hierarchy comes from type, space, and ink. */
 
 :root {
   /* Warm paper surfaces */
@@ -47,7 +49,6 @@
   --shadow-soft: 0 1px 2px rgba(58, 46, 34, 0.06), 0 6px 18px -14px rgba(58, 46, 34, 0.18);
   --shadow-lift: 0 18px 40px -22px rgba(58, 46, 34, 0.4);
 
-  --serif: "Fraunces", "Hoefler Text", Georgia, "Times New Roman", serif;
   --sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -539,7 +540,7 @@ button {
   color: var(--dim);
   font-size: 13.5px;
   font-style: italic;
-  font-family: var(--serif);
+  font-family: var(--sans);
 }
 
 .fleet-tab-shell {
@@ -623,10 +624,10 @@ button {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: var(--serif);
-  font-size: 15px;
-  font-weight: 540;
-  letter-spacing: -0.005em;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .fleet-tab-meta {
@@ -811,12 +812,11 @@ button {
 
 .chat-title {
   margin: 0;
-  font-family: var(--serif);
-  font-optical-sizing: auto;
-  font-size: 23px;
-  font-weight: 520;
-  letter-spacing: -0.015em;
-  line-height: 1.15;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .chat-meta {
@@ -924,7 +924,7 @@ button {
   place-items: center;
   min-height: 240px;
   color: var(--dim);
-  font-family: var(--serif);
+  font-family: var(--sans);
   font-style: italic;
   font-size: 16px;
   animation: fade-in 0.8s var(--ease) both;
@@ -1039,9 +1039,9 @@ button {
 .msg-body h1,
 .msg-body h2,
 .msg-body h3 {
-  font-family: var(--serif);
-  font-size: 1.18em;
-  font-weight: 540;
+  font-family: var(--sans);
+  font-size: 1.15em;
+  font-weight: 650;
   margin: 0.85em 0 0.4em;
   letter-spacing: -0.01em;
 }
@@ -1821,9 +1821,9 @@ button {
 }
 
 .status-card-title {
-  font-family: var(--serif);
-  font-size: 18px;
-  font-weight: 540;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 500;
   letter-spacing: -0.01em;
 }
 
@@ -1948,7 +1948,7 @@ button {
 .feed-empty {
   padding: 16px;
   color: var(--dim);
-  font-family: var(--serif);
+  font-family: var(--sans);
   font-style: italic;
   font-size: 14px;
   text-align: center;
@@ -2048,7 +2048,7 @@ button {
 
 .empty-row td {
   color: var(--dim);
-  font-family: var(--serif);
+  font-family: var(--sans);
   font-style: italic;
 }
 
@@ -2208,7 +2208,7 @@ button {
 .palette-empty {
   padding: 16px 12px;
   color: var(--dim);
-  font-family: var(--serif);
+  font-family: var(--sans);
   font-style: italic;
 }
 

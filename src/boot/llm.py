@@ -23,7 +23,7 @@ from anthropic import AsyncAnthropic
 
 from . import tokens
 
-from . import bash_tool, noop_tool, shell_tool
+from . import bash_tool, noop_tool, shell_tool, stitch
 from .image_refs import expand_image_refs
 from .paths import HOME_DIR
 from .processes import ProcessNotFound, append_log
@@ -186,6 +186,23 @@ def _prune_unresolved_tool_uses(messages: list[dict]) -> None:
         messages.pop()
 
 
+def _tool_result_base_dir(env: Optional[dict]) -> Path:
+    """Base dir for resolving relative image refs in tool output.
+
+    A PAI's bash/shell session runs with cwd = the PAI's home, so relative
+    image paths it emits are relative to that home — not the kernel's launch
+    cwd. Using the kernel cwd was also fragile: a long-running supervisor
+    whose launch dir is later removed makes os.getcwd() raise
+    FileNotFoundError, which would kill the whole turn (even tool output with
+    no images at all).
+    """
+    raw_slug = (env or {}).get("PAI_SLUG")
+    try:
+        return stitch.home_for(raw_slug) if raw_slug else HOME_DIR
+    except Exception:
+        return HOME_DIR
+
+
 async def run_turn(
     system: str,
     user: str,
@@ -345,7 +362,9 @@ async def _loop(
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": use.id,
-                    "content": expand_image_refs(rendered, base_dir=Path.cwd()),
+                    "content": expand_image_refs(
+                        rendered, base_dir=_tool_result_base_dir(env)
+                    ),
                 })
             elif use.name == shell_tool.TOOL_NAME:
                 pai_slug = (env or {}).get("PAI_SLUG") or "?"
@@ -363,7 +382,9 @@ async def _loop(
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": use.id,
-                    "content": expand_image_refs(rendered, base_dir=Path.cwd()),
+                    "content": expand_image_refs(
+                        rendered, base_dir=_tool_result_base_dir(env)
+                    ),
                 })
             elif use.name == noop_tool.TOOL_NAME:
                 tool_results.append({
