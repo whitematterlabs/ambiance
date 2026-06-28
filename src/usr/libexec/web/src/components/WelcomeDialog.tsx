@@ -12,6 +12,9 @@ import {
   Square,
   Library,
   ShieldHalf,
+  Globe,
+  Mail,
+  Puzzle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -31,6 +34,21 @@ const FEATURES: { icon: LucideIcon; title: string; body: React.ReactNode }[] = [
       <>
         Start a line with <code>!</code> to run a command in your PAI's home —{" "}
         <code>!ls</code>, <code>!git status</code>. Output streams inline.
+      </>
+    ),
+  },
+  {
+    icon: Globe,
+    title: "Browse the web",
+    body: "PAI drives Chrome exactly how you do — signed in with your own cookies, so it sees the same pages and accounts you do.",
+  },
+  {
+    icon: Mail,
+    title: "Email",
+    body: (
+      <>
+        Set up <strong>Mail.app</strong> with your accounts and PAI can read and send mail
+        for you.
       </>
     ),
   },
@@ -56,6 +74,16 @@ const FEATURES: { icon: LucideIcon; title: string; body: React.ReactNode }[] = [
       <>
         <strong>root</strong> (pid 1) is the kernelPAI. Talk to it about system matters —
         debugging, fleet state, capability requests. Day-to-day chat goes to your main PAI.
+      </>
+    ),
+  },
+  {
+    icon: Puzzle,
+    title: "Connect new resources",
+    body: (
+      <>
+        Want PAI wired into a new tool, account, or capability? Ask <strong>root</strong> —
+        it handles capability requests and adds new features for the fleet.
       </>
     ),
   },
