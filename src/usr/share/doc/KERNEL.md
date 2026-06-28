@@ -290,11 +290,21 @@ Spawning happens from:
 2. **The owner / humans** — same command, same surface.
 3. **The kernel itself** — spawning follow-ups when a service completes, or seeding internal cron jobs on first boot.
 
-## TODO
+## Shipped (formerly TODO)
 
-- **Context-limit compaction & session restart.** As PAI's conversation approaches the LLM's context window, the kernel is responsible for compacting the active session (summarize, dump state to `memory/`) and restarting the LLM with the compacted context. This is a kernel responsibility, not PAI's — PAI can't reliably reason about its own context budget while it's mid-thought. Likely shape: a monitor that tracks token usage per session, fires a `compact_needed` event past some threshold, kernel drives the summarize-and-restart flow. Revisit after Phase 3 (real `nudge()` with LLM calls).
+- **Context-limit compaction & session restart — DONE.** The kernel tracks
+  per-PAI token usage and drives compaction: a soft threshold asks the PAI to
+  call `bin/compact`, and a kernel-enforced hard backstop compacts the history
+  itself when the soft path is ignored. Provider context-window overflow is
+  recovered by archiving the oversized history and retrying the turn. See
+  `src/boot/nudge.py`.
 
-- **Session persistence across nudges.** Today each nudge is a cold LLM call — no state carries forward, PAI re-orients from scratch every wake. Eventually we want a persistent session so reasoning (prior decisions, in-flight drafts, "why I chose X") survives between nudges. Design rule: **session ≠ read cache.** The session carries reasoning; file reads re-run on every wake. Files are the source of truth and may change externally between nudges (watcher appends a new message, human edits directives, another process resolves), so cached file contents are unsafe to carry. Shape: LLM conversation history per-thread or per-slug, prepended to the user turn on subsequent nudges, with the operating instructions reminding PAI that the filesystem has likely changed since it last looked.
+- **Session persistence across nudges — DONE.** Per-PAI conversation history
+  lives in `proc/<pai>/messages.jsonl`; it is loaded, threaded through the
+  turn, and persisted on completion, so reasoning survives between wakes. The
+  design rule still holds — **session ≠ read cache**: the session carries
+  reasoning while file reads re-run every wake, since the filesystem may change
+  externally between nudges.
 
 ## Resolved Processes
 

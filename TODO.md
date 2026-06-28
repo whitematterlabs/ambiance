@@ -17,13 +17,26 @@ The v3 FHS migration is complete. Source of truth for layout is
   instances), `paictl` (instance runtime via `active:` flag),
   `paicron` (services, the cron/systemctl analogue).
 
+## Done (since the original roadmap)
+
+- **`/opt/` bundle stitching — DONE.** `paiman install <name|path|git-url>`
+  stages into `/opt/<pkg>/<ver>/` and exposes drivers/skills/pais via
+  `/usr/lib/`. The companion `pairegistry` is the canonical package source.
+- **`paiman` verbs beyond `init` — DONE.** `install`, `remove`, `list`,
+  `show` all ship (see `src/bin/paiman.py`).
+- **Context-limit compaction & session restart — DONE.** Soft per-PAI
+  compaction threshold plus a kernel-enforced hard backstop in
+  `src/boot/nudge.py`; overflow recovery archives oversized history and
+  retries the turn.
+- **Session persistence across nudges — DONE.** Per-PAI conversation
+  history lives in `proc/<pai>/messages.jsonl`, threaded through each turn
+  and persisted on completion.
+
 ## Next
 
-1. **`/opt/` bundle stitching.** Make `paiman install <url>` real:
-   clone to `/opt/<pkg>/<ver>/`, resolve declared deps, expose drivers
-   and skills via `/usr/lib/`. Unlocks shipping bundles via git.
-2. `paiman` verbs beyond `init`: `install`, `uninstall`, `upgrade`,
-   `list`. Depends on (1).
+No engine-level roadmap items are open. Remaining work is launch hygiene
+(license, clean-install verification, doc sync) and the userspace packages
+shipped from `pairegistry`. See **Deferred** for post-launch hardening.
 
 ## Runtime bugs — triage 2026-06-06
 

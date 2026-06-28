@@ -1,8 +1,10 @@
 [project]
 name = "pai"
 version = "0.1.0"
-description = "Add your description here"
+description = "PAI (Personal AI) — a local-first, always-on AI fleet runtime for macOS, backed by a plain-text filesystem."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.14"
 dependencies = [
     "anthropic>=0.40.0",

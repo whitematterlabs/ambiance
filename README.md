@@ -337,5 +337,5 @@ $PAI_ROOT/var/log/kernel/kernel.log
 
 ## License
 
-No license file is currently included. Add a license before broad public
-distribution.
+PAI is licensed under the [Apache License 2.0](LICENSE). See [`NOTICE`](NOTICE)
+for attribution.
