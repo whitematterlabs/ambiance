@@ -23,6 +23,7 @@ import os
 import shutil
 import tempfile
 import time
+import traceback
 from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -510,7 +511,8 @@ async def _handle_turn_failure(
     pai_slug: str,
     is_ephemeral: bool,
 ) -> None:
-    print(f"[kernel] nudge failed: {e!r}", flush=True)
+    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+    print(f"[kernel] nudge failed: {e!r}\n{tb}", end="", flush=True)
     try:
         append_log(pai_slug, f"nudge failed — {e!r}")
     except ProcessNotFound:

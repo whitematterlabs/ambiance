@@ -7,6 +7,16 @@ import pytest
 from bin import pai
 
 
+@pytest.fixture(autouse=True)
+def _marker_less_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default every test to a marker-less PAI_ROOT so the git/dev update path
+    is exercised. Without this the suite picks up the developer's ambient
+    `~/.pai/var/lib/.release` marker (written by install.sh) and routes through
+    the tarball path instead. Tarball-path tests re-point PAI_ROOT and seed
+    their own marker, which runs after this fixture and so takes precedence."""
+    monkeypatch.setattr(pai, "PAI_ROOT", tmp_path / "marker-less-root")
+
+
 def _status(
     repo: Path,
     *,
