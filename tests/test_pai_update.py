@@ -217,6 +217,7 @@ def test_update_tarball_check_reports_available(
     _seed_marker(root, "0.1.0")
     monkeypatch.setattr(pai, "PAI_ROOT", root)
     monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.2.0")
+    monkeypatch.setattr(pai, "_latest_release_sha", lambda base: "")
 
     assert pai.main(["update", "--check"]) == 0
 
@@ -235,6 +236,7 @@ def test_update_tarball_check_up_to_date(
     _seed_marker(root, "0.2.0")
     monkeypatch.setattr(pai, "PAI_ROOT", root)
     monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.2.0")
+    monkeypatch.setattr(pai, "_latest_release_sha", lambda base: "")
 
     assert pai.main(["update", "--check"]) == 0
     assert "status: up to date" in capsys.readouterr().out
@@ -249,14 +251,15 @@ def test_update_tarball_downloads_and_repoints(
     (root / "opt" / "pai" / "0.1.0").mkdir(parents=True)
     monkeypatch.setattr(pai, "PAI_ROOT", root)
     monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.2.0")
+    monkeypatch.setattr(pai, "_latest_release_sha", lambda base: "newsha")
 
     extracted: list[str] = []
 
-    def fake_extract(base: str, ver: str) -> Path:
+    def fake_extract(base: str, ver: str, expected_sha: str = "") -> tuple[Path, str]:
         d = root / "opt" / "pai" / ver
         d.mkdir(parents=True, exist_ok=True)
         extracted.append(ver)
-        return d
+        return d, expected_sha or "newsha"
 
     reprov: list[Path] = []
     monkeypatch.setattr(pai, "_download_and_extract", fake_extract)
@@ -270,6 +273,74 @@ def test_update_tarball_downloads_and_repoints(
     assert reprov == [root / "opt" / "pai" / "0.2.0"]
     assert (root / "opt" / "pai" / "current").resolve() == root / "opt" / "pai" / "0.2.0"
     assert (root / "var" / "lib" / ".release").read_text().strip() == "0.2.0"
+    assert (root / "var" / "lib" / ".release.sha256").read_text().split()[0] == "newsha"
+
+
+def test_update_tarball_same_version_new_build_updates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rebuilt `latest` under the same version (changed sha) is an update."""
+    root = tmp_path / "pai"
+    _seed_marker(root, "0.1.0")
+    (root / "var" / "lib" / ".release.sha256").write_text("oldsha  pai.tar.gz\n")
+    (root / "opt" / "pai" / "0.1.0").mkdir(parents=True)
+    monkeypatch.setattr(pai, "PAI_ROOT", root)
+    monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.1.0")
+    monkeypatch.setattr(pai, "_latest_release_sha", lambda base: "freshsha")
+
+    extracted: list[str] = []
+
+    def fake_extract(base: str, ver: str, expected_sha: str = "") -> tuple[Path, str]:
+        d = root / "opt" / "pai" / ver
+        d.mkdir(parents=True, exist_ok=True)
+        extracted.append(ver)
+        return d, expected_sha or "freshsha"
+
+    monkeypatch.setattr(pai, "_download_and_extract", fake_extract)
+    monkeypatch.setattr(pai, "_reprovision_tarball", lambda d: 0)
+
+    assert pai.main(["update"]) == 0
+
+    assert extracted == ["0.1.0"]
+    assert (root / "var" / "lib" / ".release.sha256").read_text().split()[0] == "freshsha"
+
+
+def test_update_tarball_same_version_same_sha_is_noop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "pai"
+    _seed_marker(root, "0.1.0")
+    (root / "var" / "lib" / ".release.sha256").write_text("samesha  pai.tar.gz\n")
+    monkeypatch.setattr(pai, "PAI_ROOT", root)
+    monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.1.0")
+    monkeypatch.setattr(pai, "_latest_release_sha", lambda base: "samesha")
+    monkeypatch.setattr(
+        pai,
+        "_download_and_extract",
+        lambda *a, **k: pytest.fail("should not re-download an unchanged build"),
+    )
+
+    assert pai.main(["update"]) == 0
+    assert "already on the latest release" in capsys.readouterr().out
+
+
+def test_update_tarball_check_reports_new_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "pai"
+    _seed_marker(root, "0.1.0")
+    (root / "var" / "lib" / ".release.sha256").write_text("oldsha  pai.tar.gz\n")
+    monkeypatch.setattr(pai, "PAI_ROOT", root)
+    monkeypatch.setattr(pai, "_latest_release_version", lambda base: "0.1.0")
+    monkeypatch.setattr(pai, "_latest_release_sha", lambda base: "freshsha")
+
+    assert pai.main(["update", "--check"]) == 0
+    assert "status: update available (0.1.0 — new build)" in capsys.readouterr().out
 
 
 def test_update_tarball_rollback_picks_prior(

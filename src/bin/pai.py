@@ -105,18 +105,21 @@ def _check_for_update_on_start() -> None:
     print("==> update check")
     marker = _release_marker()
     if marker is not None:
+        base = _release_base()
         try:
-            latest = _latest_release_version(_release_base())
+            latest = _latest_release_version(base)
         except SystemExit as e:
             print(f"pai start: update check skipped — {e}", file=sys.stderr)
             return
+        latest_sha = _latest_release_sha(base)
+        installed_sha = _installed_sha()
         print(f"installed: {marker}")
         print(f"latest: {latest}")
-        if latest and latest != marker:
+        if _tarball_up_to_date(marker, installed_sha, latest, latest_sha):
+            print("status: up to date")
+        else:
             print(UPDATE_READY_NOTICE)
             print("next: pai update")
-        else:
-            print("status: up to date")
         return
     try:
         status = _read_update_status(REPO_ROOT, fetch=True)
@@ -269,6 +272,53 @@ def _release_base() -> str:
     return os.environ.get("PAI_RELEASE_BASE", DEFAULT_RELEASE_BASE)
 
 
+def _installed_sha() -> str | None:
+    """The sha256 of the tarball this install was provisioned from, or None if
+    unrecorded (older install, or a dev checkout). Recorded alongside the
+    version marker so `pai update` can detect a *same-version rebuild* — the
+    release ships a rolling `latest` tarball under a stable version string, so
+    version equality alone is not enough to know we're current."""
+    try:
+        text = (PAI_ROOT / "var" / "lib" / ".release.sha256").read_text().strip()
+    except OSError:
+        return None
+    return text.split()[0] if text else None
+
+
+def _write_sha_marker(sha: str) -> None:
+    dest = PAI_ROOT / "var" / "lib" / ".release.sha256"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"{sha}  pai.tar.gz\n")
+
+
+def _clear_sha_marker() -> None:
+    (PAI_ROOT / "var" / "lib" / ".release.sha256").unlink(missing_ok=True)
+
+
+def _latest_release_sha(base: str) -> str:
+    """The published tarball's sha256, or '' if the release has no sha asset
+    (e.g. a hand-cut release). Returning '' makes callers fall back to
+    version-only comparison rather than forcing a needless re-download."""
+    try:
+        text = _download_text(f"{base}/pai.tar.gz.sha256").strip()
+    except SystemExit:
+        return ""
+    return text.split()[0] if text else ""
+
+
+def _tarball_up_to_date(
+    current_ver: str, installed_sha: str | None, latest: str, latest_sha: str
+) -> bool:
+    """True when the installed tarball matches the published one. A newer
+    version is always an update; same version is current only if the published
+    sha is absent (version-only) or matches what we installed."""
+    if latest != current_ver:
+        return False
+    if not latest_sha:
+        return True
+    return latest_sha == installed_sha
+
+
 def _opt_pai() -> Path:
     return PAI_ROOT / "opt" / "pai"
 
@@ -361,30 +411,34 @@ def _reprovision_tarball(ver_dir: Path) -> int:
     return 0
 
 
-def _download_and_extract(base: str, ver: str) -> Path:
-    """Download + verify the release tarball and extract it to opt/pai/<ver>."""
+def _download_and_extract(base: str, ver: str, expected_sha: str = "") -> tuple[Path, str]:
+    """Download + verify the release tarball and extract it to opt/pai/<ver>.
+
+    Returns (ver_dir, actual_sha) so the caller can record exactly what it
+    installed. `expected_sha`, when given, is verified against (the caller has
+    usually already fetched it); otherwise the sha asset is fetched here."""
     ver_dir = _opt_pai() / ver
     with tempfile.TemporaryDirectory(prefix="pai-update-") as tmp:
         tarball = Path(tmp) / "pai.tar.gz"
         print("==> downloading pai.tar.gz")
         _download(f"{base}/pai.tar.gz", tarball)
-        try:
-            expected = _download_text(f"{base}/pai.tar.gz.sha256").split()[0]
-        except SystemExit:
-            expected = ""
-        if expected:
-            actual = _sha256(tarball)
-            if actual != expected:
-                raise SystemExit(
-                    f"pai update: checksum mismatch (expected {expected}, got {actual})"
-                )
+        if not expected_sha:
+            try:
+                expected_sha = _download_text(f"{base}/pai.tar.gz.sha256").split()[0]
+            except SystemExit:
+                expected_sha = ""
+        actual = _sha256(tarball)
+        if expected_sha and actual != expected_sha:
+            raise SystemExit(
+                f"pai update: checksum mismatch (expected {expected_sha}, got {actual})"
+            )
         if ver_dir.exists():
             shutil.rmtree(ver_dir)
         ver_dir.mkdir(parents=True)
         print(f"==> extracting to {ver_dir}")
         with tarfile.open(tarball) as tf:
             tf.extractall(ver_dir, filter="tar")
-    return ver_dir
+    return ver_dir, actual
 
 
 def _cmd_update_tarball(args: argparse.Namespace, current_ver: str) -> int:
@@ -401,22 +455,29 @@ def _cmd_update_tarball(args: argparse.Namespace, current_ver: str) -> int:
             return 0
         raise
 
+    latest_sha = _latest_release_sha(base)
+    installed_sha = _installed_sha()
+    up_to_date = _tarball_up_to_date(current_ver, installed_sha, latest, latest_sha)
+
     print(f"installed: {current_ver}")
     print(f"latest: {latest}")
 
     if args.check:
-        if latest == current_ver:
+        if up_to_date:
             print("status: up to date")
-        else:
+        elif latest != current_ver:
             print(f"status: update available ({latest})")
+            print("next: pai update")
+        else:
+            print(f"status: update available ({current_ver} — new build)")
             print("next: pai update")
         return 0
 
-    if latest == current_ver:
+    if up_to_date:
         print("pai update: already on the latest release")
         return 0
 
-    ver_dir = _download_and_extract(base, latest)
+    ver_dir, sha = _download_and_extract(base, latest, latest_sha)
     if args.no_reprovision:
         print("pai update: extracted; skipped reprovision")
     else:
@@ -425,6 +486,7 @@ def _cmd_update_tarball(args: argparse.Namespace, current_ver: str) -> int:
             return rc
     _repoint_current(latest)
     _write_release_marker(latest)
+    _write_sha_marker(sha)
     _gc_versions(keep=2)
     print(f"pai update: now on {latest}")
     return 0
@@ -442,6 +504,10 @@ def _rollback_tarball(current_ver: str) -> int:
         return rc
     _repoint_current(prior)
     _write_release_marker(prior)
+    # The prior dir wasn't re-downloaded, so we don't know its tarball sha;
+    # drop the marker so the next `pai update` treats the build as unknown and
+    # re-syncs rather than trusting a sha from the rolled-forward version.
+    _clear_sha_marker()
     print(f"pai update: rolled back to {prior}")
     return 0
 

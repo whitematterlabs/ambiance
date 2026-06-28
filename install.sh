@@ -48,6 +48,14 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 TARBALL="$WORK/pai.tar.gz"
 
+_sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    sha256sum "$1" | awk '{print $1}'
+  fi
+}
+
 if [ -n "${PAI_LOCAL_TARBALL:-}" ]; then
   echo "==> using local tarball: $PAI_LOCAL_TARBALL"
   cp "$PAI_LOCAL_TARBALL" "$TARBALL"
@@ -71,11 +79,7 @@ else
   curl -fsSL "$RELEASE_BASE/pai.tar.gz.sha256" -o "$WORK/pai.tar.gz.sha256"
   echo "==> verifying checksum"
   EXPECTED="$(awk '{print $1}' "$WORK/pai.tar.gz.sha256")"
-  if command -v shasum >/dev/null 2>&1; then
-    ACTUAL="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
-  else
-    ACTUAL="$(sha256sum "$TARBALL" | awk '{print $1}')"
-  fi
+  ACTUAL="$(_sha256_of "$TARBALL")"
   if [ "$EXPECTED" != "$ACTUAL" ]; then
     echo "error: checksum mismatch (expected $EXPECTED, got $ACTUAL)" >&2
     exit 1
@@ -140,6 +144,9 @@ fi
 # install (vs a dev git checkout), so it takes the download-and-swap path.
 mkdir -p "$PAI_ROOT/var/lib"
 printf '%s\n' "$VER" > "$PAI_ROOT/var/lib/.release"
+# Record the installed tarball's sha so `pai update` can detect a same-version
+# rebuild (the release ships a rolling `latest` under a stable version string).
+printf '%s  pai.tar.gz\n' "$(_sha256_of "$TARBALL")" > "$PAI_ROOT/var/lib/.release.sha256"
 
 # --- API key -----------------------------------------------------------------
 # Ask only for the chosen provider's key, and only if it isn't already reachable
