@@ -10,6 +10,8 @@ import atexit
 import errno
 import fcntl
 import os
+import re
+import signal
 import subprocess
 import sys
 import traceback
@@ -19,6 +21,11 @@ from .phases import backfill, clean, hooks, probe, reconcile, sanity, start
 from . import main as supervise
 
 _LOCK_FILE = paths.PAI_ROOT / "run" / "kernel.pid"
+
+# Matches the kernel's own module invocation in a process command line:
+# `-m boot.entry`, `-m boot`, or `-m boot run` (the __main__ arg form). Does
+# NOT match sibling modules like `-m boot.tui` or `-m boot.something`.
+_KERNEL_CMD_RE = re.compile(r"-m\s+boot(\.entry)?(\s|$)")
 
 # Held for the lifetime of the kernel process. flock() releases automatically
 # on close (including SIGKILL), so we cannot leave a stale lock behind.
@@ -74,6 +81,83 @@ def _acquire_pid_lock() -> bool:
     return True
 
 
+def _find_duplicate_kernel_pids(ps_output: str, self_pid: int) -> list[int]:
+    """Parse `ps -axww -o pid=,command=` output and return the PIDs of *other*
+    live kernels for this PAI_ROOT.
+
+    A kernel is our runtime interpreter (the FHS venv python, whose path embeds
+    PAI_ROOT — or whatever `sys.executable` we re-exec with) running the
+    `boot`/`boot.entry` module. Matching on our own interpreter path scopes the
+    search to this root, so a kernel for a *different* PAI_ROOT is never
+    targeted. Self is always excluded.
+    """
+    venv = str(paths.venv_python())
+    exe = sys.executable
+    pids: list[int] = []
+    for line in ps_output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        head, _, cmd = line.partition(" ")
+        try:
+            pid = int(head)
+        except ValueError:
+            continue
+        if pid <= 0 or pid == self_pid:
+            continue
+        if not _KERNEL_CMD_RE.search(cmd):
+            continue
+        if venv not in cmd and exe not in cmd:
+            continue
+        pids.append(pid)
+    return pids
+
+
+def _reap_duplicate_kernels() -> None:
+    """Evict stragglers once we hold the flock.
+
+    The flock makes us the sole *legitimate* kernel for this PAI_ROOT, but it
+    only blocks lock-aware kernels that start *after* us. A kernel left running
+    from a prior boot that predated the flock (or was launched by a path that
+    bypassed it) keeps running our drivers, racing us on shared driver state —
+    e.g. two kernels writing the same `cursor.yaml.tmp`, where one's
+    `os.replace` renames the tmp out from under the other and crash-loops the
+    driver. Single-writer is the invariant; enforce it actively.
+
+    Conservative by design: matches only our own interpreter on the boot
+    module, never self, and SIGTERMs (graceful — the straggler runs its own
+    orderly shutdown) rather than SIGKILL. The intervening boot phases give it
+    ample time to drain before our drivers start.
+    """
+    ps = paths.host_executable("ps")
+    if ps is None:
+        return
+    try:
+        out = subprocess.run(
+            [ps, "-axww", "-o", "pid=,command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return
+    for pid in _find_duplicate_kernel_pids(out, os.getpid()):
+        print(
+            f"[boot] reaping duplicate kernel pid={pid} — we hold the flock; "
+            "it predates or bypassed it (SIGTERM)",
+            file=sys.stderr,
+            flush=True,
+        )
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError) as e:
+            print(
+                f"[boot] could not signal duplicate kernel pid={pid}: {e!r}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+
 def _release_pid_lock() -> None:
     global _lock_fd
     if _lock_fd is None:
@@ -119,6 +203,10 @@ def boot() -> int:
     paths.prepend_pai_path()
     if not _acquire_pid_lock():
         return 1
+    # We hold the flock, so we are the one legitimate kernel. Evict any
+    # straggler kernel from a prior boot that predated/bypassed the lock
+    # before the boot phases (and our drivers) start writing shared state.
+    _reap_duplicate_kernels()
     try:
         sanity.run()
         clean.run()
