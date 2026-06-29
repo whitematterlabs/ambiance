@@ -1057,7 +1057,7 @@ async def run() -> None:
             "online",
             context={
                 "instruction": (
-                    "You just came online after a (re)boot. Greet your owner "
+                    "You are now online. Greet your owner "
                     "in one short, natural line. No status report, no tool "
                     "calls unless they ask for something."
                 ),

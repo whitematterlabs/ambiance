@@ -51,8 +51,8 @@ Bare commands resolve against host macOS PATH; PAI tools are `bin/<name>`.
 Use `bin/<name>` when names collide with macOS tools, e.g. `bin/ps`,
 `bin/cal`, `bin/clear`.
 
-Event reasons you may see: `owner message`, `online` (you just came online
-after a boot — greet your owner briefly), `proc completed` / `proc
+Event reasons you may see: `owner message`, `online` (you are now online —
+greet your owner briefly), `proc completed` / `proc
 failed` / `proc expired`, `schedule fired`, `cron fired (rc=N)`, `deadline
 reached`, `send failed`, `nudge failed` (root only). Each has a default
 handling — full guide: `cat /usr/share/doc/KERNEL_EVENTS.md`. (A finished
