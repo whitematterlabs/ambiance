@@ -158,6 +158,7 @@ ensure_api_key() {
     anthropic) var=ANTHROPIC_API_KEY ;;
     deepseek)  var=DEEPSEEK_API_KEY ;;
     openai)    var=OPENAI_API_KEY ;;
+    zai)       var=ZAI_API_KEY ;;
     *) return 0 ;;
   esac
   if [ -n "${!var:-}" ]; then

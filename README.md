@@ -55,7 +55,7 @@ actions, provider switching, clone/delete actions, and message sending.
 - Python 3.14, managed through `uv`
 - [`pnpm`](https://pnpm.io/), only needed for the browser UI
 - At least one model provider API key, such as `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`, or `DEEPSEEK_API_KEY`
+  `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, or `ZAI_API_KEY` (z.ai GLM)
 - macOS permissions for whichever drivers you enable, such as Contacts,
   Calendar, Messages, Mail, Accessibility, or Microphone
 

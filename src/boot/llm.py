@@ -121,6 +121,16 @@ PROVIDERS: dict[str, ProviderSpec] = {
         "deepseek-v4-pro",
         {},
     ),
+    # z.ai's GLM via its Anthropic-compatible endpoint — same shape as DeepSeek:
+    # Anthropic-wire-native, reached directly, no proxy. The default is glm-5.2;
+    # pin model: glm-5.2[1m] in config for the 1M-context variant. The key is
+    # sent as the api_key kwarg (x-api-key header), which the endpoint accepts.
+    "zai": ProviderSpec(
+        "https://api.z.ai/api/anthropic",
+        "ZAI_API_KEY",
+        "glm-5.2",
+        {},
+    ),
     # OpenAI is not Anthropic-wire-compatible, so it routes through the
     # kernel-supervised LiteLLM proxy, which exposes a native Anthropic
     # /v1/messages endpoint on loopback. The client still speaks Anthropic;

@@ -12,6 +12,18 @@ def test_provider_spec_via_proxy_flags():
     assert L.PROVIDERS["openai"].via_proxy is True
     assert L.PROVIDERS["anthropic"].via_proxy is False
     assert L.PROVIDERS["deepseek"].via_proxy is False
+    assert L.PROVIDERS["zai"].via_proxy is False
+
+
+def test_zai_provider_is_direct_anthropic_wire():
+    # GLM is reached directly over the Anthropic wire (like DeepSeek): a real
+    # upstream base_url, no proxy, default model glm-5.2.
+    spec = L.PROVIDERS["zai"]
+    assert spec.base_url == "https://api.z.ai/api/anthropic"
+    assert spec.api_key_env == "ZAI_API_KEY"
+    assert spec.default_model == "glm-5.2"
+    assert spec.via_proxy is False
+    assert spec.proxy_prefix is None
 
 
 def test_openai_base_url_built_from_proxy_port():
@@ -48,6 +60,14 @@ def test_resolve_direct_provider_stays_bare(monkeypatch):
     assert model == "deepseek-v4-pro"
 
 
+def test_resolve_zai_uses_default_model_and_base_url(monkeypatch):
+    monkeypatch.setattr(L, "_clients", {})
+    client, model, extra_body = L._resolve("zai", None)
+    assert model == "glm-5.2"  # direct provider — not namespaced
+    assert "api.z.ai/api/anthropic" in str(client.base_url)
+    assert extra_body == {}
+
+
 def test_resolve_sets_client_timeout(monkeypatch):
     monkeypatch.setattr(L, "_clients", {})
     client, _, _ = L._resolve("anthropic", None)
@@ -67,5 +87,5 @@ def test_openai_carries_proxy_upstream_descriptor():
 
 
 def test_direct_providers_have_no_proxy_prefix():
-    for key in ("anthropic", "deepseek"):
+    for key in ("anthropic", "deepseek", "zai"):
         assert L.PROVIDERS[key].proxy_prefix is None
