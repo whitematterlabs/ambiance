@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { HelpCircle, Moon, Smartphone, Sun } from "lucide-react";
-import { VOICE_OPTIONS } from "../speech";
 import { Logo } from "./Logo";
+import { VoiceSettings } from "./VoiceSettings";
 
 export function Header({
   connected,
@@ -72,11 +72,6 @@ export function Header({
       document.removeEventListener("keydown", onKey);
     };
   }, [pickerOpen]);
-
-  const selectedName =
-    voiceId === null
-      ? "Server default"
-      : VOICE_OPTIONS.find((v) => v.id === voiceId)?.name ?? "Custom";
 
   return (
     <header className="header">
@@ -162,101 +157,19 @@ export function Header({
         </button>
         {pickerOpen && (
           <div className="voice-popover" role="dialog" aria-label="Voice settings">
-            <div className="voice-popover-head">
-              <span className="voice-popover-title">Voice</span>
-              <span className="voice-popover-current">{selectedName}</span>
-            </div>
-            <div className="voice-section">
-              <span className="voice-section-title">Activation</span>
-              <button
-                type="button"
-                className="voice-switch"
-                role="switch"
-                aria-checked={pushToTalk}
-                onClick={onTogglePushToTalk}
-              >
-                <span className="voice-switch-copy">
-                  <span className="voice-switch-name">Push-to-talk</span>
-                  <span className="voice-switch-blurb">Hold the mic, release to send</span>
-                </span>
-                <span className="voice-switch-track" aria-hidden="true">
-                  <span className="voice-switch-thumb" />
-                </span>
-              </button>
-              <button
-                type="button"
-                className="voice-switch"
-                role="switch"
-                aria-checked={phraseActivation}
-                onClick={onTogglePhraseActivation}
-                disabled={!phraseSupported && !localListener}
-                title={
-                  phraseSupported || localListener
-                    ? undefined
-                    : "Phrase activation needs the local voice driver or the Web Speech API (try Chrome or Edge)"
-                }
-              >
-                <span className="voice-switch-copy">
-                  <span className="voice-switch-name">Phrase activation</span>
-                  <span className="voice-switch-blurb">
-                    {localListener ? (
-                      <>
-                        Say <em>"{wakePhrase}"</em> to talk (host mic)
-                      </>
-                    ) : phraseSupported ? (
-                      <>
-                        Say <em>"{wakePhrase}"</em> to talk
-                      </>
-                    ) : (
-                      "Not supported in this browser"
-                    )}
-                  </span>
-                </span>
-                <span className="voice-switch-track" aria-hidden="true">
-                  <span className="voice-switch-thumb" />
-                </span>
-              </button>
-            </div>
-            <span className="voice-section-title voice-section-title--list">Read aloud</span>
-            <ul className="voice-list">
-              <li>
-                <button
-                  type="button"
-                  className={`voice-item ${voiceId === null ? "selected" : ""}`}
-                  onClick={() => onVoiceIdChange(null)}
-                >
-                  <span className="voice-name">Server default</span>
-                  <span className="voice-blurb">Whatever .env / Rachel</span>
-                </button>
-              </li>
-              {VOICE_OPTIONS.map((v) => (
-                <li key={v.id}>
-                  <button
-                    type="button"
-                    className={`voice-item ${voiceId === v.id ? "selected" : ""}`}
-                    onClick={() => onVoiceIdChange(v.id)}
-                  >
-                    <span className="voice-name">{v.name}</span>
-                    <span className="voice-blurb">{v.blurb}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="voice-speed">
-              <label htmlFor="voice-speed-input" className="voice-speed-label">
-                Speed
-                <span className="voice-speed-value">{voiceSpeed.toFixed(2)}×</span>
-              </label>
-              <input
-                id="voice-speed-input"
-                type="range"
-                min={0.7}
-                max={1.2}
-                step={0.05}
-                value={voiceSpeed}
-                onChange={(e) => onVoiceSpeedChange(parseFloat(e.target.value))}
-              />
-            </div>
+            <VoiceSettings
+              voiceId={voiceId}
+              voiceSpeed={voiceSpeed}
+              onVoiceIdChange={onVoiceIdChange}
+              onVoiceSpeedChange={onVoiceSpeedChange}
+              pushToTalk={pushToTalk}
+              onTogglePushToTalk={onTogglePushToTalk}
+              phraseActivation={phraseActivation}
+              onTogglePhraseActivation={onTogglePhraseActivation}
+              phraseSupported={phraseSupported}
+              localListener={localListener}
+              wakePhrase={wakePhrase}
+            />
           </div>
         )}
       </div>

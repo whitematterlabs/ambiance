@@ -738,6 +738,12 @@ button {
   display: none;
 }
 
+/* Mobile-only top bar — collapses all chrome behind one menu button. Hidden on
+   desktop, revealed in the ≤680px media query. */
+.mobile-bar {
+  display: none;
+}
+
 .mobile-view-tab {
   min-height: 38px;
   border: 1px solid transparent;
@@ -2769,16 +2775,187 @@ button {
     transform: scale(1);
   }
 
-  .mobile-view-switch {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4px;
-    padding: 4px;
-    margin: 0 14px 8px;
+  /* On the go: just the chat. The header chrome, fleet strip, chat/activity
+     switch, per-PAI header actions, and status line all collapse behind the
+     mobile bar's menu button. */
+  .header,
+  .fleet-strip,
+  .mobile-view-switch,
+  .chat-head,
+  .status-bar,
+  .composer-overclock,
+  .composer-ctx {
+    display: none;
+  }
+
+  .mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     flex: 0 0 auto;
-    background: var(--surface-muted);
+    padding: max(10px, env(safe-area-inset-top)) 14px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-raised);
+  }
+
+  .mobile-bar-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .mobile-bar-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-bar-menu {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
+    background: var(--surface-soft);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .mobile-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.45);
+    animation: fade-in 0.18s var(--ease) both;
+  }
+
+  .mobile-sheet {
+    position: fixed;
+    z-index: 41;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(86vw, 360px);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: max(16px, env(safe-area-inset-top)) 16px
+      max(16px, env(safe-area-inset-bottom));
+    background: var(--surface-raised);
+    border-left: 1px solid var(--border-strong);
+    box-shadow: -18px 0 40px -20px rgba(0, 0, 0, 0.6);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    animation: sheet-in 0.22s var(--ease) both;
+  }
+
+  @keyframes sheet-in {
+    from {
+      transform: translateX(12px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  .mobile-sheet-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .mobile-sheet-heading {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .mobile-sheet-empty {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .mobile-pai-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mobile-pai {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    text-align: left;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--pai-color, var(--border));
+    border-radius: var(--radius-sm);
+    background: var(--surface-soft);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .mobile-pai.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .mobile-pai-name {
+    font-weight: 600;
+  }
+
+  .mobile-pai-meta {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .mobile-sheet-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .mobile-sheet-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mobile-sheet-action,
+  .mobile-sheet-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-soft);
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .mobile-sheet-action {
+    justify-content: center;
+  }
+
+  .mobile-sheet-action:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .main {

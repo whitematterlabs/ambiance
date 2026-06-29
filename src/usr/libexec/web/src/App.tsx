@@ -16,6 +16,7 @@ import * as api from "./api";
 import { onUnauthorized, setAuthToken, withTokenParam } from "./auth";
 import { LoginGate } from "./components/LoginGate";
 import { Header } from "./components/Header";
+import { MobileMenu } from "./components/MobileMenu";
 import { FleetTabs } from "./components/FleetTabs";
 import { ChatPane } from "./components/ChatPane";
 import { StatusBar } from "./components/StatusBar";
@@ -658,6 +659,40 @@ export function App() {
         wakePhrase={DEFAULT_WAKE_PHRASE}
         onShowWelcome={() => setWelcomeOpen(true)}
         onSetupRemote={handleSetupRemote}
+      />
+      <MobileMenu
+        connected={connected}
+        fleet={fleet}
+        procs={procs}
+        activePid={activePid}
+        onSelect={(pid) => {
+          setActivePid(pid);
+          setMobileView("chat");
+        }}
+        activeLabel={activeLabel}
+        kernelRunning={kernel.running}
+        kernelBusy={kernelBusy}
+        onToggleKernel={handleToggleKernel}
+        theme={theme}
+        onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+        voiceEnabled={voiceEnabled}
+        onToggleVoice={() => setVoiceEnabled((v) => !v)}
+        voiceId={voiceId}
+        voiceSpeed={voiceSpeed}
+        onVoiceIdChange={setVoiceId}
+        onVoiceSpeedChange={setVoiceSpeed}
+        pushToTalk={pushToTalk}
+        onTogglePushToTalk={() => setPushToTalk((v) => !v)}
+        phraseActivation={phraseActivation}
+        onTogglePhraseActivation={() => setPhraseActivation((v) => !v)}
+        phraseSupported={phraseSupported}
+        localListener={localVoiceActive}
+        wakePhrase={DEFAULT_WAKE_PHRASE}
+        onShowWelcome={() => setWelcomeOpen(true)}
+        onSetupRemote={handleSetupRemote}
+        onClear={handleClearContext}
+        clearBusy={clearBusy}
+        onCompact={handleCompact}
       />
       <FleetTabs
         fleet={fleet}
