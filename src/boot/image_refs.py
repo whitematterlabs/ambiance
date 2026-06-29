@@ -163,3 +163,81 @@ def expand_image_refs(
     if not any_image:
         return text
     return blocks
+
+
+def _placeholder(block: dict) -> dict:
+    """Text stand-in for a base64 image block: media type + rough size."""
+    src = block.get("source", {})
+    media_type = src.get("media_type", "image")
+    data = src.get("data", "")
+    kb = len(data) * 3 / 4 / 1024
+    return {"type": "text", "text": f"[image elided from history: {media_type}, ~{kb:.0f}KB]"}
+
+
+def _is_base64_image(block: object) -> bool:
+    return (
+        isinstance(block, dict)
+        and block.get("type") == "image"
+        and isinstance(block.get("source"), dict)
+        and block["source"].get("type") == "base64"
+    )
+
+
+def dehydrate_image_blocks(messages: list[dict]) -> list[dict]:
+    """Return a copy of `messages` with base64 image blocks replaced by text.
+
+    The inverse of `expand_image_refs`: base64 is meant to be ephemeral (sent
+    to the API for one turn), never frozen into the on-disk transcript where it
+    bloats the file ~400x and is a landmine for any reader that treats it as
+    text. Each `{"type":"image","source":{"type":"base64",...}}` block becomes a
+    small `[image elided ...]` placeholder.
+
+    Non-mutating: only the messages/blocks that actually carry images are
+    deep-copied and rewritten; everything else is passed through by reference.
+    Recurses one level into `tool_result` blocks whose `content` is a list
+    (where browse screenshots land). Only user-role content carries images, so
+    assistant turns are untouched in practice.
+    """
+    out: list[dict] = []
+    for msg in messages:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            out.append(msg)
+            continue
+        new_content, changed = _dehydrate_blocks(content)
+        if changed:
+            new_msg = dict(msg)
+            new_msg["content"] = new_content
+            out.append(new_msg)
+        else:
+            out.append(msg)
+    return out
+
+
+def _dehydrate_blocks(blocks: list) -> tuple[list, bool]:
+    """Return (possibly-new block list, changed?) with images dehydrated.
+
+    Recurses one level into tool_result blocks whose content is a list.
+    """
+    new_blocks: list = []
+    changed = False
+    for block in blocks:
+        if _is_base64_image(block):
+            new_blocks.append(_placeholder(block))
+            changed = True
+        elif (
+            isinstance(block, dict)
+            and block.get("type") == "tool_result"
+            and isinstance(block.get("content"), list)
+        ):
+            inner, inner_changed = _dehydrate_blocks(block["content"])
+            if inner_changed:
+                new_block = dict(block)
+                new_block["content"] = inner
+                new_blocks.append(new_block)
+                changed = True
+            else:
+                new_blocks.append(block)
+        else:
+            new_blocks.append(block)
+    return new_blocks, changed

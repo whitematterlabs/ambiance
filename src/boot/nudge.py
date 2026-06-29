@@ -28,7 +28,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import bootstrap, config, debugger, llm, stitch, tokens
+from . import bootstrap, config, debugger, image_refs, llm, stitch, tokens
 from . import paths as paths_mod
 from . import processes as P
 from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
@@ -291,6 +291,9 @@ def _reset_window_gauge(proc_dir: Path) -> None:
 
 def _save_history(path: Path, messages: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Base64 image blocks are ephemeral (sent to the API for one turn); strip
+    # them from the on-disk copy so the transcript stays small and text-safe.
+    messages = image_refs.dehydrate_image_blocks(messages)
     data = "".join(json.dumps(m) + "\n" for m in messages)
     # tmp-file + rename for atomicity.
     fd, tmp = tempfile.mkstemp(prefix=".messages.", suffix=".jsonl", dir=str(path.parent))

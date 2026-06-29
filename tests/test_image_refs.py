@@ -99,3 +99,76 @@ def test_multiple_markers(root):
     assert isinstance(out, list)
     types = [b["type"] for b in out]
     assert types == ["image", "text", "image"]
+
+
+# --- dehydrate_image_blocks ---
+
+from boot.image_refs import dehydrate_image_blocks
+
+_B64 = base64.standard_b64encode(_PNG_BYTES).decode("ascii")
+
+
+def _image_block() -> dict:
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": _B64},
+    }
+
+
+def test_dehydrate_top_level_image_block():
+    messages = [{"role": "user", "content": [_image_block()]}]
+    out = dehydrate_image_blocks(messages)
+    block = out[0]["content"][0]
+    assert block["type"] == "text"
+    assert block["text"].startswith("[image elided from history:")
+    assert "image/png" in block["text"]
+    assert "data" not in block
+
+
+def test_dehydrate_image_nested_in_tool_result():
+    messages = [{
+        "role": "user",
+        "content": [{
+            "type": "tool_result",
+            "tool_use_id": "t-1",
+            "content": [
+                {"type": "text", "text": "screenshot:"},
+                _image_block(),
+            ],
+        }],
+    }]
+    out = dehydrate_image_blocks(messages)
+    inner = out[0]["content"][0]["content"]
+    assert inner[0] == {"type": "text", "text": "screenshot:"}
+    assert inner[1]["type"] == "text"
+    assert inner[1]["text"].startswith("[image elided from history:")
+    assert "data" not in inner[1]
+
+
+def test_dehydrate_no_images_unchanged():
+    messages = [
+        {"role": "user", "content": "plain string"},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+    ]
+    out = dehydrate_image_blocks(messages)
+    assert out == messages
+
+
+def test_dehydrate_does_not_mutate_input():
+    block = _image_block()
+    messages = [{"role": "user", "content": [block]}]
+    out = dehydrate_image_blocks(messages)
+    # Input untouched: still a base64 image with its data.
+    assert messages[0]["content"][0]["source"]["data"] == _B64
+    assert block["type"] == "image"
+    # Output is a different object.
+    assert out[0]["content"][0] is not block
+
+
+def test_dehydrate_placeholder_is_base64_free():
+    messages = [{"role": "user", "content": [_image_block()]}]
+    out = dehydrate_image_blocks(messages)
+    text = out[0]["content"][0]["text"]
+    assert _B64 not in text
+    assert "image/png" in text
+    assert "KB]" in text
