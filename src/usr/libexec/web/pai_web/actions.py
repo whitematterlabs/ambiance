@@ -359,34 +359,36 @@ ROOT_PID = next((pid for pid, slug in config.RESERVED_PIDS.items() if slug == "r
 ROOT_REMOTE_SETUP_PROMPT = """\
 The owner tapped **"Set up mobile access"** in the web console. Goal: make this \
 PAI's web surface reachable from the owner's phone over the internet via an \
-**ngrok** tunnel, so they can add it to their home screen as the PAI mobile app.
+**ngrok** tunnel, so they can add it to their home screen as the PAI mobile app. \
+Two jobs:
+
+**1. Get an ngrok API key (authtoken) yourself, using the owner's email account.**
+Sign up for / log into ngrok (https://dashboard.ngrok.com) with the owner's
+email and pull the authtoken from the dashboard — handle the email verification
+through the owner's inbox yourself. Only stop to ask the owner if you hit
+something you genuinely can't do (a password, 2FA, a captcha). Install ngrok
+first if `which ngrok` is empty (`brew install ngrok`), then
+`ngrok config add-authtoken <token>`.
+
+**2. Set up a launch service so ngrok starts every time.**
+Use `paicron` — our systemctl-shaped service manager — so the tunnel comes up on
+every boot and restarts if it dies. Roughly:
+`paicron start --slug ngrok --run 'ngrok http <PORT>' --restart always`,
+and make it a boot hook (`paicron ensure`) so it survives reboots. Do the same
+for the authenticated web surface so both come up together.
 
 **What already exists — don't rebuild it:**
-- The web surface can run as an authenticated remote TCP listener:
+- The web surface runs as an authenticated remote TCP listener:
   `python -m usr.libexec.web.pai_web --port <PORT> --auth-token <TOKEN>`.
   With a token set, every `/api/*` route requires it (except `/api/health`).
-- The frontend has a login gate: opening the tunnel URL with `?token=<TOKEN>`
-  auto-authenticates (the QR path), or the owner types the token as an access code.
-- It's a PWA — once open on the phone, "Add to Home Screen" installs it.
+- Opening the ngrok URL with `?token=<TOKEN>` auto-logs-in (the QR path), or the
+  owner types the token as an access code. It's a PWA — "Add to Home Screen"
+  installs it on the phone.
 
-**What's missing — what you need to do:**
-1. ngrok needs an account + authtoken (its API key). Check whether ngrok is
-   installed (`which ngrok`); if not, install it (`brew install ngrok`). Check for
-   an existing authtoken; if none is configured, ask the owner to create a free
-   account at https://dashboard.ngrok.com and paste their authtoken, then run
-   `ngrok config add-authtoken <token>`.
-2. Pick a port and mint a strong random auth token. Start the authenticated
-   remote web surface on that port, then `ngrok http <PORT>` to get a public
-   https URL.
-3. Build the mobile URL: `<public-url>?token=<TOKEN>`. Generate a QR code for it
-   and show it to the owner (and print the URL + token in plain text as a
-   fallback). Tell them to scan it on their phone and Add to Home Screen.
-4. Make it durable: record how to relaunch the tunnel + surface and where the
-   authtoken/token live, so next time is one step. Confirm with the owner once
-   they're connected.
-
-Work autonomously; only stop to ask the owner for the ngrok authtoken (step 1)
-and to confirm they're connected (step 3).
+When both services are up, give the owner the mobile URL `<public-url>?token=<TOKEN>`
+as a QR code (plus the URL + token in plain text as a fallback) and tell them to
+scan it and Add to Home Screen. Work autonomously; only interrupt the owner for
+the account step above and to confirm they're connected.
 """
 
 
