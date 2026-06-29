@@ -198,6 +198,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/interrupt":
                 actions.interrupt(int(body["pid"]))
                 return self._json({"ok": True})
+            if path == "/api/setup-remote":
+                result = actions.setup_remote()
+                return self._json({"ok": True, **result})
             if path == "/api/clone":
                 result = actions.clone_pai(str(body["source"]))
                 return self._json({"ok": True, **result})

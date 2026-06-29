@@ -349,6 +349,58 @@ def interrupt(pid: int) -> None:
     emit_event({"source": "web", "kind": "interrupt", "pai": pid})
 
 
+# Root is the privileged system PAI (reserved pid 1; see boot.config).
+ROOT_PID = next((pid for pid, slug in config.RESERVED_PIDS.items() if slug == "root"), 1)
+
+# The brief handed to root when the owner taps "Set up mobile access" in the
+# header. Root is a capable agent — give it the objective + the facts that
+# already hold + the one human-in-the-loop step (the ngrok authtoken), and let
+# it work the rest out. Rendered as markdown in root's thread.
+ROOT_REMOTE_SETUP_PROMPT = """\
+The owner tapped **"Set up mobile access"** in the web console. Goal: make this \
+PAI's web surface reachable from the owner's phone over the internet via an \
+**ngrok** tunnel, so they can add it to their home screen as the PAI mobile app.
+
+**What already exists — don't rebuild it:**
+- The web surface can run as an authenticated remote TCP listener:
+  `python -m usr.libexec.web.pai_web --port <PORT> --auth-token <TOKEN>`.
+  With a token set, every `/api/*` route requires it (except `/api/health`).
+- The frontend has a login gate: opening the tunnel URL with `?token=<TOKEN>`
+  auto-authenticates (the QR path), or the owner types the token as an access code.
+- It's a PWA — once open on the phone, "Add to Home Screen" installs it.
+
+**What's missing — what you need to do:**
+1. ngrok needs an account + authtoken (its API key). Check whether ngrok is
+   installed (`which ngrok`); if not, install it (`brew install ngrok`). Check for
+   an existing authtoken; if none is configured, ask the owner to create a free
+   account at https://dashboard.ngrok.com and paste their authtoken, then run
+   `ngrok config add-authtoken <token>`.
+2. Pick a port and mint a strong random auth token. Start the authenticated
+   remote web surface on that port, then `ngrok http <PORT>` to get a public
+   https URL.
+3. Build the mobile URL: `<public-url>?token=<TOKEN>`. Generate a QR code for it
+   and show it to the owner (and print the URL + token in plain text as a
+   fallback). Tell them to scan it on their phone and Add to Home Screen.
+4. Make it durable: record how to relaunch the tunnel + surface and where the
+   authtoken/token live, so next time is one step. Confirm with the owner once
+   they're connected.
+
+Work autonomously; only stop to ask the owner for the ngrok authtoken (step 1)
+and to confirm they're connected (step 3).
+"""
+
+
+def setup_remote() -> dict:
+    """Nudge root with the premade ngrok / mobile-access setup brief.
+
+    Same two writes as any message (day-file line + new_message event), just
+    addressed to root (pid 1) with a fixed prompt. The frontend focuses root's
+    tab so the owner sees root's questions and the QR it produces.
+    """
+    send_message(ROOT_PID, ROOT_REMOTE_SETUP_PROMPT)
+    return {"pid": ROOT_PID}
+
+
 def clone_pai(source: str) -> dict:
     """Clone a fleet member through the same implementation as PAI.app/CLI."""
     source = source.strip()

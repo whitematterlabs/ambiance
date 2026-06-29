@@ -42,6 +42,11 @@ export const sendMessage = (pid: number, text: string, overclock = false) =>
 
 export const interrupt = (pid: number) => post("/api/interrupt", { pid });
 
+// Ask root (the privileged system PAI) to stand up mobile/remote access via an
+// ngrok tunnel. Returns root's pid so the UI can focus its tab.
+export const setupRemote = () =>
+  post("/api/setup-remote", {}) as Promise<{ ok: boolean; pid?: number; error?: string }>;
+
 export const clonePai = (source: string) =>
   post("/api/clone", { source }) as Promise<{
     ok: boolean;

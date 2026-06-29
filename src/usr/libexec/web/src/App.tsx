@@ -103,6 +103,9 @@ export function App() {
   const voiceEnabledRef = useRef(voiceEnabled);
   const lastSpokenLen = useRef<Record<number, number>>({});
   const pendingCloneSlug = useRef<string | null>(null);
+  // After "Set up mobile access", focus root's tab once it appears (root may not
+  // be running yet — the nudge wakes it, and applyFleet selects it when it does).
+  const pendingFocusPid = useRef<number | null>(null);
   const voiceClearTimer = useRef<number | null>(null);
   const voiceBackend = useRef<ServerSpeechBackend | null>(null);
   if (voiceBackend.current === null) voiceBackend.current = new ServerSpeechBackend();
@@ -218,6 +221,12 @@ export function App() {
           setActivePid(clone.pid);
           return;
         }
+      }
+      const focus = pendingFocusPid.current;
+      if (focus !== null && f.some((m) => m.pid === focus)) {
+        pendingFocusPid.current = null;
+        setActivePid(focus);
+        return;
       }
       ensureActive(f);
     },
@@ -556,6 +565,27 @@ export function App() {
     return res.text ?? "";
   }, []);
 
+  // Ask root to stand up mobile/remote access (ngrok tunnel). Root may be idle
+  // (no tab yet); the nudge wakes it, then we focus its tab so the owner sees
+  // root's questions and the QR it generates.
+  const handleSetupRemote = useCallback(async () => {
+    setStatus("Asking root to set up mobile access…");
+    try {
+      const res = await api.setupRemote();
+      if (!res.ok) throw new Error(res.error || "request failed");
+      const pid = res.pid ?? 1;
+      if (fleetRef.current.some((m) => m.pid === pid)) {
+        pendingFocusPid.current = null;
+        setActivePid(pid);
+      } else {
+        pendingFocusPid.current = pid;
+      }
+      setStatus("Asked root to set up mobile access — follow along in root's tab.");
+    } catch (e) {
+      setStatus(`mobile setup failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, []);
+
   const handleToggleKernel = useCallback(async () => {
     setKernelBusy(true);
     setStatus(kernel.running ? "stopping kernel..." : "starting kernel...");
@@ -627,6 +657,7 @@ export function App() {
         localListener={localVoiceActive}
         wakePhrase={DEFAULT_WAKE_PHRASE}
         onShowWelcome={() => setWelcomeOpen(true)}
+        onSetupRemote={handleSetupRemote}
       />
       <FleetTabs
         fleet={fleet}

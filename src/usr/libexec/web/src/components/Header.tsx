@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HelpCircle, Moon, Sun } from "lucide-react";
+import { HelpCircle, Moon, Smartphone, Sun } from "lucide-react";
 import { VOICE_OPTIONS } from "../speech";
 import { Logo } from "./Logo";
 
@@ -24,6 +24,7 @@ export function Header({
   localListener,
   wakePhrase,
   onShowWelcome,
+  onSetupRemote,
 }: {
   connected: boolean;
   kernelRunning: boolean;
@@ -48,6 +49,7 @@ export function Header({
   localListener: boolean;
   wakePhrase: string;
   onShowWelcome: () => void;
+  onSetupRemote: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -91,6 +93,15 @@ export function Header({
         </button>
       </div>
       <span className="spacer" />
+      <button
+        className="ghost-button theme-toggle"
+        type="button"
+        onClick={onSetupRemote}
+        title="Set up mobile access — ask root to tunnel this console via ngrok"
+        aria-label="Set up mobile access"
+      >
+        <Smartphone size={15} aria-hidden="true" />
+      </button>
       <button
         className="ghost-button theme-toggle"
         type="button"
