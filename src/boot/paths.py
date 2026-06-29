@@ -247,6 +247,15 @@ def usr_share_prompts() -> Path:
     return PAI_ROOT / "usr" / "share" / "prompts"
 
 
+def sys_drivers(name: str) -> Path:
+    """Driver-internal runtime state dir (cursors, auth, freeze files).
+
+    Kernel and drivers must agree on this path: the kernel writes per-driver
+    freeze files here (capability projection) and drivers read them. Mirrors
+    the inline `PAI_ROOT / "sys" / "drivers" / <name>` the drivers use today."""
+    return PAI_ROOT / "sys" / "drivers" / name
+
+
 def usr_share_doc() -> Path:
     return PAI_ROOT / "usr" / "share" / "doc"
 

@@ -535,13 +535,12 @@ def _fleet_extras(pai: int, home: Path) -> str:
     return out
 
 
-def _resolve_listings(
-    pai: int,
-    home: Path,
-    hidden_bins: Optional[set[str]] = None,
-) -> tuple[str, str, str]:
-    bins = _list_dir(home / "bin", exclude=hidden_bins)
-    skills = _list_skills(home / "memory" / "skills")
+def _mounted_for_pai(pai: int) -> tuple[str, set[str]]:
+    """Resolve this PAI's slug and the set of driver names it mounts.
+
+    Shared by the skills listing and the `<capabilities>` block so both agree
+    on which drivers a PAI can actually reach. Best-effort: any failure (no
+    slug yet, stitch error) degrades to an empty mount set."""
     try:
         pai_slug = processes.find_pai_slug(pai)
     except Exception:
@@ -553,8 +552,89 @@ def _resolve_listings(
             mounted = stitch.mounted_drivers_for(pai_slug)
         except Exception:
             mounted = set()
+    return pai_slug, mounted
+
+
+def _resolve_listings(
+    pai: int,
+    home: Path,
+    hidden_bins: Optional[set[str]] = None,
+) -> tuple[str, str, str]:
+    bins = _list_dir(home / "bin", exclude=hidden_bins)
+    skills = _list_skills(home / "memory" / "skills")
+    pai_slug, mounted = _mounted_for_pai(pai)
     system_skills = _list_system_skills(usr_lib_skills(), pai_slug, pai, mounted)
     return bins, skills, system_skills
+
+
+# Per-capability prompt prose, keyed by the granted bool. Stated factually so
+# the PAI's knowledge of what it can do is generated from the same flag that
+# gates the driver — never a hand-maintained claim that can fall out of sync.
+_CAPABILITY_LINES: dict[str, dict[bool, str]] = {
+    "email_send": {
+        True: (
+            "Email — SEND GRANTED. You may send email on the owner's behalf, at "
+            "your own discretion and per the owner's instructions. To send, add "
+            "`action: send` to the draft yaml; omit it to leave a draft for the "
+            "owner to review. Sending is irreversible — be deliberate, verify "
+            "the recipient, and never send on a guess. Never commit the owner "
+            "to payments, RSVPs, or promises without explicit approval."
+        ),
+        False: (
+            "Email — DRAFTS ONLY. You can draft email but cannot send it. Drafts "
+            "land in Mail.app for the owner to review and send by hand. Do not "
+            "try to send: `action: send` is ignored and the message is saved as "
+            "a draft. Don't tell the owner a message was sent."
+        ),
+    },
+    "imessage_send": {
+        True: (
+            "iMessage — SEND GRANTED. You may send iMessages on the owner's "
+            "behalf, at your own discretion and per the owner's instructions, by "
+            "appending a bare line to a thread day-file. Sending is irreversible "
+            "— be deliberate. Never commit the owner to payments, RSVPs, or "
+            "promises without explicit approval."
+        ),
+        False: (
+            "iMessage — READ ONLY. You can read threads but cannot send. Outbound "
+            "is frozen: a bare line is consumed with a `kernel: send frozen` note "
+            "and never delivered. Don't attempt sends or claim one happened."
+        ),
+    },
+}
+
+
+def _capabilities_block(pai: int) -> str:
+    """State this PAI's owner-granted send capabilities for the channels it can
+    reach. Derived from the same `capabilities:` flags that gate the drivers, so
+    the PAI is never told it can send when the kernel froze sends (or vice
+    versa). Omitted entirely for PAIs that mount no channel driver."""
+    _, mounted = _mounted_for_pai(pai)
+    if not mounted:
+        return ""
+    try:
+        from . import config
+        flags = config.capability_flags()
+        specs = config.CAPABILITY_SPECS
+    except Exception:
+        return ""
+    lines: list[str] = []
+    for flag, spec in specs.items():
+        if not (spec.get("mounts") or set()) & mounted:
+            continue
+        line = _CAPABILITY_LINES.get(flag, {}).get(bool(flags.get(flag)))
+        if line:
+            lines.append(f"- {line}")
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    return (
+        "<capabilities>\n"
+        "Your current standing permissions to act on the owner's behalf. These "
+        "are the ground truth — the drivers enforce exactly this:\n"
+        f"{body}\n"
+        "</capabilities>\n\n"
+    )
 
 
 def _resolve_home(home_dir: Optional[str]) -> Path:
@@ -620,6 +700,7 @@ def build_system_prompt(
     return (
         _custom_block(prompt_dir, prompt_path)
         + _boilerplate_blocks(boilerplate)
+        + _capabilities_block(pai)
         + _memory_index_block(home)
         + _owner_profile_block(home)
         + _runtime_blocks(pai, parent, home, persub)

@@ -9,6 +9,7 @@ import yaml
 
 from bin.paifs_init import default_config_yaml
 from boot import config as C
+from boot import paths as PA
 from boot import processes as P
 
 
@@ -645,3 +646,115 @@ pais:
     spec = P.read_spec("root")
     assert spec["persistent"] is True
     assert spec["description"] == "changed"
+
+
+# ----- capabilities: flags + freeze projection -----
+
+
+def test_capability_flags_default_deny_when_absent(repo_root):
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    flags = C.capability_flags()
+    assert flags == {"email_send": False, "imessage_send": False}
+
+
+def test_capability_flags_missing_file_is_deny(repo_root):
+    # No config written at all → deny, never raises.
+    assert C.capability_flags() == {"email_send": False, "imessage_send": False}
+
+
+def test_capability_flags_reads_grants(repo_root):
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: true
+  imessage_send: false
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    flags = C.capability_flags()
+    assert flags["email_send"] is True
+    assert flags["imessage_send"] is False
+
+
+def test_project_capabilities_writes_and_clears_freeze(repo_root, tmp_path, monkeypatch):
+    monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
+    email_freeze = PA.sys_drivers("email") / "outbound.freeze"
+    imsg_freeze = PA.sys_drivers("imessage") / "outbound.freeze"
+
+    # Denied (the default): both freeze files written.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: false
+  imessage_send: false
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert email_freeze.exists()
+    assert imsg_freeze.exists()
+    assert "email_send" in email_freeze.read_text()
+
+    # Grant email → its freeze is removed; imessage stays frozen.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: true
+  imessage_send: false
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert not email_freeze.exists()
+    assert imsg_freeze.exists()
+
+
+def test_project_capabilities_idempotent_clear(repo_root, tmp_path, monkeypatch):
+    # Granting when no freeze exists must not raise (unlink of a missing file).
+    monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: true
+  imessage_send: true
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    C.project_capabilities()  # second pass, still clear
+    assert not (PA.sys_drivers("email") / "outbound.freeze").exists()
+    assert not (PA.sys_drivers("imessage") / "outbound.freeze").exists()
+
+
+def test_default_config_yaml_seeds_capabilities():
+    denied = yaml.safe_load(default_config_yaml())
+    assert denied["capabilities"] == {"email_send": False, "imessage_send": False}
+
+    granted = yaml.safe_load(
+        default_config_yaml(email_send=True, imessage_send=True)
+    )
+    assert granted["capabilities"] == {"email_send": True, "imessage_send": True}

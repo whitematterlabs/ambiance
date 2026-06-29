@@ -45,6 +45,27 @@ CONFIG_MANAGED_FIELDS = (
     "dependencies", "compact_threshold", "hard_compact_threshold",
 )
 
+# Owner-granted send capabilities. Declared at the TOP LEVEL of config.yaml
+# (`capabilities:`, a sibling of `pais:`) because they are PAI-agnostic — they
+# describe what the whole system may do on the owner's behalf, not how one
+# fleet member is wired. Each flag does double duty: the kernel projects it
+# into the matching driver's freeze file (enforcement) AND bootstrap renders
+# it into the PAI's `<capabilities>` prompt block (honesty), both from this one
+# source, so what a PAI is told and what the driver allows can never drift.
+#
+# `driver`/`freeze` locate the freeze file under sys/drivers/<driver>/<freeze>;
+# its presence means "outbound frozen". `mounts` is the set of mounted-driver
+# names for which the flag is relevant (drives whether the prompt block
+# mentions it). Default for every flag is DENY (frozen) when absent.
+CAPABILITY_SPECS: dict[str, dict] = {
+    "email_send": {
+        "driver": "email", "freeze": "outbound.freeze", "mounts": {"email"},
+    },
+    "imessage_send": {
+        "driver": "imessage", "freeze": "outbound.freeze", "mounts": {"imessage"},
+    },
+}
+
 # Fields a `dependencies:` entry can carry (each entry materializes a persub
 # child of the declaring PAI). `name` is required; everything else inherits
 # from the parent or has a sensible default.
@@ -453,6 +474,54 @@ def _apply_managed_fields(target: dict, desired: dict) -> None:
             del target[k]
 
 
+def capability_flags(path: Path | None = None) -> dict[str, bool]:
+    """Read the top-level `capabilities:` map from config.yaml.
+
+    Returns one bool per known capability. A missing key, a missing file, or a
+    parse error all resolve to DENY (False) — sending must be an explicit,
+    on-disk grant, never the result of an absent or broken config."""
+    p = path or CONFIG_PATH
+    try:
+        data = _load_yaml(p)
+    except ConfigError:
+        return {k: False for k in CAPABILITY_SPECS}
+    caps = data.get("capabilities") if isinstance(data, dict) else None
+    caps = caps if isinstance(caps, dict) else {}
+    return {k: bool(caps.get(k, False)) for k in CAPABILITY_SPECS}
+
+
+def project_capabilities(path: Path | None = None) -> None:
+    """Project capability flags into per-driver freeze files.
+
+    Granted  → remove the freeze file (driver sends).
+    Denied   → write the freeze file with a reason (driver refuses outbound).
+
+    The freeze file is the hard enforcement boundary the drivers check on every
+    send; this keeps it in lockstep with `capabilities:` on boot and on every
+    `kernel:reload_config`, so flipping a flag in config.yaml takes effect
+    without touching driver state by hand."""
+    flags = capability_flags(path)
+    for flag, spec in CAPABILITY_SPECS.items():
+        freeze = paths.sys_drivers(spec["driver"]) / spec["freeze"]
+        if flags.get(flag):
+            try:
+                freeze.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                print(f"[kernel] capability: could not clear {freeze}: {e}", flush=True)
+            else:
+                print(f"[kernel] capability: {flag} granted — sends enabled", flush=True)
+        else:
+            try:
+                freeze.parent.mkdir(parents=True, exist_ok=True)
+                freeze.write_text(
+                    f"frozen by capabilities.{flag}=false in etc/config.yaml\n"
+                )
+            except OSError as e:
+                print(f"[kernel] capability: could not write {freeze}: {e}", flush=True)
+
+
 def reconcile_from_config(path: Path | None = None) -> None:
     """Diff the desired fleet (from config) against `home/proc/` and apply.
 
@@ -579,6 +648,12 @@ def reconcile_from_config(path: Path | None = None) -> None:
             print(f"[kernel] reconcile: stopped inactive pai {name!r}", flush=True)
 
     _reconcile_persubs(desired)
+
+    # Project owner-granted send capabilities into driver freeze files. Done
+    # here so it runs on both boot (phases/reconcile) and `kernel:reload_config`
+    # — the two paths that call this function — keeping enforcement in lockstep
+    # with the declared flags.
+    project_capabilities(path)
 
 
 def _reconcile_persubs(desired: dict[str, dict]) -> None:

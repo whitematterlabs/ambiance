@@ -130,15 +130,39 @@ else
   echo "==> non-interactive shell — seeding the default."
 fi
 
+# --- send capabilities -------------------------------------------------------
+# Two consent gates: may PAI act outward on your behalf? Default No — PAI drafts
+# email and reads iMessages but sends nothing until you say so. Seeded into the
+# config.yaml `capabilities:` block (never overwritten on re-run); flip + reload
+# to change later. Only asked on a fresh install with a real terminal.
+EMAIL_SEND_FLAG=""
+IMESSAGE_SEND_FLAG=""
+if [ ! -f "$CONFIG_FILE" ] && [ "$interactive" -eq 1 ]; then
+  echo
+  echo "PAI can act on your behalf. These two grants are OFF by default."
+  printf "Do you want PAI to send emails in your stead, according to its own discretion and your instructions? [CAUTION][y/N]: "
+  read -r ans < /dev/tty
+  case "$ans" in
+    [Yy]|[Yy][Ee][Ss]) EMAIL_SEND_FLAG="--email-send"; echo "    email: PAI may SEND on your behalf." ;;
+    *) echo "    email: drafts only — PAI writes, you send." ;;
+  esac
+  printf "Do you want PAI to send imessages in your stead, according to its own discretion and your instructions? [CAUTION][y/N]: "
+  read -r ans < /dev/tty
+  case "$ans" in
+    [Yy]|[Yy][Ee][Ss]) IMESSAGE_SEND_FLAG="--imessage-send"; echo "    iMessage: PAI may SEND on your behalf." ;;
+    *) echo "    iMessage: read only — PAI won't send." ;;
+  esac
+fi
+
 # --- provision the FHS -------------------------------------------------------
 # Run paifs-init from the concrete version dir so it rewrites usr/src / boot /
 # web / doc symlinks, the _pai_src.pth, and the bin/sbin shims to point at
 # THIS <ver>. This is also the update mechanism: a new <ver> just re-runs this.
 echo "==> paifs-init"
 if [ -n "$PROVIDER" ] && [ -n "$MODEL" ]; then
-  ( cd "$VER_DIR" && uv run paifs-init --no-setup --default-provider "$PROVIDER" --default-model "$MODEL" )
+  ( cd "$VER_DIR" && uv run paifs-init --no-setup --default-provider "$PROVIDER" --default-model "$MODEL" $EMAIL_SEND_FLAG $IMESSAGE_SEND_FLAG )
 else
-  ( cd "$VER_DIR" && uv run paifs-init --no-setup )
+  ( cd "$VER_DIR" && uv run paifs-init --no-setup $EMAIL_SEND_FLAG $IMESSAGE_SEND_FLAG )
 fi
 
 # --- release marker ----------------------------------------------------------

@@ -371,3 +371,42 @@ def test_subagent_prompt_keeps_bin_that_collides_with_system_subagent(
 
     assert "\nbrowse\n" in _block(out, "bin")
     assert "<system-subagents>" not in out
+
+
+def test_capabilities_block_reflects_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+    from boot import config as C
+
+    monkeypatch.setattr(
+        bootstrap, "_mounted_for_pai", lambda pai: ("email-pai", {"email"})
+    )
+    monkeypatch.setattr(
+        C, "capability_flags",
+        lambda path=None: {"email_send": True, "imessage_send": False},
+    )
+    out = bootstrap._capabilities_block(7)
+    assert "<capabilities>" in out
+    assert "Email — SEND GRANTED" in out
+    # imessage driver not mounted → not surfaced for this PAI.
+    assert "iMessage" not in out
+
+
+def test_capabilities_block_denied_is_drafts_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    from boot import config as C
+
+    monkeypatch.setattr(
+        bootstrap, "_mounted_for_pai", lambda pai: ("email-pai", {"email"})
+    )
+    monkeypatch.setattr(
+        C, "capability_flags",
+        lambda path=None: {"email_send": False, "imessage_send": False},
+    )
+    out = bootstrap._capabilities_block(7)
+    assert "Email — DRAFTS ONLY" in out
+
+
+def test_capabilities_block_empty_without_channel_drivers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A PAI that mounts no channel driver (e.g. root) gets no block at all.
+    monkeypatch.setattr(bootstrap, "_mounted_for_pai", lambda pai: ("root", set()))
+    assert bootstrap._capabilities_block(1) == ""

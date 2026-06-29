@@ -156,14 +156,24 @@ DEFAULT_SEED_MODEL = "deepseek-v4-pro"
 
 
 def default_config_yaml(provider: str = DEFAULT_SEED_PROVIDER,
-                        model: str = DEFAULT_SEED_MODEL) -> str:
+                        model: str = DEFAULT_SEED_MODEL,
+                        email_send: bool = False,
+                        imessage_send: bool = False) -> str:
     """Render the etc/config.yaml seeded on first install.
 
     `provider`/`model` default to deepseek (preserving prior behavior) but are
     overridden by install.sh's interactive prompt so the whole fleet boots on
     the model the owner picked — and so only that provider's API key is needed.
+
+    `email_send`/`imessage_send` seed the top-level `capabilities:` block from
+    the install-time consent questions. Both default to False (deny): PAI may
+    draft but not send until the owner grants it. The kernel projects these
+    into driver freeze files and renders them into each PAI's `<capabilities>`.
+
     Written once and never overwritten; afterward it's owner-editable state.
     """
+    email_send_yaml = "true" if email_send else "false"
+    imessage_send_yaml = "true" if imessage_send else "false"
     return f"""\
 # PAI kernel control plane.
 #
@@ -187,6 +197,16 @@ def default_config_yaml(provider: str = DEFAULT_SEED_PROVIDER,
 # calendar and write var/lib/owner/profile.md. The kernel clears this to false
 # once that file exists (idempotent retry until it does).
 onboarding_pending: true
+
+# Owner-granted send capabilities (sibling of `pais:`, system-wide). Each flag,
+# when true, lets PAI send on the owner's behalf at its own discretion; when
+# false, that channel is drafts/read-only (the driver's outbound is frozen).
+# Set by the install-time consent questions; flip + reload to change later.
+# The kernel keeps the drivers and each PAI's <capabilities> block in sync with
+# these — PAI is never told it can send when it can't.
+capabilities:
+  email_send: {email_send_yaml}        # PAI may send email (else: drafts only)
+  imessage_send: {imessage_send_yaml}     # PAI may send iMessages (else: read only)
 
 pais:
   - name: root
@@ -313,13 +333,15 @@ def ensure_symlink(link: Path, target: Path) -> None:
 
 
 def ensure_default_config(root: Path, *, provider: str = DEFAULT_SEED_PROVIDER,
-                          model: str = DEFAULT_SEED_MODEL) -> None:
+                          model: str = DEFAULT_SEED_MODEL,
+                          email_send: bool = False,
+                          imessage_send: bool = False) -> None:
     """Write a default etc/config.yaml on first install. Never overwrites."""
     dest = root / "etc" / "config.yaml"
     if dest.exists():
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(default_config_yaml(provider, model))
+    dest.write_text(default_config_yaml(provider, model, email_send, imessage_send))
 
 
 DEFAULT_OWNER_MD = """\
@@ -609,7 +631,9 @@ def write_provisioned_marker(root: Path) -> None:
 
 def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None,
             default_provider: str = DEFAULT_SEED_PROVIDER,
-            default_model: str = DEFAULT_SEED_MODEL) -> None:
+            default_model: str = DEFAULT_SEED_MODEL,
+            email_send: bool = False,
+            imessage_send: bool = False) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for rel in SKELETON:
         if rel in SYMLINK_TARGETS:
@@ -627,7 +651,8 @@ def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None,
     # /bin → usr/bin (relative). One bin for PAI-callable tools; /sbin
     # holds the kernel-only ones.
     ensure_symlink(root / "bin", Path("usr/bin"))
-    ensure_default_config(root, provider=default_provider, model=default_model)
+    ensure_default_config(root, provider=default_provider, model=default_model,
+                          email_send=email_send, imessage_send=imessage_send)
     # owner.md is generated (PII, not shipped) and the boilerplate slot is a
     # relative link to it — same in both dev and bundle mode.
     ensure_default_owner(root)
@@ -856,6 +881,18 @@ def main() -> int:
         help="model id the seed config.yaml boots the fleet on "
              f"(default: {DEFAULT_SEED_MODEL}). Ignored if config.yaml exists.",
     )
+    ap.add_argument(
+        "--email-send",
+        action="store_true",
+        help="seed capabilities.email_send=true so PAI may send email on the "
+             "owner's behalf (default: drafts only). Ignored if config.yaml exists.",
+    )
+    ap.add_argument(
+        "--imessage-send",
+        action="store_true",
+        help="seed capabilities.imessage_send=true so PAI may send iMessages on "
+             "the owner's behalf (default: read only). Ignored if config.yaml exists.",
+    )
     args = ap.parse_args()
     if args.repoint_shims:
         py = args.python or Path(sys.executable)
@@ -871,12 +908,16 @@ def main() -> int:
         # config.yaml exists.
         lay_out(args.root, bundle_mode=True, seed=args.seed,
                 default_provider=args.default_provider,
-                default_model=args.default_model)
+                default_model=args.default_model,
+                email_send=args.email_send,
+                imessage_send=args.imessage_send)
         print(f"FHS skeleton ready at {args.root} (bundle mode)")
         return 0
     _ensure_uv()
     lay_out(args.root, default_provider=args.default_provider,
-            default_model=args.default_model)
+            default_model=args.default_model,
+            email_send=args.email_send,
+            imessage_send=args.imessage_send)
     expose_pai_command(args.root)
     print(f"FHS skeleton ready at {args.root}")
     if not args.no_setup:
