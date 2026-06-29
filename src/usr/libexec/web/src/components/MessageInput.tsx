@@ -49,6 +49,7 @@ export function MessageInput({
   const overclockMode = overclockDraft || overclockRunning;
   const isShell = !overclockMode && value.startsWith("!");
   const voiceBusy = recordingState !== "idle";
+  const compact = useIsCompact();
   const canRecord =
     typeof navigator !== "undefined" &&
     Boolean(navigator.mediaDevices?.getUserMedia) &&
@@ -249,8 +250,12 @@ export function MessageInput({
             disabled
               ? "No active PAI"
               : overclockDraft
-                ? "Keep working until you find a great deal on Honolulu hotels"
-                : "Message your PAI...  (start with ! for shell)"
+                ? compact
+                  ? "Keep working until…"
+                  : "Keep working until you find a great deal on Honolulu hotels"
+                : compact
+                  ? "Message your PAI…"
+                  : "Message your PAI...  (start with ! for shell)"
           }
           value={value}
           disabled={disabled || recordingState === "transcribing"}
@@ -325,6 +330,25 @@ export function MessageInput({
       </div>
     </form>
   );
+}
+
+// Matches the composer's mobile breakpoint in styles.css so the placeholder can
+// shrink to fit the narrow field instead of wrapping and clipping under the
+// single-row height.
+function useIsCompact(): boolean {
+  const query = "(max-width: 680px)";
+  const [compact, setCompact] = useState(() =>
+    typeof window !== "undefined" && Boolean(window.matchMedia?.(query).matches),
+  );
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const onChange = () => setCompact(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return compact;
 }
 
 function pickMimeType(): string | undefined {

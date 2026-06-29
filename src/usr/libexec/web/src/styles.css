@@ -2866,14 +2866,22 @@ button {
   }
 
   .composer-row {
-    gap: 7px;
+    gap: 5px;
   }
 
   .composer-input {
-    min-height: 40px;
+    min-height: 38px;
     max-height: 128px;
     padding: 8px 0;
     font-size: 16px;
+    /* The placeholder is sized for one line (see useIsCompact); keep it from
+       wrapping into a clipped second line if the field is briefly narrow. */
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .composer-input:not(:placeholder-shown) {
+    white-space: pre-wrap;
   }
 
   .composer-stop,
@@ -2881,8 +2889,8 @@ button {
   .composer-mic,
   .composer-send,
   .composer-ctx {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
   }
 
   .composer-tag {
