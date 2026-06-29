@@ -39,7 +39,7 @@ def _format_busy(slug: str, busy: Optional[tuple[str, float]]) -> str:
 
 
 PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
-PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek"), ("OpenAI", "openai")]
+PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek"), ("OpenAI", "openai"), ("GLM (z.ai)", "zai")]
 
 
 def _read_provider() -> str:

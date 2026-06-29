@@ -37,7 +37,7 @@ from sbin.tui.state import HOME_DIR, today_file
 
 
 PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
-PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek"), ("OpenAI", "openai")]
+PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek"), ("OpenAI", "openai"), ("GLM (z.ai)", "zai")]
 _VALID_PROVIDERS = {k for _, k in PROVIDER_OPTIONS}
 _KERNEL_LOCK_FILE = PAI_ROOT / "run" / "kernel.pid"
 

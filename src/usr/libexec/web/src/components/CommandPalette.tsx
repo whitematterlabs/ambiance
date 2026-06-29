@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 const PROVIDERS: { label: string; key: string }[] = [
   { label: "Anthropic", key: "anthropic" },
   { label: "Deepseek", key: "deepseek" },
+  { label: "OpenAI", key: "openai" },
+  { label: "GLM (z.ai)", key: "zai" },
 ];
 
 export function CommandPalette({

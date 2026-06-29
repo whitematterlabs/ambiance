@@ -116,11 +116,13 @@ elif [ "$interactive" -eq 1 ]; then
   echo "  1) Claude Opus   (Anthropic)"
   echo "  2) DeepSeek"
   echo "  3) GPT-5.5       (OpenAI)"
-  printf "Choose [1/2/3] (default 1): "
+  echo "  4) GLM-5.2       (z.ai)"
+  printf "Choose [1/2/3/4] (default 1): "
   read -r choice < /dev/tty
   case "$choice" in
     2) PROVIDER=deepseek;  MODEL=deepseek-v4-pro ;;
     3) PROVIDER=openai;    MODEL=gpt-5.5 ;;
+    4) PROVIDER=zai;       MODEL=glm-5.2 ;;
     *) PROVIDER=anthropic; MODEL=claude-opus-4-8 ;;
   esac
   echo "    default model: $MODEL ($PROVIDER)"
