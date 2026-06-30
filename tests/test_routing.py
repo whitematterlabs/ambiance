@@ -380,14 +380,29 @@ def test_capabilities_block_reflects_grant(monkeypatch: pytest.MonkeyPatch) -> N
         bootstrap, "_mounted_for_pai", lambda pai: ("email-pai", {"email"})
     )
     monkeypatch.setattr(
-        C, "capability_flags",
-        lambda path=None: {"email_send": True, "imessage_send": False},
+        C, "capability_modes",
+        lambda path=None: {"email_send": "auto", "imessage_send": "off"},
     )
     out = bootstrap._capabilities_block(7)
     assert "<capabilities>" in out
     assert "Email — SEND GRANTED" in out
     # imessage driver not mounted → not surfaced for this PAI.
     assert "iMessage" not in out
+
+
+def test_capabilities_block_approve_is_approval_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    from boot import config as C
+
+    monkeypatch.setattr(
+        bootstrap, "_mounted_for_pai", lambda pai: ("email-pai", {"email"})
+    )
+    monkeypatch.setattr(
+        C, "capability_modes",
+        lambda path=None: {"email_send": "approve", "imessage_send": "off"},
+    )
+    out = bootstrap._capabilities_block(7)
+    assert "Email — APPROVAL REQUIRED" in out
+    assert "propose-send" in out
 
 
 def test_capabilities_block_denied_is_drafts_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -397,8 +412,8 @@ def test_capabilities_block_denied_is_drafts_only(monkeypatch: pytest.MonkeyPatc
         bootstrap, "_mounted_for_pai", lambda pai: ("email-pai", {"email"})
     )
     monkeypatch.setattr(
-        C, "capability_flags",
-        lambda path=None: {"email_send": False, "imessage_send": False},
+        C, "capability_modes",
+        lambda path=None: {"email_send": "off", "imessage_send": "off"},
     )
     out = bootstrap._capabilities_block(7)
     assert "Email — DRAFTS ONLY" in out

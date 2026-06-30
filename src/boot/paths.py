@@ -183,6 +183,16 @@ def var_spool_email_drafts() -> Path:
     return var_spool_email() / "drafts"
 
 
+def var_spool_approvals() -> Path:
+    """The channel-agnostic approval queue ($PAI_ROOT/var/spool/approvals/).
+
+    One yaml per pending outbound action proposed by a PAI under a capability in
+    `approve` mode; the owner approves/rejects and the approvals driver carries
+    approved items to the channel's native send path. `archive/` holds decided
+    records aged out by the janitor."""
+    return PAI_ROOT / "var" / "spool" / "approvals"
+
+
 def var_log() -> Path:
     return PAI_ROOT / "var" / "log"
 

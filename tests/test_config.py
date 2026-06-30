@@ -758,3 +758,97 @@ def test_default_config_yaml_seeds_capabilities():
         default_config_yaml(email_send=True, imessage_send=True)
     )
     assert granted["capabilities"] == {"email_send": True, "imessage_send": True}
+
+
+# ----- capabilities: tri-state modes (off / approve / auto) -----
+
+
+def test_capability_modes_parses_all_three(repo_root):
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: approve
+  imessage_send: auto
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    modes = C.capability_modes()
+    assert modes == {"email_send": "approve", "imessage_send": "auto"}
+
+
+def test_capability_modes_legacy_bools_map(repo_root):
+    # true→auto, false→off so existing configs keep their meaning.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: true
+  imessage_send: false
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    assert C.capability_modes() == {"email_send": "auto", "imessage_send": "off"}
+
+
+def test_capability_modes_unknown_value_fails_closed(repo_root):
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: maybe
+  imessage_send: 7
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    assert C.capability_modes() == {"email_send": "off", "imessage_send": "off"}
+
+
+def test_capability_flags_approve_is_not_direct_send(repo_root):
+    # approve must NOT clear the freeze — the PAI can't send directly.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: approve
+  imessage_send: off
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    flags = C.capability_flags()
+    assert flags == {"email_send": False, "imessage_send": False}
+
+
+def test_project_capabilities_approve_keeps_freeze(repo_root, tmp_path, monkeypatch):
+    monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
+    email_freeze = PA.sys_drivers("email") / "outbound.freeze"
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: approve
+  imessage_send: auto
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    # approve → frozen (no direct PAI send), reason records the mode.
+    assert email_freeze.exists()
+    assert "email_send=approve" in email_freeze.read_text()
+    # auto → cleared.
+    assert not (PA.sys_drivers("imessage") / "outbound.freeze").exists()
