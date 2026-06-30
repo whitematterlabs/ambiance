@@ -11,14 +11,23 @@ git-ignored, so `git archive` omits it and we copy it explicitly). The target
 machine runs `uv sync` against the lockfile to pull prebuilt wheels — no
 compiler — and `paifs-init` to provision the FHS.
 
+The version string carries a build counter on publish. The base semver lives in
+pyproject.toml (pinned, e.g. `0.1.0`); each --publish reads the currently
+published `version.txt`, increments its `+build.N` suffix, and stamps the new
+build — so the rolling `latest` release is distinguishable build-to-build even
+though the semver never moves. The GitHub *tag* stays `v<base>` (clobbered in
+place); only `version.txt` carries the counter. A plain build (no --publish)
+keeps the bare base semver.
+
 Steps:
-  1. Read the version from pyproject.toml [project].version.
+  1. Read the base version from pyproject.toml [project].version. On --publish,
+     append `+build.<N>` where N is one past the published version.txt.
   2. Build the web surface (`pnpm install && pnpm build`).
   3. Stage tracked files via `git archive HEAD`, overlay the built `dist/`.
   4. Prune dev-only trees (tests/, development_docs/, docs/).
   5. Emit dist/pai-<ver>.tar.gz, a stable dist/pai.tar.gz, dist/version.txt,
      and dist/pai.tar.gz.sha256.
-  6. With --publish: create/update the GitHub release `v<ver>`.
+  6. With --publish: create/update the GitHub release `v<base>`.
 
 Dev-box prereqs (acceptable — this is a build tool): pnpm, git, and, for
 --publish, gh.
@@ -28,18 +37,31 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
 import tomllib
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from boot.paths import REPO_ROOT
 
 # Web source dir whose built `dist/` must be overlaid into the staged tree.
 WEB_DIR_REL = Path("src") / "usr" / "libexec" / "web"
+
+# Where consumers (install.sh, `pai update`) fetch release assets from. We read
+# the current build counter back from this same `version.txt` so the number we
+# publish is always one past what end machines last saw.
+DEFAULT_RELEASE_BASE = "https://github.com/whitematterlabs/pai/releases/latest/download"
+
+# Matches the build-counter suffix in a published version string, e.g. the
+# `+build.42` in `0.1.0+build.42`.
+_BUILD_RE = re.compile(r"\+build\.(\d+)")
 
 # Dev-only trees pruned from the staged tree before tarring. Note we keep
 # src/usr/share/doc (runtime PAI docs) — only top-level dev dirs are dropped.
@@ -53,6 +75,44 @@ def read_version(repo: Path) -> str:
     if not version or not isinstance(version, str):
         sys.exit("pairelease: pyproject.toml [project].version missing")
     return version
+
+
+def _release_base() -> str:
+    return os.environ.get("PAI_RELEASE_BASE", DEFAULT_RELEASE_BASE)
+
+
+def parse_build_number(version_text: str) -> int:
+    """Extract the build counter from a published version string. Returns 0 when
+    no `+build.N` suffix is present (a base-semver or hand-cut release)."""
+    m = _BUILD_RE.search(version_text)
+    return int(m.group(1)) if m else 0
+
+
+def next_build_number(base: str) -> int:
+    """The build counter to stamp on this publish: one past the currently
+    published version.txt.
+
+    A missing release (HTTP 404) means this is the first publish → start at 1.
+    Any *other* fetch failure aborts the publish: defaulting to 1 on a transient
+    network blip would silently regress the counter and clobber the release with
+    a lower build number than end machines already have."""
+    url = f"{base}/version.txt"
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            text = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return 1
+        sys.exit(
+            f"pairelease: could not read current build counter from {url} "
+            f"(HTTP {e.code}); aborting to avoid regressing the counter"
+        )
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        sys.exit(
+            f"pairelease: could not read current build counter from {url} "
+            f"({e}); aborting to avoid regressing the counter"
+        )
+    return parse_build_number(text) + 1
 
 
 def _run(cmd: list[str], *, cwd: Path) -> None:
@@ -162,9 +222,14 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def publish(version: str, dist_dir: Path) -> None:
-    """Create or update the GitHub release `v<ver>` with the release assets."""
-    tag = f"v{version}"
+def publish(base_version: str, full_version: str, dist_dir: Path) -> None:
+    """Create or update the rolling GitHub release with the release assets.
+
+    The tag stays pinned to the base semver (`v<base_version>`) so the release
+    is clobbered in place and `releases/latest/download` keeps resolving to it —
+    the build counter rolls inside `version.txt`, not in the tag. `full_version`
+    (`<base>+build.<N>`) only labels the release notes."""
+    tag = f"v{base_version}"
     assets = [
         str(dist_dir / "pai.tar.gz"),
         str(dist_dir / "pai.tar.gz.sha256"),
@@ -193,7 +258,7 @@ def publish(version: str, dist_dir: Path) -> None:
                 "--title",
                 tag,
                 "--notes",
-                f"PAI {version}",
+                f"PAI {full_version}",
             ]
         )
 
@@ -222,7 +287,16 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     repo = REPO_ROOT
-    version = read_version(repo)
+    base_version = read_version(repo)
+
+    # The build counter only advances on --publish (its source of truth is the
+    # published version.txt). A plain build keeps the bare base semver so local
+    # artifacts don't carry a counter they never reserved.
+    if args.publish:
+        build = next_build_number(_release_base())
+        version = f"{base_version}+build.{build}"
+    else:
+        version = base_version
     print(f"==> building PAI {version}")
 
     if not args.no_web:
@@ -246,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"    sha256: {digest}")
 
     if args.publish:
-        publish(version, dist_dir)
+        publish(base_version, version, dist_dir)
 
     return 0
 

@@ -1,11 +1,60 @@
 from __future__ import annotations
 
+import io
 import tarfile
+import urllib.error
 from pathlib import Path
 
 import pytest
 
 from sbin import pairelease
+
+
+class _FakeResp(io.BytesIO):
+    def __enter__(self):  # urlopen is used as a context manager
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        self.close()
+        return False
+
+
+def test_parse_build_number() -> None:
+    assert pairelease.parse_build_number("0.1.0+build.42") == 42
+    assert pairelease.parse_build_number("0.1.0+build.9\n") == 9
+    # No counter suffix → 0 (base semver or hand-cut release).
+    assert pairelease.parse_build_number("0.1.0") == 0
+    assert pairelease.parse_build_number("") == 0
+
+
+def test_next_build_number_increments_published(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        pairelease.urllib.request,
+        "urlopen",
+        lambda *a, **k: _FakeResp(b"0.1.0+build.7\n"),
+    )
+    assert pairelease.next_build_number("https://example/latest") == 8
+
+
+def test_next_build_number_first_publish_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise(*a, **k):
+        raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(pairelease.urllib.request, "urlopen", _raise)
+    # No release yet → first build is 1, not an error.
+    assert pairelease.next_build_number("https://example/latest") == 1
+
+
+def test_next_build_number_aborts_on_transient_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise(*a, **k):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(pairelease.urllib.request, "urlopen", _raise)
+    # A non-404 failure must abort rather than reset the counter to 1.
+    with pytest.raises(SystemExit):
+        pairelease.next_build_number("https://example/latest")
 
 
 def test_read_version_from_pyproject(tmp_path: Path) -> None:
