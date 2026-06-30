@@ -527,19 +527,40 @@ skill at `/usr/lib/skills/supervisor/`) so bundles don't reimplement it.
 
 Canonical memory at `/var/lib/memory/`. One record of who Alice is, one
 record of the Bishop trip, one journal entry per day. Multi-PAI shared.
+Layout is **flat files** — every record is a single greppable markdown or
+yaml file, not a dated directory tree.
 
 ```
 /var/lib/memory/
-├── people/<name>/about.yaml
-├── topics/<topic>/
-│   ├── meta.yaml
-│   └── <YYYY-MM-DD>/
-│       ├── <thread>.md → /var/spool/communication/messages/<thread>/<YYYY-MM-DD>.md
-│       └── summary.md
-└── journal/<YYYY-MM-DD>/
-    ├── <thread>.md → /var/spool/communication/messages/<thread>/<YYYY-MM-DD>.md
-    └── notes.md
+├── MEMORY.md                       # one-line index: ## Topics / ## People / ## Projects
+├── people/<slug>/
+│   ├── about.yaml                  # identity stub, contacts-driver owned: {name, handles, relationship, entry}
+│   └── profile.md                  # librarian-owned living rollup: Summary + dated Facts + Open (created on signal)
+├── projects/<slug>/project.md      # long-running effort: Summary / Timeline / Decisions / Open (status frontmatter)
+├── topics/<slug>.md                # standalone durable facts (owner prefs, routing discoveries)
+└── journal/
+    ├── <YYYY-MM-DD>.md             # librarian's reconstructed episodes for the day + audit lines
+    └── archive/<year>.md           # rotated journals (shared >30d), appended one file per year
 ```
+
+- **People**: `about.yaml` is the identity stub (first-write-wins, written by
+  the contacts driver). `profile.md` is the librarian-owned rollup — created
+  only when a person accumulates durable signal.
+- **Projects**: an effort graduates from `topics/` to `projects/` once it has a
+  timeline and ≥1 participant. `status:` is `active|paused|done|dropped`.
+- **Entity files are hybrid**: Summary/Open sections are rewritten each
+  consolidation run (current truth); Facts/Timeline/Decisions are append-only
+  dated bullets (history). `last_updated:` frontmatter is the freshness signal.
+- **Links**: `[[slug]]` inline (bare slug resolves people → projects → topics).
+  Backlinks are not stored — grep them: `rg "\[\[<slug>\]\]" memory/`.
+- **Journals are reconstructed retroactively** by `librarian-pai` at 3am: it
+  reads the prior day's comms archives (messages/email) and writes the episodic
+  record itself, then threads durable episodes into the people/project files.
+  Fleet PAIs do not journal directly. See `pais/librarian-pai/prompt.md`.
+
+The earlier dated-directory shape (`topics/<topic>/<date>/summary.md`,
+`journal/<date>/notes.md`) was never implemented — the runtime has always been
+flat. This section now documents the flat reality.
 
 PAIs see this through `/home/<pai>/memory/shared/ → /var/lib/memory/`.
 Writes through the symlink mutate ground truth — no overlay, no

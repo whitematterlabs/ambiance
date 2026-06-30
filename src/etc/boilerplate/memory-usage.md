@@ -19,6 +19,8 @@ memorize --private --content "very sensitive info, isolated to this PAI."
 
 - The `<memory-index>` block is already loaded — scan it before searching.
 - Full topic: `cat memory/{private,shared}/topics/<slug>.md`.
-- A person: `cat memory/shared/people/<slug>/about.yaml`.
+- A person: `cat memory/shared/people/<slug>/profile.md` (the living rollup — Summary, dated Facts, open follow-ups). `about.yaml` next to it is just the identity stub (name/handles).
+- A project: `cat memory/shared/projects/<slug>/project.md` (Summary, Timeline, Decisions, Open questions) for a long-running effort.
+- Cross-links: entity files reference each other with `[[slug]]` (bare slug = people → projects → topics). To find everything that mentions an entity, `rg "\[\[<slug>\]\]" memory/` — backlinks aren't stored, they're grepped.
 - Search everything: `rg <term> memory/`.
 - `remember '<question>'` when the owner asks for recall and the index/local search isn't enough — a read-only lookup to `librarian-pai`; the answer returns asynchronously as a `send-message` reply.
