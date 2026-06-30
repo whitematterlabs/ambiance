@@ -210,6 +210,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/kill":
                 result = actions.kill_subagent(str(body["name"]))
                 return self._json({"ok": True, **result})
+            if path == "/api/approve":
+                return self._json({"ok": True, **actions.approve_action(str(body["id"]))})
+            if path == "/api/reject":
+                return self._json(
+                    {"ok": True, **actions.reject_action(str(body["id"]), str(body.get("reason", "")))}
+                )
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))
                 return self._json({"ok": True, **result})

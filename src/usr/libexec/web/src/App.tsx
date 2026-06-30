@@ -3,6 +3,7 @@ import type {
   EventSighting,
   FleetMember,
   KernelStatus,
+  PendingApproval,
   ProcRow,
   ServerMessage,
   ShellEntry,
@@ -24,6 +25,7 @@ import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ApprovalModal } from "./components/ApprovalModal";
 import { WelcomeDialog } from "./components/WelcomeDialog";
 
 const CAP = 500; // ring-buffer cap for log/activity/events
@@ -54,6 +56,11 @@ export function App() {
   const [killingSlugs, setKillingSlugs] = useState<Set<string>>(() => new Set());
   const [confirmDelete, setConfirmDelete] = useState<FleetMember | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [approvalsOpen, setApprovalsOpen] = useState(false);
+  // Last seen pending count, so the SSE handler can auto-present the modal only
+  // when a *new* proposal arrives (count grew), not on every rebroadcast.
+  const approvalsCountRef = useRef(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Show the welcome/capability tour automatically on the very first boot,
   // then never again unless the owner re-opens it via the header "?" button.
@@ -250,6 +257,14 @@ export function App() {
           for (const [pid, m] of Object.entries(msg.threads)) t[Number(pid)] = m;
           setThreads(t);
           applyFleet(msg.fleet);
+          // Seed the approval queue from the snapshot; the badge shows it, but
+          // don't auto-pop on connect — only a *new* proposal (a later count
+          // increase) presents the modal.
+          {
+            const pending = msg.pending_approvals ?? [];
+            setApprovals(pending);
+            approvalsCountRef.current = pending.length;
+          }
           // Seed the log + activity panes with the kernel.log backlog so a
           // fresh connection isn't a blank "waiting for kernel.log…".
           if (msg.log_backlog?.length) {
@@ -310,6 +325,17 @@ export function App() {
         case "provider":
           setProvider(msg.provider);
           break;
+        case "pending_approvals": {
+          // The single source of truth for the queue. Auto-present when a new
+          // proposal lands (count grew); auto-close when the queue empties. A
+          // dismissed-but-still-pending queue stays reachable via the badge.
+          const next = msg.approvals;
+          setApprovals(next);
+          if (next.length > approvalsCountRef.current) setApprovalsOpen(true);
+          else if (next.length === 0) setApprovalsOpen(false);
+          approvalsCountRef.current = next.length;
+          break;
+        }
         case "voice": {
           // Host-mic listener fired. "listening" = wake word landed (no text
           // yet); "utterance" = the phrase was heard (already routed to the PAI
@@ -763,6 +789,16 @@ export function App() {
                 <p className="chat-meta">{activeMeta}</p>
               </div>
               <div className="chat-head-actions">
+                {approvals.length > 0 && (
+                  <button
+                    className="approval-badge"
+                    type="button"
+                    onClick={() => setApprovalsOpen(true)}
+                    title="Sends awaiting your approval"
+                  >
+                    {approvals.length} to approve
+                  </button>
+                )}
                 <button
                   className="head-action"
                   type="button"
@@ -836,6 +872,14 @@ export function App() {
           busy={deleteBusy}
           onConfirm={runDelete}
           onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+      {approvalsOpen && approvals.length > 0 && (
+        <ApprovalModal
+          approvals={approvals}
+          onApprove={(id) => api.approve(id)}
+          onReject={(id, r) => api.reject(id, r)}
+          onClose={() => setApprovalsOpen(false)}
         />
       )}
       {welcomeOpen && (

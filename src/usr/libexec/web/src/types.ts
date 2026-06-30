@@ -55,8 +55,21 @@ export interface ShellEntry {
   afterMessageIndex?: number;
 }
 
+// One queued outbound send awaiting the owner's decision (draft & approve).
+// The review projection the server ships — never the raw record, never a token.
+export interface PendingApproval {
+  id: string;
+  channel: string;
+  summary: string;
+  created_by: string;
+  created_at: string;
+  recipient?: string;
+  subject?: string;
+  body?: string;
+}
+
 export type ServerMessage =
-  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[] }
+  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[] }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
   | { type: "thread"; pid: number; messages: ThreadMessage[] }
@@ -66,4 +79,6 @@ export type ServerMessage =
   // Host-mic voice activity forwarded from the kernel: "listening" the instant
   // the wake word fires (no text yet), "utterance" once the phrase is
   // transcribed (the kernel already routed it to the PAI — this is display-only).
-  | { type: "voice"; phase: "listening" | "utterance"; text?: string };
+  | { type: "voice"; phase: "listening" | "utterance"; text?: string }
+  // The owner approval queue changed — full pending list, single source of truth.
+  | { type: "pending_approvals"; approvals: PendingApproval[] };

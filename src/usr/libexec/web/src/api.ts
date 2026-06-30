@@ -84,6 +84,14 @@ export const runShell = (pid: number, cmd: string) =>
     ctx_applied: boolean;
   }>;
 
+// Draft & approve: the owner decides a queued send. The hub's file watcher
+// rebroadcasts the shrunken pending list — these don't mutate local state.
+export const approve = (id: string) =>
+  post("/api/approve", { id }) as Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
+
+export const reject = (id: string, reason: string) =>
+  post("/api/reject", { id, reason }) as Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
+
 export const setProvider = (key: string) => post("/api/provider", { key });
 
 export async function transcribeAudio(audio: Blob): Promise<{

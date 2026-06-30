@@ -510,6 +510,114 @@ def kill_subagent(name: str) -> dict:
     return {"name": name}
 
 
+# --- draft & approve: owner approval queue (web surface) -------------------
+#
+# A PAI under a send capability in `approve` mode proposes a send with
+# `propose-send`, which writes a `pending` record to var/spool/approvals/. The
+# web surface renders the queue and lets the owner approve or reject; the
+# `approvals` driver watches the file and delivers anything the owner moves to
+# `approved`. These helpers only flip status fields on the record — they never
+# send, and (unlike the rest of this module) they never emit an event: the
+# driver's own file watcher is the trigger. The secret grant token lives only
+# in sys/drivers/approvals/ and never touches the queue record, so the review
+# projection below leaks nothing.
+
+
+def _approval_path(ident: str) -> Path:
+    """Resolve `<ident>.yaml` in the approvals queue, rejecting any traversal.
+
+    `ident` must be a bare stem — no separators, no `..` — so a crafted id
+    can't escape the queue dir.
+    """
+    if not ident or ident != Path(ident).name or ".." in ident:
+        raise ValueError(f"invalid approval id: {ident!r}")
+    return paths.var_spool_approvals() / f"{ident}.yaml"
+
+
+def _approval_dump(path: Path, data: dict) -> None:
+    """Atomic rewrite (tmp + os.replace), same shape as the engine's dump."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    os.replace(tmp, path)
+
+
+def list_pending() -> list[dict]:
+    """Review projection of every `pending` record, sorted by created_at.
+
+    Keeps only the subset the owner needs to read before deciding — never the
+    raw record, which carries provenance the surface doesn't render. (No token
+    lives in the record, so there's nothing to redact.)
+    """
+    out: list[dict] = []
+    queue = paths.var_spool_approvals()
+    if not queue.exists():
+        return out
+    for path in queue.glob("*.yaml"):
+        try:
+            rec = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(rec, dict) or rec.get("status") != "pending":
+            continue
+        action = rec.get("action") or {}
+        recipient = subject = body = ""
+        if rec.get("channel") == "email":
+            to = action.get("to") or []
+            first = to[0] if isinstance(to, list) and to else ""
+            recipient = first or action.get("in_reply_to") or ""
+            subject = action.get("subject") or ""
+            body = action.get("content") or ""
+        out.append(
+            {
+                "id": rec.get("id") or path.stem,
+                "channel": rec.get("channel") or "",
+                "summary": rec.get("summary") or "",
+                "created_by": rec.get("created_by") or "",
+                "created_at": rec.get("created_at") or "",
+                "recipient": recipient,
+                "subject": subject,
+                "body": body,
+            }
+        )
+    out.sort(key=lambda r: r.get("created_at") or "")
+    return out
+
+
+def _decide(ident: str, status: str, *, error: str | None = None) -> dict:
+    """Flip a still-`pending` record to a terminal owner decision.
+
+    Terminal-guard: a record already decided (a double-click, or the driver
+    having moved it on) is left untouched so we can't approve something twice.
+    """
+    path = _approval_path(ident)
+    try:
+        rec = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"id": ident, "status": "missing", "error": "not found"}
+    if not isinstance(rec, dict):
+        return {"id": ident, "status": "missing", "error": "not found"}
+    if rec.get("status") != "pending":
+        return {"id": ident, "status": rec.get("status"), "error": "not pending"}
+    rec["status"] = status
+    rec["decided_at"] = datetime.now().isoformat(timespec="seconds")
+    rec["decided_by"] = "owner"
+    if status == "rejected":
+        rec["error"] = error or None
+    _approval_dump(path, rec)
+    return {"id": ident, "status": status}
+
+
+def approve_action(ident: str) -> dict:
+    """Mark a pending record `approved`; the approvals driver delivers it."""
+    return _decide(ident, "approved")
+
+
+def reject_action(ident: str, reason: str = "") -> dict:
+    """Mark a pending record `rejected`; nothing is sent."""
+    return _decide(ident, "rejected", error=reason)
+
+
 def run_shell(pid: int, cmd: str) -> dict:
     """Run `cmd` with PAI's PATH/cwd/env. Returns {lines, rc, ctx_applied}.
 

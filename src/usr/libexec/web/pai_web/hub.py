@@ -21,6 +21,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from boot import config
+from boot import paths
 from boot.nudge import DEFAULT_COMPACT_THRESHOLD
 from boot.processes import (
     EVENTS_DIR,
@@ -32,6 +33,8 @@ from boot.processes import (
     read_status,
 )
 from boot.proctree import order_as_tree
+
+from . import actions
 
 from sbin.tui.state import (
     KERNEL_LOG,
@@ -280,6 +283,7 @@ class Hub:
         self._threads: dict[int, list[dict]] = {}
         self._procs: list[dict] = []
         self._fleet: list[dict] = []
+        self._pending_approvals: list[dict] = []
         self._log_offset = 0
 
     # -- subscriptions --
@@ -305,6 +309,7 @@ class Hub:
                 "provider": provider,
                 "fleet": list(self._fleet),
                 "procs": list(self._procs),
+                "pending_approvals": list(self._pending_approvals),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
                 # The live tail only streams *new* lines (starts at EOF), so a
                 # fresh client would see an empty feed despite a populated log.
@@ -340,6 +345,15 @@ class Hub:
         EVENTS_DIR.mkdir(parents=True, exist_ok=True)
         self._watch_events()
         self._watch_log()
+
+        # Owner approval queue: badge + modal feed for draft-and-approve.
+        approvals_dir = paths.var_spool_approvals()
+        approvals_dir.mkdir(parents=True, exist_ok=True)
+        approvals_worker = _Debounced(lambda: self._recompute_approvals(broadcast=True))
+        approvals_worker.start()
+        self._workers.append(approvals_worker)
+        self._watch(approvals_dir, lambda _p: approvals_worker.poke(), recursive=False)
+        self._recompute_approvals(broadcast=False)
 
     def _watch(self, path: Path, cb, recursive: bool) -> None:
         obs = Observer()
@@ -380,6 +394,14 @@ class Hub:
                     self._broadcast(
                         {"type": "thread", "pid": pid, "messages": self._threads[pid]}
                     )
+
+    def _recompute_approvals(self, broadcast: bool) -> None:
+        pend = actions.list_pending()
+        if pend == self._pending_approvals:
+            return
+        self._pending_approvals = pend
+        if broadcast:
+            self._broadcast({"type": "pending_approvals", "approvals": pend})
 
     def _recompute_threads(self) -> None:
         for pid in list(self._fleet_pids):
