@@ -207,6 +207,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/delete":
                 result = actions.delete_pai(str(body["name"]))
                 return self._json({"ok": True, **result})
+            if path == "/api/kill":
+                result = actions.kill_subagent(str(body["name"]))
+                return self._json({"ok": True, **result})
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))
                 return self._json({"ok": True, **result})

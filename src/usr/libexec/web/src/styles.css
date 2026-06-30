@@ -659,7 +659,8 @@ button {
 }
 
 .fleet-clone-button,
-.fleet-delete-button {
+.fleet-delete-button,
+.fleet-kill-button {
   display: grid;
   place-items: center;
   width: 27px;
@@ -679,14 +680,23 @@ button {
     border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
 
-.fleet-delete-button {
+.fleet-delete-button,
+.fleet-kill-button {
   color: var(--fail);
+}
+
+/* The kill "✕" is a smaller glyph than the +/− strokes; bump it up so it reads
+   at the same optical weight. */
+.fleet-kill-button {
+  font-size: 14px;
 }
 
 .fleet-tab-shell:hover .fleet-clone-button,
 .fleet-tab-shell:hover .fleet-delete-button,
+.fleet-tab-shell:hover .fleet-kill-button,
 .fleet-clone-button:focus-visible,
-.fleet-delete-button:focus-visible {
+.fleet-delete-button:focus-visible,
+.fleet-kill-button:focus-visible {
   opacity: 1;
   transform: scale(1);
 }
@@ -699,14 +709,17 @@ button {
 }
 
 .fleet-delete-button:hover:not(:disabled),
-.fleet-delete-button:focus-visible:not(:disabled) {
+.fleet-delete-button:focus-visible:not(:disabled),
+.fleet-kill-button:hover:not(:disabled),
+.fleet-kill-button:focus-visible:not(:disabled) {
   border-color: color-mix(in srgb, var(--fail) 42%, var(--border));
   background: color-mix(in srgb, var(--fail) 14%, transparent);
   outline: none;
 }
 
 .fleet-clone-button:disabled,
-.fleet-delete-button:disabled {
+.fleet-delete-button:disabled,
+.fleet-kill-button:disabled {
   cursor: wait;
   opacity: 1;
 }
@@ -2768,7 +2781,8 @@ button {
   }
 
   .fleet-clone-button,
-  .fleet-delete-button {
+  .fleet-delete-button,
+  .fleet-kill-button {
     width: 25px;
     height: 25px;
     opacity: 1;

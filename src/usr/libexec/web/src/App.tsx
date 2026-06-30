@@ -51,6 +51,7 @@ export function App() {
   const [kernelBusy, setKernelBusy] = useState(false);
   const [cloningSlugs, setCloningSlugs] = useState<Set<string>>(() => new Set());
   const [deletingSlugs, setDeletingSlugs] = useState<Set<string>>(() => new Set());
+  const [killingSlugs, setKillingSlugs] = useState<Set<string>>(() => new Set());
   const [confirmDelete, setConfirmDelete] = useState<FleetMember | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -560,6 +561,32 @@ export function App() {
     }
   }, [confirmDelete]);
 
+  // Kill a subagent: one immediate write (no confirm — it aborts a transient
+  // task, nothing is purged). The fleet SSE drops the tab once the kernel reaps
+  // the proc; ensureActive then selects another tab if this one was active.
+  const handleKill = useCallback(async (member: FleetMember) => {
+    const slug = member.slug;
+    setKillingSlugs((prev) => {
+      const next = new Set(prev);
+      next.add(slug);
+      return next;
+    });
+    setStatus(`killing ${slug}...`);
+    try {
+      const res = await api.killSubagent(slug);
+      if (!res.ok) throw new Error(res.error || "kill failed");
+      setStatus(`killed ${slug}`);
+    } catch (e) {
+      setStatus(`kill failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setKillingSlugs((prev) => {
+        const next = new Set(prev);
+        next.delete(slug);
+        return next;
+      });
+    }
+  }, []);
+
   const handleTranscribeAudio = useCallback(async (audio: Blob) => {
     const res = await api.transcribeAudio(audio);
     if (!res.ok) throw new Error(res.error || "transcription failed");
@@ -704,8 +731,10 @@ export function App() {
         }}
         onClone={handleClone}
         onDelete={handleDelete}
+        onKill={handleKill}
         cloningSlugs={cloningSlugs}
         deletingSlugs={deletingSlugs}
+        killingSlugs={killingSlugs}
       />
       <nav className="mobile-view-switch" aria-label="Mobile view">
         <button

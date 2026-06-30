@@ -67,6 +67,15 @@ export const deletePai = (name: string) =>
     error?: string;
   }>;
 
+// Abort a running subagent (owner-initiated). The fleet SSE drops its tab once
+// the kernel reaps the proc.
+export const killSubagent = (name: string) =>
+  post("/api/kill", { name }) as Promise<{
+    ok: boolean;
+    name?: string;
+    error?: string;
+  }>;
+
 export const runShell = (pid: number, cmd: string) =>
   post("/api/shell", { pid, cmd }) as Promise<{
     ok: boolean;

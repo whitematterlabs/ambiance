@@ -477,6 +477,39 @@ def delete_pai(name: str, *, stop_timeout: float = 10.0) -> dict:
     }
 
 
+def kill_subagent(name: str) -> dict:
+    """Abort a running subagent from the web UI (owner-initiated).
+
+    A subagent is a `kind: pai` proc that carries a `parent`. Killing it is the
+    same single write the `subagent kill` CLI makes — `processes.resolve(slug,
+    "completed")` — which flips its status, nudges the parent (proc_resolved),
+    and lets the kernel reap the ephemeral proc dir. The fleet SSE then drops
+    the tab once the proc disappears.
+
+    Unlike the CLI path there is no parent-pid gate: the owner is allowed to
+    abort any subagent. Persistent (`persub`) subagents are refused — they're
+    declared in /etc/config.yaml and re-spawn, so killing them is meaningless.
+    """
+    from boot import processes as P
+
+    name = name.strip()
+    if not name:
+        raise ValueError("missing subagent name")
+    try:
+        spec = P.read_spec(name)
+    except P.ProcessNotFound:
+        raise ValueError(f"no proc named {name!r}")
+    if spec.get("kind") != "pai" or "parent" not in spec:
+        raise ValueError(f"{name!r} is not a subagent")
+    if spec.get("persub"):
+        raise ValueError(f"{name!r} is a persistent subagent and cannot be killed")
+    try:
+        P.resolve(name, "completed")
+    except P.ProcessNotFound:
+        raise ValueError(f"{name!r} disappeared")
+    return {"name": name}
+
+
 def run_shell(pid: int, cmd: str) -> dict:
     """Run `cmd` with PAI's PATH/cwd/env. Returns {lines, rc, ctx_applied}.
 
