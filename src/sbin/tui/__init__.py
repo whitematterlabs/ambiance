@@ -1,3 +1,6 @@
-"""PAI operator console — owner-facing TUI."""
+"""Shared parsing/watcher helpers (formerly the owner-facing TUI).
 
-from .__main__ import main  # noqa: F401 — re-exported for pyproject entry point
+The TUI itself is deprecated (see `deprecated/tui/`); the web console is now the
+sole owner surface. Only `state.py` remains here — the web surface imports it
+(`sbin.tui.state`) so the on-disk message format has one parser.
+"""

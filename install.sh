@@ -233,21 +233,16 @@ echo
 echo "PAI $VER installed. Runtime root: $PAI_ROOT"
 
 # --- start now ---------------------------------------------------------------
-# Don't leave the user at a shell wondering what's next: offer to launch PAI on
-# either surface right here. `pai start[ --web]` runs in the foreground (the TUI
-# or the web server), so exec hands the terminal straight to it.
+# Don't leave the user at a shell wondering what's next: offer to launch PAI
+# right here. `pai start` runs the web console in the foreground, so exec hands
+# the terminal straight to it.
 if [ "$interactive" -eq 1 ]; then
   echo
-  echo "Start PAI now?"
-  echo "  1) Web        (browser console)"
-  echo "  2) Terminal   (TUI)"
-  echo "  3) Not now"
-  printf "Choose [1/2/3] (default 1): "
+  printf "Start PAI now? [Y/n]: "
   read -r start_choice < /dev/tty
   case "$start_choice" in
-    3) echo "Start it later with: pai start    (or: pai start --web)" ;;
-    2) echo "==> starting PAI (terminal)"; cd "$VER_DIR" && exec uv run pai start < /dev/tty ;;
-    *) echo "==> starting PAI (web)";      cd "$VER_DIR" && exec uv run pai start --web < /dev/tty ;;
+    [Nn]*) echo "Start it later with: pai start" ;;
+    *)     echo "==> starting PAI"; cd "$VER_DIR" && exec uv run pai start < /dev/tty ;;
   esac
 else
   echo "Start it with: pai start    (or update later with: pai update)"

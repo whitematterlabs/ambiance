@@ -272,7 +272,6 @@ SBIN_SCRIPTS: frozenset[str] = frozenset({
     "migrate",
     "reboot",
     "reset",
-    "tui",
     "paiman",
     "paiadd",
     "paiclone",

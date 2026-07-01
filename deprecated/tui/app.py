@@ -85,7 +85,9 @@ class ProviderCommands(Provider):
             )
 
 
-from .state import (
+# state.py stays under src/sbin/tui/ because the web surface imports it; the
+# deprecated TUI reaches it by its package path rather than a relative import.
+from sbin.tui.state import (
     EventsWatcher,
     LogTailer,
     MeThreadWatcher,

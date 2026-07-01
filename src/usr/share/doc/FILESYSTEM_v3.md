@@ -97,7 +97,7 @@ via `paiman install`, etc.) is an implementation detail tracked in Open Question
 | `src/boot/` | `~/.pai/boot/` | Kernel source — the supervisor and its helper libraries (PID 1's image). Not userspace; never under `/usr/`. |
 | `~/Projects/pairegistry/drivers/<name>/` | split two ways | Code + shipped manifest → `/usr/lib/drivers/<name>/` (events.yaml ships here, not in /etc/). Live runtime state → `/sys/drivers/<name>/`. Driver enable/disable rides on `/proc/<slug>/spec.yaml` `active:` like any other process. *Source lives in pairegistry, not this pyproject repo.* |
 | `src/bin/` | split by privilege | PAI-callable shims (`paictl`, `paicron`, `send-message`, `subagent`, …) → `~/.pai/usr/bin/` (`/bin/` is a symlink to `usr/bin/`). Fleet-mutation / kernel ops (`paiman`, `paiadd`, `paidel`, `paifs-init`) → `~/.pai/sbin/`. Split lives in `SBIN_SCRIPTS` in `bin/paifs_init.py`. |
-| `src/sbin/tui/` | `~/.pai/sbin/tui` | Owner's terminal client (privileged ops) |
+| `src/sbin/tui/` | `~/.pai/sbin/tui` | Shared parsing/watcher helpers (`state.py`) imported by the web console. The terminal client itself is deprecated (`deprecated/tui/`); the web console is the sole owner surface. |
 | `src/sbin/migrate.py` | `~/.pai/sbin/migrate` | One-shot kernelPAI op |
 | `src/sbin/reset.py` | `~/.pai/sbin/reset` | One-shot kernelPAI op — destructive; wipes runtime state |
 | `src/sbin/reboot.py` | `~/.pai/sbin/reboot` | Emits `kernel:restart`; kernel drains in-flight nudges, gracefully stops drivers, then `os.execvp`s itself in place (PID 1 preserved). Use to apply on-disk patches to kernel-imported modules. |
