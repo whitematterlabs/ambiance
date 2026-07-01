@@ -77,7 +77,6 @@
 
   --sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -1223,7 +1222,7 @@ button {
   border-radius: var(--radius-sm);
   background: var(--surface-soft);
   color: var(--muted);
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -1324,7 +1323,7 @@ button {
   white-space: pre-wrap;
   background: var(--surface-soft);
   color: var(--muted);
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
@@ -1380,7 +1379,7 @@ button {
   border-radius: 5px;
   background: var(--surface-muted);
   padding: 1px 5px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 0.88em;
 }
 
@@ -1439,7 +1438,7 @@ button {
 .shell-line {
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1467,7 +1466,7 @@ button {
   align-items: center;
   gap: 10px;
   margin: 8px 0 18px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1509,7 +1508,7 @@ button {
 }
 
 .working-detail {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
@@ -1646,7 +1645,7 @@ button {
 }
 
 .composer.shell .composer-input {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 13px;
   color: var(--warn);
 }
@@ -2163,7 +2162,7 @@ button {
 }
 
 .status-card-title {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 15px;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -2255,7 +2254,7 @@ button {
 }
 
 .feed-text.mono {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 12px;
 }
 
@@ -2364,7 +2363,7 @@ button {
 .proc-list .tree {
   color: var(--dim);
   white-space: pre;
-  font-family: var(--mono);
+  font-family: var(--sans);
 }
 
 .ptype {
@@ -2452,7 +2451,7 @@ button {
 
 .log-tail {
   color: var(--muted);
-  font-family: var(--mono);
+  font-family: var(--sans);
 }
 
 .log-kernel {
@@ -2807,7 +2806,7 @@ button {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-family: var(--sans);
   font-size: 12.5px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -2996,7 +2995,7 @@ button {
 
 .welcome-item-body code,
 .welcome-item-body kbd {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11.5px;
   padding: 1px 5px;
   border-radius: 5px;
