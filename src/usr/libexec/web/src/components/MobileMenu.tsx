@@ -125,7 +125,7 @@ export function MobileMenu({
                     >
                       <span className="mobile-pai-name">{label}</span>
                       <span className="mobile-pai-meta">
-                        {busy ? "Working" : "Ready"} / PID {m.pid}
+                        {busy ? "Working" : "Ready"}
                         {m.fallback ? " / Default" : ""}
                       </span>
                     </button>

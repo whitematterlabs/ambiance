@@ -66,7 +66,7 @@ export function FleetTabs({
             >
               <span className="fleet-tab-name">{label}</span>
               <span className="fleet-tab-meta">
-                {busy ? "Working" : "Ready"} / PID {m.pid}
+                {busy ? "Working" : "Ready"}
                 {m.fallback ? " / Default" : ""}
               </span>
             </button>

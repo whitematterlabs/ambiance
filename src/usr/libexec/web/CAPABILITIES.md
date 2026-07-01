@@ -28,7 +28,7 @@ match it feature-for-feature.
 ## Capabilities
 
 ### 1. Fleet tabs (one per running PAI)
-- One tab per **running** `kind:pai` proc (`status == running`). Title `{slug} #{pid}`.
+- One tab per **running** `kind:pai` proc (`status == running`). Title is the `{slug}` (e.g. `pai`).
   Source: `_discover_pai_pids`, `_add_pai_tab`.
 - Tabs reconcile live as PAIs start/stop (added/removed on every `/proc` change).
 - Default active tab = the **fallback** PAI (owner-facing), not lowest pid.

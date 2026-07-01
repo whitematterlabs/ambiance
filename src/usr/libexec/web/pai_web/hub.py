@@ -210,7 +210,7 @@ def read_fleet() -> list[dict]:
                 # /etc/config.yaml (not the proc spec), so read it from there —
                 # it's what gates the "−" delete button on the frontend.
                 "clone_of": config.clone_of(slug),
-                "title": f"{slug} #{pid}",
+                "title": slug,
             }
         )
     fleet.sort(key=lambda f: f["pid"])
