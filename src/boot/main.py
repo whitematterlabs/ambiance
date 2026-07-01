@@ -24,6 +24,7 @@ from pathlib import Path
 import yaml
 
 from . import config as C
+from . import doc_watcher
 from . import litellm_proxy
 from . import outbound_echo
 from . import paths
@@ -1042,6 +1043,10 @@ async def run() -> None:
         _supervise_driver("proc-watcher", proc_watcher.run(heap)),
         name="proc-watcher",
     )
+    doc_watcher_task = asyncio.create_task(
+        _supervise_driver("doc-watcher", doc_watcher.run()),
+        name="doc-watcher",
+    )
     await _reconcile_drivers()
     await litellm_proxy.reconcile()
 
@@ -1097,7 +1102,7 @@ async def run() -> None:
             for t in tasks:
                 t.cancel()
         await supervisor.shutdown()
-        all_tasks = [proc_watcher_task, *_driver_tasks.values()]
+        all_tasks = [proc_watcher_task, doc_watcher_task, *_driver_tasks.values()]
         for t in all_tasks:
             t.cancel()
         for t in all_tasks:
