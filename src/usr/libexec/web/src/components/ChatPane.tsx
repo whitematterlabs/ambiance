@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ProcRow, ShellEntry, ThreadMessage } from "../types";
@@ -13,6 +13,17 @@ function senderClass(sender: string): string {
   if (s === "pai") return "msg-pai";
   if (s.startsWith("[kernel")) return "msg-kernel";
   return "msg-other";
+}
+
+// Interim narration the kernel mirrors into the thread (llm.py prefixes each
+// line with `» ` to mark it as thinking rather than a final reply). These get
+// folded into a collapsible group so the thread reads as clean replies.
+function isThinking(m: ThreadMessage): boolean {
+  return !m.raw && m.sender.toLowerCase() === "pai" && m.body.trimStart().startsWith("» ");
+}
+
+function stripMarker(body: string): string {
+  return body.replace(/^\s*»\s+/, "");
 }
 
 export function ChatPane({
@@ -31,12 +42,59 @@ export function ChatPane({
   const ref = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const previousThreadKey = useRef(threadKey);
+  // Per-group override of the collapsed default, keyed by the group's first
+  // message index (stable: the thread is append-only). Reset on thread switch.
+  const [openGroups, setOpenGroups] = useState<Record<number, boolean>>({});
+  const previousOpenThreadKey = useRef(threadKey);
+  if (previousOpenThreadKey.current !== threadKey) {
+    previousOpenThreadKey.current = threadKey;
+    if (Object.keys(openGroups).length) setOpenGroups({});
+  }
   const shellSlots = Array.from({ length: messages.length + 1 }, () => [] as ShellSlot[]);
   shell.forEach((entry, index) => {
     const rawSlot = entry.afterMessageIndex ?? messages.length;
     const slot = Math.min(Math.max(rawSlot, 0), messages.length);
     shellSlots[slot].push({ entry, index });
   });
+
+  // Flatten messages + shell into ordered render blocks, folding runs of
+  // consecutive thinking narration into one collapsible group. A shell feed
+  // between narration lines closes the current group so ordering is preserved.
+  type Block =
+    | { kind: "shell"; key: string; items: ShellSlot[] }
+    | { kind: "msg"; key: string; m: ThreadMessage }
+    | { kind: "think"; key: string; start: number; items: ThinkItem[] };
+  const blocks: Block[] = [];
+  let pending: ThinkItem[] = [];
+  const flush = () => {
+    if (pending.length) {
+      blocks.push({ kind: "think", key: `t${pending[0].i}`, start: pending[0].i, items: pending });
+      pending = [];
+    }
+  };
+  if (shellSlots[0].length > 0) blocks.push({ kind: "shell", key: "s0", items: shellSlots[0] });
+  messages.forEach((m, i) => {
+    if (isThinking(m)) {
+      pending.push({ m, i });
+    } else {
+      flush();
+      blocks.push({ kind: "msg", key: `m${i}`, m });
+    }
+    if (shellSlots[i + 1].length > 0) {
+      flush();
+      blocks.push({ kind: "shell", key: `s${i + 1}`, items: shellSlots[i + 1] });
+    }
+  });
+  flush();
+
+  // While the PAI is working, keep the trailing (live) thinking group open so
+  // its reasoning streams in view; it collapses on its own once a reply lands.
+  const lastBlock = blocks[blocks.length - 1];
+  const autoOpenStart = busy && lastBlock?.kind === "think" ? lastBlock.start : null;
+  const isGroupOpen = (start: number) =>
+    start in openGroups ? openGroups[start] : start === autoOpenStart;
+  const toggleGroup = (start: number) =>
+    setOpenGroups((prev) => ({ ...prev, [start]: !(start in prev ? prev[start] : start === autoOpenStart) }));
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -71,13 +129,18 @@ export function ChatPane({
           <span>context cleared · {clearMarker}</span>
         </div>
       )}
-      {shellSlots[0].length > 0 && <ShellFeed items={shellSlots[0]} />}
-      {messages.map((m, i) => (
-        <Fragment key={`m${i}`}>
-          <Message m={m} />
-          {shellSlots[i + 1].length > 0 && <ShellFeed items={shellSlots[i + 1]} />}
-        </Fragment>
-      ))}
+      {blocks.map((b) => {
+        if (b.kind === "shell") return <ShellFeed key={b.key} items={b.items} />;
+        if (b.kind === "msg") return <Message key={b.key} m={b.m} />;
+        return (
+          <ThinkingGroup
+            key={b.key}
+            items={b.items}
+            open={isGroupOpen(b.start)}
+            onToggle={() => toggleGroup(b.start)}
+          />
+        );
+      })}
       {busy && <WorkingIndicator busy={busy} />}
     </div>
   );
@@ -86,6 +149,46 @@ export function ChatPane({
 interface ShellSlot {
   entry: ShellEntry;
   index: number;
+}
+
+interface ThinkItem {
+  m: ThreadMessage;
+  i: number;
+}
+
+function ThinkingGroup({
+  items,
+  open,
+  onToggle,
+}: {
+  items: ThinkItem[];
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const count = items.length;
+  const lastTs = items[items.length - 1].m.ts;
+  return (
+    <div className={`thinking-group${open ? " is-open" : ""}`}>
+      <button className="thinking-toggle" onClick={onToggle} aria-expanded={open}>
+        <span className="thinking-chevron" aria-hidden="true">▸</span>
+        <span className="msg-avatar" aria-hidden="true" />
+        <span className="thinking-label">Thinking</span>
+        <span className="thinking-count">
+          {count} step{count === 1 ? "" : "s"}
+        </span>
+        <span className="thinking-ts">{lastTs}</span>
+      </button>
+      {open && (
+        <div className="thinking-steps">
+          {items.map(({ m, i }) => (
+            <div key={`t${i}`} className="msg-tool">
+              {stripMarker(m.body)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ShellFeed({ items }: { items: ShellSlot[] }) {
