@@ -1002,16 +1002,28 @@ button {
   animation: fade-in 0.8s var(--ease) both;
 }
 
-/* Entry surface: the greeting carries the spectrum, so an empty thread still
-   feels like the launch site's hero rather than dead space. */
+/* Entry surface: a solid brand-purple greeting, lit from behind by a dim
+   radial glow so an empty thread reads as intentional, not dead space. */
 .chat-empty span {
+  position: relative;
+  z-index: 0;
   font-weight: 600;
   letter-spacing: -0.01em;
-  background: var(--spectrum);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
+  color: var(--pai);
+}
+
+.chat-empty span::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -70% -14%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--pai) 26%, transparent),
+    transparent 72%
+  );
+  filter: blur(22px);
+  pointer-events: none;
 }
 
 .msg {
