@@ -13,6 +13,7 @@ export function FleetTabs({
   cloningSlugs,
   deletingSlugs,
   killingSlugs,
+  variant = "strip",
 }: {
   fleet: FleetMember[];
   activePid: number | null;
@@ -24,9 +25,12 @@ export function FleetTabs({
   cloningSlugs: Set<string>;
   deletingSlugs: Set<string>;
   killingSlugs: Set<string>;
+  // "strip" = horizontal top bar (legacy); "rail" = vertical list in the sidebar.
+  variant?: "strip" | "rail";
 }) {
+  const container = variant === "rail" ? "fleet-rail" : "fleet-strip";
   if (!fleet.length) {
-    return <div className="fleet-strip empty">No running PAIs</div>;
+    return <div className={`${container} empty`}>No running PAIs</div>;
   }
   const busyPids = new Set(procs.filter((r) => r.busy).map((r) => r.pid));
   // A fleet member is a subagent when its proc row is typed `subagent:<pkg>`
@@ -34,7 +38,7 @@ export function FleetTabs({
   // clone/delete affordances — cloning a transient task PAI is nonsensical.
   const typeByPid = new Map(procs.map((r) => [r.pid, r.type]));
   return (
-    <div className="fleet-strip" role="tablist">
+    <div className={container} role="tablist">
       {fleet.map((m) => {
         const busy = busyPids.has(String(m.pid));
         const cloning = cloningSlugs.has(m.slug);

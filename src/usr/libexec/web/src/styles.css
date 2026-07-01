@@ -837,21 +837,97 @@ button {
 /* ---------- Main layout ---------- */
 .main {
   flex: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 356px;
+  display: flex;
   gap: 16px;
   min-height: 0;
   padding: 14px 22px 20px;
   overflow: hidden;
 }
 
-@media (min-width: 1041px) {
-  .main:has(.side-panel.system-open) {
-    grid-template-columns: minmax(0, 1fr) clamp(500px, 42vw, 640px);
-  }
+/* ---------- Collapsible left rail ---------- */
+/* Holds the PAI switcher + the Activity/System panel. Open by default; the
+   navbar toggle collapses its width to 0 so the chat spans the full canvas. */
+.workspace-sidebar {
+  flex: 0 0 320px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* Negative right margin cancels the flex gap when collapsed so the chat
+     reclaims the whole row instead of leaving a 16px seam. */
+  transition: flex-basis 0.28s var(--ease), opacity 0.22s var(--ease),
+    margin-right 0.28s var(--ease);
+}
+
+.main[data-sidebar="closed"] .workspace-sidebar {
+  flex-basis: 0;
+  opacity: 0;
+  margin-right: -16px;
+  pointer-events: none;
+}
+
+/* Fixed inner width so the content slides out under overflow:hidden rather than
+   reflowing (tab names, feed rows) as the rail animates shut. */
+.sidebar-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 320px;
+  height: 100%;
+  min-height: 0;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+  max-height: 42%;
+  overflow-y: auto;
+}
+
+.sidebar-heading {
+  padding: 2px 2px 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.workspace-sidebar .side-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Vertical PAI switcher (rail variant of the fleet strip). */
+.fleet-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px;
+}
+
+.fleet-rail.empty {
+  padding: 10px 4px;
+  color: var(--dim);
+  font-size: 13px;
+  font-style: italic;
+  font-family: var(--sans);
+}
+
+.fleet-rail .fleet-tab-shell {
+  max-width: none;
+  width: 100%;
+}
+
+.fleet-rail .fleet-tab {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
 }
 
 .chat-col {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -3095,22 +3171,14 @@ button {
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1040px) {
-  .app {
-    height: auto;
-    min-height: 100vh;
+  /* Keep the inline rail, just a little narrower — the toggle still collapses
+     it for full-width chat. */
+  .workspace-sidebar {
+    flex-basis: 264px;
   }
 
-  .main {
-    grid-template-columns: 1fr;
-    overflow: visible;
-  }
-
-  .chat-col {
-    min-height: 600px;
-  }
-
-  .side-panel {
-    min-height: 620px;
+  .sidebar-scroll {
+    width: 264px;
   }
 }
 
@@ -3210,6 +3278,7 @@ button {
      mobile bar's menu button. */
   .header,
   .fleet-strip,
+  .workspace-sidebar,
   .mobile-view-switch,
   .chat-head,
   .status-bar,

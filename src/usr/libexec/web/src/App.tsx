@@ -71,6 +71,11 @@ export function App() {
     () => localStorage.getItem("welcomeSeen") !== "true",
   );
   const [mobileView, setMobileView] = useState<MobileView>("chat");
+  // Desktop-only: the left rail (PAI switcher + Activity/System) collapses to
+  // hand the chat full width. Persisted so the choice survives reloads.
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem("sidebarOpen") !== "false",
+  );
   const [authNeeded, setAuthNeeded] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearScreens, setClearScreens] = useState<Record<number, ClearScreen>>({});
@@ -141,6 +146,10 @@ export function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("sidebarOpen", String(sidebarOpen));
+  }, [sidebarOpen]);
 
   // Refresh the status line when the active tab changes (TUI pokes /proc).
   useEffect(() => {
@@ -729,6 +738,8 @@ export function App() {
         wakePhrase={DEFAULT_WAKE_PHRASE}
         onShowWelcome={() => setWelcomeOpen(true)}
         onSetupRemote={handleSetupRemote}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
       />
       <MobileMenu
         connected={connected}
@@ -764,21 +775,6 @@ export function App() {
         clearBusy={clearBusy}
         onCompact={handleCompact}
       />
-      <FleetTabs
-        fleet={fleet}
-        activePid={activePid}
-        procs={procs}
-        onSelect={(pid) => {
-          setActivePid(pid);
-          setMobileView("chat");
-        }}
-        onClone={handleClone}
-        onDelete={handleDelete}
-        onKill={handleKill}
-        cloningSlugs={cloningSlugs}
-        deletingSlugs={deletingSlugs}
-        killingSlugs={killingSlugs}
-      />
       <nav className="mobile-view-switch" aria-label="Mobile view">
         <button
           className={`mobile-view-tab ${mobileView === "chat" ? "active" : ""}`}
@@ -797,7 +793,43 @@ export function App() {
           Activity
         </button>
       </nav>
-      <main className="main" data-mobile-view={mobileView}>
+      <main
+        className="main"
+        data-mobile-view={mobileView}
+        data-sidebar={sidebarOpen ? "open" : "closed"}
+      >
+        <aside className="workspace-sidebar" aria-hidden={!sidebarOpen}>
+          <div className="sidebar-scroll">
+            <section className="sidebar-section">
+              <div className="sidebar-heading">PAIs</div>
+              <FleetTabs
+                variant="rail"
+                fleet={fleet}
+                activePid={activePid}
+                procs={procs}
+                onSelect={(pid) => {
+                  setActivePid(pid);
+                  setMobileView("chat");
+                }}
+                onClone={handleClone}
+                onDelete={handleDelete}
+                onKill={handleKill}
+                cloningSlugs={cloningSlugs}
+                deletingSlugs={deletingSlugs}
+                killingSlugs={killingSlugs}
+              />
+            </section>
+            <SidePanel
+              activeProc={activeProc}
+              activity={activity}
+              procs={procs}
+              events={events}
+              logLines={logLines}
+              sendCaps={sendCaps}
+              onSetSendMode={onSetSendMode}
+            />
+          </div>
+        </aside>
         <section className="chat-col">
           <section className="conversation">
             <header className="chat-head">
@@ -862,15 +894,6 @@ export function App() {
             />
           </section>
         </section>
-        <SidePanel
-          activeProc={activeProc}
-          activity={activity}
-          procs={procs}
-          events={events}
-          logLines={logLines}
-          sendCaps={sendCaps}
-          onSetSendMode={onSetSendMode}
-        />
       </main>
       {paletteOpen && (
         <CommandPalette
