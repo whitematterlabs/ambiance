@@ -22,6 +22,7 @@
   --text: #0a0910;
   --muted: #6b6878;
   --dim: #9c99a8;
+  --ink-soft: #2a2733; /* softened ink for PAI reply bubbles (matches site) */
 
   /* Interactive voice is ink — a flat fill, backlit by spectrum where it counts */
   --accent: #0a0910;
@@ -67,10 +68,10 @@
   --spectrum-glow: 0 6px 22px -6px rgba(134, 48, 206, 0.5),
     0 2px 10px -2px rgba(224, 83, 27, 0.32);
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-lg: 18px;
-  --shadow: 0 24px 60px -28px rgba(18, 14, 40, 0.28);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --shadow: 0 16px 40px -26px rgba(18, 14, 40, 0.22);
   --shadow-soft: 0 1px 2px rgba(18, 14, 40, 0.05), 0 6px 18px -14px rgba(18, 14, 40, 0.14);
   --shadow-lift: 0 18px 40px -22px rgba(18, 14, 40, 0.34);
 
@@ -119,6 +120,7 @@
   --text: #ece9f6;
   --muted: #a9a3c0;
   --dim: #78728f;
+  --ink-soft: #d9d4ec;
 
   /* the pill inverts to light on dark, like the site's dark-hero buttons */
   --accent: #f2f0f8;
@@ -211,8 +213,8 @@ button {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-height: 62px;
-  padding: 12px 28px;
+  min-height: 54px;
+  padding: 10px 22px;
   flex: 0 0 auto;
   position: relative;
   z-index: 50;
@@ -244,7 +246,7 @@ button {
   min-height: 30px;
   padding: 0 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--muted);
   font-size: 12.5px;
@@ -281,9 +283,9 @@ button {
   display: inline-flex;
   align-items: center;
   min-height: 36px;
-  padding: 0 16px;
+  padding: 0 15px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
@@ -582,8 +584,8 @@ button {
 /* ---------- Fleet navigation ---------- */
 .fleet-strip {
   display: flex;
-  gap: 10px;
-  padding: 16px 28px 2px;
+  gap: 8px;
+  padding: 12px 22px 2px;
   overflow-x: auto;
   flex: 0 0 auto;
   animation: drop-in 0.6s var(--ease-out) 0.05s both;
@@ -613,10 +615,10 @@ button {
   align-items: flex-start;
   justify-content: center;
   gap: 2px;
-  min-height: 52px;
-  min-width: 158px;
+  min-height: 46px;
+  min-width: 150px;
   max-width: 270px;
-  padding: 8px 42px 8px 16px;
+  padding: 7px 40px 7px 14px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
@@ -836,10 +838,10 @@ button {
 .main {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 364px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 356px;
+  gap: 16px;
   min-height: 0;
-  padding: 18px 28px 26px;
+  padding: 14px 22px 20px;
   overflow: hidden;
 }
 
@@ -874,7 +876,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 18px 22px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
   background: linear-gradient(180deg, var(--surface-raised), var(--surface));
@@ -1026,66 +1028,89 @@ button {
   pointer-events: none;
 }
 
+/* A message is a row: gradient avatar (PAI only, bottom-aligned) beside a
+   bubble column, matching the launch-site chat widget 1-to-1. No per-message
+   name/timestamp on you/PAI turns — the avatar and the black pill are the
+   attribution; the time fades in on hover. */
 .msg {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  max-width: 80%;
-  margin-bottom: 18px;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 12px;
   animation: msg-in 0.42s var(--ease-out) both;
 }
 
 .msg-me {
-  margin-left: auto;
+  justify-content: flex-end;
+}
+
+/* Gradient avatar — the spectrum dot the launch site puts beside PAI's replies,
+   shown once at the start of a PAI run; continued turns get a matching spacer so
+   their bubbles stay aligned. */
+.msg-avatar {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--spectrum);
+}
+
+.msg-avatar-spacer {
+  flex: 0 0 auto;
+  width: 28px;
+}
+
+.msg-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 82%;
+}
+
+.msg-me .msg-col {
   align-items: flex-end;
 }
 
-.msg-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0 3px 6px;
-  font-size: 11.5px;
-}
-
-.msg-me .msg-head {
-  flex-direction: row-reverse;
-}
-
-.msg-sender {
-  color: var(--text);
+/* Only kernel / other senders carry a name — PAI and you are unlabeled. */
+.msg-label {
+  margin: 0 4px 5px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-.msg-pai .msg-sender {
-  color: var(--pai);
-}
-
-.msg-kernel .msg-sender {
-  color: var(--teal);
-}
-
-.msg-other .msg-sender {
+  letter-spacing: 0.03em;
   color: var(--muted);
 }
 
-.msg-ts {
-  color: var(--dim);
-  font-variant-numeric: tabular-nums;
+.msg-kernel .msg-label {
+  color: var(--teal);
 }
 
-.msg-body,
-.msg-plain {
+/* Timestamp is hidden until the message is hovered/focused, so it's there when
+   wanted but never clutters the clean transcript. */
+.msg-ts-hover {
+  margin: 4px 4px 0;
+  font-size: 11px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 0.16s var(--ease);
+}
+
+.msg:hover .msg-ts-hover,
+.msg:focus-within .msg-ts-hover {
+  opacity: 1;
+}
+
+.msg-body {
   width: fit-content;
   max-width: 100%;
-  padding: 12px 15px;
+  padding: 10px 16px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  border-top-left-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
-  box-shadow: var(--shadow-soft);
+  border-radius: 16px;
+  border-bottom-left-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -1093,8 +1118,8 @@ button {
   background: var(--bubble-me);
   color: var(--bubble-me-ink);
   border-color: transparent;
-  border-radius: var(--radius);
-  border-top-right-radius: 4px;
+  border-radius: 16px;
+  border-bottom-right-radius: 6px;
 }
 
 /* Links and inline code inside the solid user pill: keep them legible against
@@ -1107,18 +1132,6 @@ button {
 .msg-me .msg-body code {
   color: inherit;
   background: color-mix(in srgb, var(--bubble-me-ink) 15%, transparent);
-}
-
-/* Gradient avatar — the spectrum dot the launch site puts beside PAI's replies.
-   Marks PAI's turns without a colored name or a candy status pill. */
-.msg-avatar {
-  flex: 0 0 auto;
-  align-self: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--spectrum);
-  box-shadow: 0 0 0 2px var(--surface);
 }
 
 .msg-tool {
@@ -1139,8 +1152,8 @@ button {
    so the thread reads as clean replies with the reasoning tucked away. */
 .thinking-group {
   width: 100%;
-  max-width: 80%;
-  margin-bottom: 18px;
+  max-width: 82%;
+  margin-bottom: 12px;
   animation: msg-in 0.42s var(--ease-out) both;
 }
 
@@ -1223,13 +1236,17 @@ button {
 }
 
 .msg-plain {
+  width: fit-content;
+  max-width: 100%;
+  padding: 12px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   white-space: pre-wrap;
   background: var(--surface-soft);
   color: var(--muted);
   font-family: var(--mono);
   font-size: 12.5px;
-  box-shadow: none;
-  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
 }
 
 .msg-body > :first-child {
@@ -1873,7 +1890,7 @@ button {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  gap: 14px;
+  gap: 12px;
   animation: rise-in 0.65s var(--ease-out) 0.18s both;
 }
 
@@ -1915,7 +1932,7 @@ button {
 .side-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-height: 0;
   flex: 1;
   animation: fade-in 0.4s var(--ease) both;
@@ -2019,7 +2036,7 @@ button {
   display: flex;
   align-items: center;
   flex: 0 0 auto;
-  padding: 18px 18px;
+  padding: 14px 16px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -3397,8 +3414,8 @@ button {
     box-shadow: none;
   }
 
-  .msg {
-    max-width: 100%;
+  .msg-col {
+    max-width: 88%;
   }
 
   .chat-head {

@@ -87,6 +87,28 @@ export function ChatPane({
   });
   flush();
 
+  // The gradient avatar shows once at the start of each PAI run; continued PAI
+  // turns (and anything after a break — you, kernel, thinking, shell) get a
+  // spacer instead, matching the launch-site widget.
+  const avatarFor: Record<string, boolean> = {};
+  {
+    let prevPai = false;
+    for (const b of blocks) {
+      const isPaiReply =
+        b.kind === "msg" &&
+        !b.m.raw &&
+        b.m.body.trim() !== "" &&
+        !b.m.body.trimStart().startsWith("» ") &&
+        b.m.sender.toLowerCase() === "pai";
+      if (isPaiReply) {
+        avatarFor[b.key] = !prevPai;
+        prevPai = true;
+      } else {
+        prevPai = false;
+      }
+    }
+  }
+
   // While the PAI is working, keep the trailing (live) thinking group open so
   // its reasoning streams in view; it collapses on its own once a reply lands.
   const lastBlock = blocks[blocks.length - 1];
@@ -131,7 +153,8 @@ export function ChatPane({
       )}
       {blocks.map((b) => {
         if (b.kind === "shell") return <ShellFeed key={b.key} items={b.items} />;
-        if (b.kind === "msg") return <Message key={b.key} m={b.m} />;
+        if (b.kind === "msg")
+          return <Message key={b.key} m={b.m} showAvatar={!!avatarFor[b.key]} />;
         return (
           <ThinkingGroup
             key={b.key}
@@ -203,7 +226,7 @@ function ShellFeed({ items }: { items: ShellSlot[] }) {
   );
 }
 
-function Message({ m }: { m: ThreadMessage }) {
+function Message({ m, showAvatar }: { m: ThreadMessage; showAvatar: boolean }) {
   if (m.raw) {
     return (
       <article className="msg msg-other msg-raw">
@@ -211,24 +234,39 @@ function Message({ m }: { m: ThreadMessage }) {
       </article>
     );
   }
+  if (m.body.trim() === "") return null;
+
+  const s = m.sender.toLowerCase();
+  const isPai = s === "pai";
+  const isMe = s === "me";
   const isTool = m.body.trimStart().startsWith("» ");
-  const isPai = m.sender.toLowerCase() === "pai";
-  const sender = m.sender.toLowerCase() === "me" ? "You" : m.sender;
+
+  // Stray, ungrouped narration renders as a quiet tool line (no avatar/label).
+  if (isTool) {
+    return (
+      <article className={`msg ${senderClass(m.sender)}`}>
+        <div className="msg-tool">{m.body}</div>
+      </article>
+    );
+  }
+
+  // Only kernel / other senders are labeled; you and PAI go unlabeled.
+  const label = isPai || isMe ? null : m.sender.replace(/^\[|\]$/g, "");
   return (
     <article className={`msg ${senderClass(m.sender)}`}>
-      <div className="msg-head">
-        {isPai && <span className="msg-avatar" aria-hidden="true" />}
-        <span className="msg-sender">{sender}</span>
-        <span className="msg-ts">{m.ts}</span>
-      </div>
-      {m.body.trim() !== "" &&
-        (isTool ? (
-          <div className="msg-tool">{m.body}</div>
+      {isPai &&
+        (showAvatar ? (
+          <span className="msg-avatar" aria-hidden="true" />
         ) : (
-          <div className="msg-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.body}</ReactMarkdown>
-          </div>
+          <span className="msg-avatar-spacer" aria-hidden="true" />
         ))}
+      <div className="msg-col">
+        {label && <span className="msg-label">{label}</span>}
+        <div className="msg-body">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.body}</ReactMarkdown>
+        </div>
+        <span className="msg-ts-hover">{m.ts}</span>
+      </div>
     </article>
   );
 }
