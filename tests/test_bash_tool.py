@@ -39,6 +39,25 @@ def test_cwd_honored(tmp_path: Path):
     assert Path(res.stdout.strip()).resolve() == tmp_path.resolve()
 
 
+def test_home_env_drives_tilde_expansion(tmp_path: Path):
+    """`~`/`$HOME` inside a PAI command must resolve to the HOME the kernel
+    passes in env (the PAI's own home), not the host user's home. Regression:
+    nudge used to omit HOME, so `save to ~/workspace` landed in the human's
+    /Users/<me>/workspace instead of the PAI's workspace."""
+    pai_home = tmp_path / "pai_home"
+    pai_home.mkdir()
+    res = _run(
+        bash_tool.run(
+            {"command": "echo $HOME; echo ~"},
+            env={"PAI_SLUG": "pai", "HOME": str(pai_home)},
+        )
+    )
+    assert res.exit_code == 0
+    lines = res.stdout.strip().splitlines()
+    assert Path(lines[0]).resolve() == pai_home.resolve()
+    assert Path(lines[1]).resolve() == pai_home.resolve()
+
+
 def test_cwd_must_exist(tmp_path: Path):
     bogus = tmp_path / "does_not_exist"
     res = _run(bash_tool.run({"command": "pwd", "cwd": str(bogus)}))

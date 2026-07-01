@@ -972,6 +972,11 @@ async def _nudge_body(
         "PAI_SLUG": pai_slug,
         "PAI_PID": str(pai_pid),
         "PAI_PARENT": parent_str or "",
+        # HOME must point at the PAI's own home, not the host user's. Without
+        # this, `~`/`$HOME`/`expanduser("~")` inside a PAI command resolve to
+        # the human's home — e.g. a "save to ~/workspace" lands in the human's
+        # /Users/<me>/workspace instead of the PAI's workspace symlink.
+        "HOME": str(home),
     }
     # Subagents hand durable artifacts back through the parent's home, which
     # outlives the child's reaped /proc/<slug>/. Expose the path so prompts
