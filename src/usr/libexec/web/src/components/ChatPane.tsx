@@ -109,10 +109,12 @@ function Message({ m }: { m: ThreadMessage }) {
     );
   }
   const isTool = m.body.trimStart().startsWith("» ");
+  const isPai = m.sender.toLowerCase() === "pai";
   const sender = m.sender.toLowerCase() === "me" ? "You" : m.sender;
   return (
     <article className={`msg ${senderClass(m.sender)}`}>
       <div className="msg-head">
+        {isPai && <span className="msg-avatar" aria-hidden="true" />}
         <span className="msg-sender">{sender}</span>
         <span className="msg-ts">{m.ts}</span>
       </div>

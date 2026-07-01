@@ -1,57 +1,82 @@
-/* PAI web — a warm systems console. Ivory paper, clay accent. Mono is the
-   personality face: process identifiers (chat title, fleet tabs, status) are set
-   in IBM Plex Mono so they read like the process labels they are; a quiet
-   humanist sans carries prose and chrome. No status pills, no candy dots —
-   hierarchy comes from type, space, and ink. */
+/* PAI web — the White Matter Labs console. Bright paper, ink type, and the
+   brand spectrum (warm orange → cool azure) reserved for signature moments:
+   the wordmark, the PAI avatar, the send button's backlight, entry surfaces.
+   Interactive chrome is solid ink (light) / solid light (dark) — buttons are
+   flat fills, lit from behind by a spectrum glow. Geist Mono is the process
+   face (chat title, fleet tabs, status); Geist Sans carries prose and chrome. */
 
 :root {
-  /* Warm paper surfaces */
-  --paper: #f4f1ea;
-  --paper-deep: #efeae0;
-  --surface: #fbfaf5;
-  --surface-soft: #f1ece1;
-  --surface-muted: #ece6d9;
-  --surface-sunk: #2a2723;
-  --surface-raised: #fcfbf7;
+  /* Bright paper surfaces */
+  --paper: #ffffff;
+  --paper-deep: #f6f5f9;
+  --surface: #ffffff;
+  --surface-soft: #f6f5f9;
+  --surface-muted: #eeedf3;
+  --surface-sunk: #14121c;
+  --surface-raised: #ffffff;
 
-  --border: #e3dccd;
-  --border-strong: #d2c9b6;
+  --border: #ececf1;
+  --border-strong: #dcdae4;
 
-  /* Warm ink */
-  --text: #2b2926;
-  --muted: #6e675b;
-  --dim: #9a9384;
+  /* Ink */
+  --text: #0a0910;
+  --muted: #6b6878;
+  --dim: #9c99a8;
 
-  /* Clay accent — the one warm voice */
-  --accent: #c4663f;
-  --accent-deep: #a8512f;
-  --accent-ink: #fbfaf5;
-  --accent-soft: #f1e2d7;
-  --accent-border: #e0c7b4;
+  /* Interactive voice is ink — a flat fill, backlit by spectrum where it counts */
+  --accent: #0a0910;
+  --accent-deep: #2a2733;
+  --accent-ink: #ffffff;
+  --accent-soft: #efeef4;
+  --accent-border: #d7d5e0;
 
-  --ok: #5e6b4f;
-  --warn: #9a7b33;
-  --warn-soft: #f3ecd9;
-  --fail: #a8473a;
-  --fail-soft: #f4e2dc;
-  --pai: #8a6f3c;
+  --ok: #4b8a5e;
+  --warn: #b07d1e;
+  --warn-soft: #f7efd9;
+  --fail: #c33a30;
+  --fail-soft: #f8e3e0;
+  --pai: #6600c6; /* PAI-attribution note — brand purple */
   --pai-color: var(--pai);
-  --teal: #4f6b64;
+  --teal: #2f6fd0; /* system / kernel — azure */
 
   /* Surfaces that can't be expressed as a single palette token */
-  --header-bg: rgba(250, 248, 242, 0.78);
-  --bubble-me: linear-gradient(180deg, #f6ece2, #f1e3d6);
+  --header-bg: rgba(255, 255, 255, 0.8);
+  --bubble-me: #0a0910; /* the user's message stands out as a solid ink pill */
+  --bubble-me-ink: #ffffff;
+
+  /* Brand spectrum, warm → cool (sampled from the WML mark) */
+  --flare: #e0531b;
+  --amber: #f4a93c;
+  --rose: #e11d74;
+  --magenta: #c01fae;
+  --violet: #8730ce;
+  --purple: #6600c6;
+  --indigo: #2f39a9;
+  --azure: #0f5bcd;
+  --spectrum: linear-gradient(
+    100deg,
+    #e0531b 0%,
+    #f4a93c 14%,
+    #e11d74 34%,
+    #c01fae 50%,
+    #8730ce 64%,
+    #6600c6 76%,
+    #2f39a9 88%,
+    #0f5bcd 100%
+  );
+  --spectrum-glow: 0 6px 22px -6px rgba(134, 48, 206, 0.5),
+    0 2px 10px -2px rgba(224, 83, 27, 0.32);
 
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
-  --shadow: 0 24px 60px -28px rgba(58, 46, 34, 0.32);
-  --shadow-soft: 0 1px 2px rgba(58, 46, 34, 0.06), 0 6px 18px -14px rgba(58, 46, 34, 0.18);
-  --shadow-lift: 0 18px 40px -22px rgba(58, 46, 34, 0.4);
+  --shadow: 0 24px 60px -28px rgba(18, 14, 40, 0.28);
+  --shadow-soft: 0 1px 2px rgba(18, 14, 40, 0.05), 0 6px 18px -14px rgba(18, 14, 40, 0.14);
+  --shadow-lift: 0 18px 40px -22px rgba(18, 14, 40, 0.34);
 
-  --sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -62,45 +87,64 @@
   color-scheme: light;
 }
 
+/* Spectrum helpers — gradient text and fills for signature elements. */
+.spectrum-text {
+  background: var(--spectrum);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.spectrum-bg {
+  background: var(--spectrum);
+}
+
 /* ---------- Dark mode ----------
-   Same editorial voice, lit at night: warm espresso paper instead of ivory,
-   the clay accent nudged a touch brighter so it still rings against the dark. */
+   The site "lit at night": deep ink-violet paper instead of black, the light
+   pill inverted so primary buttons read white-on-dark, and the spectrum nudged
+   a touch brighter so it still rings against the dark. */
 :root[data-theme="dark"] {
-  --paper: #1a1714;
-  --paper-deep: #141110;
-  --surface: #221e1a;
-  --surface-soft: #2a2520;
-  --surface-muted: #322c25;
-  --surface-sunk: #100e0c;
-  --surface-raised: #28231e;
+  --paper: #0f0a1a;
+  --paper-deep: #0a0713;
+  --surface: #17122a;
+  --surface-soft: #1e1836;
+  --surface-muted: #261f40;
+  --surface-sunk: #08050f;
+  --surface-raised: #1b1531;
 
-  --border: #38312a;
-  --border-strong: #4b4138;
+  --border: #2b2444;
+  --border-strong: #3c3358;
 
-  --text: #ece5d8;
-  --muted: #a89e8d;
-  --dim: #7b7163;
+  --text: #ece9f6;
+  --muted: #a9a3c0;
+  --dim: #78728f;
 
-  --accent: #d77a52;
-  --accent-deep: #c4663f;
-  --accent-ink: #1a1714;
-  --accent-soft: #3a2a20;
-  --accent-border: #5a4334;
+  /* the pill inverts to light on dark, like the site's dark-hero buttons */
+  --accent: #f2f0f8;
+  --accent-deep: #ffffff;
+  --accent-ink: #0f0a1a;
+  --accent-soft: #262039;
+  --accent-border: #3d3559;
 
-  --ok: #8aa172;
-  --warn: #c9a34e;
-  --warn-soft: #322a17;
-  --fail: #d4766a;
-  --fail-soft: #3a221e;
-  --pai: #c2a565;
-  --teal: #6fa195;
+  --ok: #6fbf88;
+  --warn: #e6b653;
+  --warn-soft: #2e2717;
+  --fail: #e5695c;
+  --fail-soft: #38201f;
+  --pai: #b98bff; /* brighter violet so it rings on the dark */
+  --teal: #6ea8ff;
+
+  --spectrum-glow: 0 6px 24px -4px rgba(135, 48, 206, 0.6),
+    0 2px 12px -2px rgba(224, 83, 27, 0.4);
 
   --shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -14px rgba(0, 0, 0, 0.5);
   --shadow-lift: 0 18px 40px -22px rgba(0, 0, 0, 0.75);
 
-  --header-bg: rgba(26, 23, 20, 0.78);
-  --bubble-me: linear-gradient(180deg, #3a2a20, #32241c);
+  --header-bg: rgba(15, 10, 26, 0.8);
+  --bubble-me: #ece9f6; /* on dark the user pill inverts to light too */
+  --bubble-me-ink: #0f0a1a;
 
   color-scheme: dark;
 }
@@ -118,16 +162,27 @@ body,
 
 body {
   color: var(--text);
-  /* layered warmth: a faint clay/sage glow over the paper, plus a grain-free
-     vignette so the canvas never reads as a flat, cold slab. */
+  /* a whisper of the spectrum bled into two far corners — azure top-right,
+     violet bottom-left — so the paper never reads as a flat, cold slab. */
   background:
-    radial-gradient(120% 80% at 12% -10%, rgba(196, 102, 63, 0.07), transparent 60%),
-    radial-gradient(120% 90% at 100% 0%, rgba(94, 107, 79, 0.06), transparent 55%),
+    radial-gradient(120% 80% at 100% -10%, rgba(15, 91, 205, 0.06), transparent 55%),
+    radial-gradient(110% 90% at -10% 110%, rgba(134, 48, 206, 0.06), transparent 55%),
     var(--paper);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "ss01";
+}
+
+/* Subtle grain over the paper so flat white never feels dead — lifted from the
+   launch site. Non-interactive; sits under every overlay (z 40+). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 button,
@@ -140,8 +195,8 @@ button {
 }
 
 ::selection {
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  background: #6600c6;
+  color: #fff;
 }
 
 .app {
@@ -249,9 +304,9 @@ button {
 
 .ghost-button[aria-pressed="true"] {
   color: var(--accent-ink);
-  border-color: var(--accent-deep);
-  background: linear-gradient(180deg, var(--accent), var(--accent-deep));
-  box-shadow: 0 8px 20px -12px rgba(168, 81, 47, 0.7);
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: var(--spectrum-glow);
 }
 
 .ghost-label {
@@ -316,7 +371,7 @@ button {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 20px 48px -20px rgba(43, 41, 38, 0.45);
+  box-shadow: 0 20px 48px -20px rgba(10, 9, 16, 0.45);
   padding: 10px;
   z-index: 90;
   animation: fade-in 0.16s var(--ease) both;
@@ -912,7 +967,7 @@ button {
 }
 
 .state-label.busy {
-  color: var(--accent-deep);
+  color: var(--pai);
   position: relative;
   padding-right: 16px;
 }
@@ -926,7 +981,7 @@ button {
   height: 7px;
   transform: translateY(-50%);
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--pai);
   animation: pulse-soft 1.5s var(--ease) infinite;
 }
 
@@ -942,11 +997,21 @@ button {
   display: grid;
   place-items: center;
   min-height: 240px;
-  color: var(--dim);
   font-family: var(--sans);
-  font-style: italic;
-  font-size: 16px;
+  font-size: 18px;
   animation: fade-in 0.8s var(--ease) both;
+}
+
+/* Entry surface: the greeting carries the spectrum, so an empty thread still
+   feels like the launch site's hero rather than dead space. */
+.chat-empty span {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  background: var(--spectrum);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .msg {
@@ -982,7 +1047,7 @@ button {
 }
 
 .msg-pai .msg-sender {
-  color: var(--accent-deep);
+  color: var(--pai);
 }
 
 .msg-kernel .msg-sender {
@@ -1014,9 +1079,34 @@ button {
 
 .msg-me .msg-body {
   background: var(--bubble-me);
-  border-color: var(--accent-border);
+  color: var(--bubble-me-ink);
+  border-color: transparent;
   border-radius: var(--radius);
   border-top-right-radius: 4px;
+}
+
+/* Links and inline code inside the solid user pill: keep them legible against
+   the ink fill (currentColor tracks the bubble ink in both themes). */
+.msg-me .msg-body a {
+  color: inherit;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.msg-me .msg-body code {
+  color: inherit;
+  background: color-mix(in srgb, var(--bubble-me-ink) 15%, transparent);
+}
+
+/* Gradient avatar — the spectrum dot the launch site puts beside PAI's replies.
+   Marks PAI's turns without a colored name or a candy status pill. */
+.msg-avatar {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--spectrum);
+  box-shadow: 0 0 0 2px var(--surface);
 }
 
 .msg-tool {
@@ -1088,10 +1178,10 @@ button {
   overflow-x: auto;
   margin: 0.7em 0;
   padding: 14px;
-  border: 1px solid #3a352e;
+  border: 1px solid #2a2540;
   border-radius: var(--radius-sm);
   background: var(--surface-sunk);
-  color: #f1ece1;
+  color: #e9e6f2;
 }
 
 .msg-body code {
@@ -1216,7 +1306,7 @@ button {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--pai);
   align-self: center;
   animation: working-pulse 1.2s ease-in-out infinite;
 }
@@ -1289,8 +1379,8 @@ button {
 }
 
 .composer:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  border-color: var(--pai);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pai) 16%, transparent);
 }
 
 .composer.shell {
@@ -1366,7 +1456,7 @@ button {
 .composer.shell .composer-input {
   font-family: var(--mono);
   font-size: 13px;
-  color: #6b5a3a;
+  color: var(--warn);
 }
 
 /* The overclock banner is a full-width header strip above the input row. */
@@ -1521,8 +1611,8 @@ button {
 .composer-overclock.active:hover:not(:disabled),
 .composer-overclock.active:focus-visible:not(:disabled) {
   color: #fff;
-  border-color: #3e5a53;
-  background: #3e5a53;
+  border-color: color-mix(in srgb, var(--teal) 80%, #000);
+  background: color-mix(in srgb, var(--teal) 80%, #000);
 }
 
 .composer-mic:hover:not(:disabled),
@@ -1544,7 +1634,7 @@ button {
 .composer-mic.recording:focus-visible:not(:disabled) {
   color: #fff;
   border-color: var(--fail);
-  background: #8f3a30;
+  background: color-mix(in srgb, var(--fail) 84%, #000);
 }
 
 .composer-mic.transcribing {
@@ -1554,18 +1644,19 @@ button {
 }
 
 .composer-send {
-  background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+  background: var(--accent);
   color: var(--accent-ink);
   font-size: 17px;
   line-height: 1;
-  box-shadow: 0 8px 18px -12px rgba(168, 81, 47, 0.8);
+  box-shadow: var(--spectrum-glow);
 }
 
 .composer-send:hover:not(:disabled),
 .composer-send:focus-visible:not(:disabled) {
-  background: linear-gradient(180deg, #cd6e46, var(--accent-deep));
+  background: var(--accent-deep);
   outline: none;
   transform: translateY(-1px);
+  box-shadow: var(--spectrum-glow), 0 10px 22px -10px rgba(18, 14, 40, 0.35);
 }
 
 .composer-send:active:not(:disabled) {
@@ -1824,8 +1915,9 @@ button {
   background: linear-gradient(
     90deg,
     transparent,
-    var(--accent) 45%,
-    var(--accent-deep) 55%,
+    var(--flare) 30%,
+    var(--rose) 50%,
+    var(--violet) 70%,
     transparent
   );
   background-size: 40% 100%;
@@ -1847,7 +1939,7 @@ button {
 }
 
 .status-card.working .status-card-title {
-  color: var(--accent-deep);
+  color: var(--pai);
 }
 
 .status-card-sub {
@@ -2148,7 +2240,7 @@ button {
   justify-content: center;
   align-items: flex-start;
   padding: 14vh 18px 0;
-  background: rgba(43, 41, 38, 0.32);
+  background: rgba(10, 9, 16, 0.32);
   backdrop-filter: blur(3px);
   z-index: 100;
   animation: fade-in 0.2s var(--ease) both;
@@ -2161,7 +2253,7 @@ button {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 40px 90px -30px rgba(43, 41, 38, 0.55);
+  box-shadow: 0 40px 90px -30px rgba(10, 9, 16, 0.55);
   animation: palette-in 0.32s var(--ease-out) both;
 }
 
@@ -2177,7 +2269,7 @@ button {
 }
 
 .palette-input:focus {
-  box-shadow: inset 0 -2px 0 var(--accent);
+  box-shadow: inset 0 -2px 0 var(--pai);
 }
 
 .palette-input::placeholder {
@@ -2240,10 +2332,24 @@ button {
   align-items: center;
   padding: 24px;
   padding-bottom: max(24px, env(safe-area-inset-bottom));
-  background: rgba(43, 41, 38, 0.5);
-  backdrop-filter: blur(6px);
+  /* the "Your AI should be yours" hero: a slow-drifting spectrum, dimmed just
+     enough that the login card reads crisply on top. */
+  background:
+    linear-gradient(140deg, rgba(10, 9, 16, 0.28), rgba(10, 9, 16, 0.44)),
+    var(--spectrum);
+  background-size: 100% 100%, 240% 240%;
   z-index: 200;
-  animation: fade-in 0.2s var(--ease) both;
+  animation: fade-in 0.2s var(--ease) both,
+    spectrum-drift 22s var(--ease) infinite alternate;
+}
+
+@keyframes spectrum-drift {
+  from {
+    background-position: 0 0, 0% 50%;
+  }
+  to {
+    background-position: 0 0, 100% 50%;
+  }
 }
 
 .login-card {
@@ -2255,7 +2361,7 @@ button {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 40px 90px -30px rgba(43, 41, 38, 0.55);
+  box-shadow: 0 40px 90px -30px rgba(10, 9, 16, 0.55);
   padding: 22px 20px;
   animation: palette-in 0.32s var(--ease-out) both;
 }
@@ -2286,19 +2392,20 @@ button {
 }
 
 .login-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: var(--pai);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pai) 30%, transparent);
 }
 
 .login-button {
   min-height: 44px;
   background: var(--accent);
-  color: var(--surface-raised);
+  color: var(--accent-ink);
   border: none;
   border-radius: var(--radius-sm);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: var(--spectrum-glow);
   transition: opacity 0.14s var(--ease);
 }
 
@@ -2316,7 +2423,7 @@ button {
   align-items: center;
   padding: 24px;
   padding-bottom: max(24px, env(safe-area-inset-bottom));
-  background: rgba(43, 41, 38, 0.5);
+  background: rgba(10, 9, 16, 0.5);
   backdrop-filter: blur(6px);
   z-index: 220;
   animation: fade-in 0.2s var(--ease) both;
@@ -2331,7 +2438,7 @@ button {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 40px 90px -30px rgba(43, 41, 38, 0.55);
+  box-shadow: 0 40px 90px -30px rgba(10, 9, 16, 0.55);
   padding: 22px 20px;
   animation: palette-in 0.32s var(--ease-out) both;
 }
@@ -2560,7 +2667,7 @@ button {
   align-items: center;
   padding: 24px;
   padding-bottom: max(24px, env(safe-area-inset-bottom));
-  background: rgba(43, 41, 38, 0.5);
+  background: rgba(10, 9, 16, 0.5);
   backdrop-filter: blur(6px);
   z-index: 230;
   animation: fade-in 0.2s var(--ease) both;
@@ -2575,7 +2682,7 @@ button {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 40px 90px -30px rgba(43, 41, 38, 0.55);
+  box-shadow: 0 40px 90px -30px rgba(10, 9, 16, 0.55);
   animation: palette-in 0.32s var(--ease-out) both;
   overflow: hidden;
 }
@@ -2589,7 +2696,13 @@ button {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: var(--text);
+  letter-spacing: -0.01em;
+  width: fit-content;
+  background: var(--spectrum);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .welcome-sub {
@@ -2628,8 +2741,8 @@ button {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--purple) 12%, var(--surface-soft));
+  color: var(--purple);
 }
 
 .welcome-copy {
@@ -2682,6 +2795,7 @@ button {
   background: var(--accent);
   color: var(--accent-ink);
   border: 1px solid var(--accent);
+  box-shadow: var(--spectrum-glow);
   transition: background 0.14s var(--ease);
 }
 
@@ -2696,7 +2810,7 @@ button {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d8cfbd;
+  background: var(--border-strong);
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: padding-box;
@@ -2704,7 +2818,7 @@ button {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #c7bca5;
+  background: var(--dim);
   background-clip: padding-box;
   border: 3px solid transparent;
 }
@@ -2715,7 +2829,7 @@ button {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #d8cfbd transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 /* ---------- Keyframes ---------- */
@@ -2797,13 +2911,13 @@ button {
 
 @keyframes pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(168, 71, 58, 0.45);
+    box-shadow: 0 0 0 0 rgba(195, 58, 48, 0.45);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(168, 71, 58, 0);
+    box-shadow: 0 0 0 7px rgba(195, 58, 48, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(168, 71, 58, 0);
+    box-shadow: 0 0 0 0 rgba(195, 58, 48, 0);
   }
 }
 
