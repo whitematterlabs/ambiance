@@ -310,6 +310,12 @@ button {
   box-shadow: var(--spectrum-glow);
 }
 
+/* Voice toggle "on" glow is cool-only — no warm/orange lobe. */
+.voice-toggle[aria-pressed="true"] {
+  box-shadow: 0 6px 22px -6px rgba(47, 57, 169, 0.5),
+    0 2px 10px -2px rgba(15, 91, 205, 0.32);
+}
+
 .ghost-label {
   font-size: 13px;
   font-weight: 500;
@@ -1473,7 +1479,7 @@ button {
   margin: 6px 0 18px;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-left: 2px solid var(--warn);
+  border-left: 2px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface-soft);
   animation: msg-in 0.4s var(--ease-out) both;
@@ -1488,7 +1494,7 @@ button {
 }
 
 .shell-cmd {
-  color: var(--warn);
+  color: var(--text);
   font-weight: 500;
   margin-top: 4px;
 }
