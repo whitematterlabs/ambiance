@@ -5,6 +5,8 @@ import type {
   KernelStatus,
   PendingApproval,
   ProcRow,
+  SendCapability,
+  SendMode,
   ServerMessage,
   ShellEntry,
   ThreadMessage,
@@ -58,6 +60,7 @@ export function App() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
+  const [sendCaps, setSendCaps] = useState<SendCapability[]>([]);
   // Last seen pending count, so the SSE handler can auto-present the modal only
   // when a *new* proposal arrives (count grew), not on every rebroadcast.
   const approvalsCountRef = useRef(0);
@@ -265,6 +268,7 @@ export function App() {
             setApprovals(pending);
             approvalsCountRef.current = pending.length;
           }
+          setSendCaps(msg.send_capabilities ?? []);
           // Seed the log + activity panes with the kernel.log backlog so a
           // fresh connection isn't a blank "waiting for kernel.log…".
           if (msg.log_backlog?.length) {
@@ -336,6 +340,11 @@ export function App() {
           approvalsCountRef.current = next.length;
           break;
         }
+        case "send_capabilities":
+          // Full per-channel list, single source of truth — reconciles any
+          // optimistic toggle and reflects hand-edits to config.yaml.
+          setSendCaps(msg.capabilities);
+          break;
         case "voice": {
           // Host-mic listener fired. "listening" = wake word landed (no text
           // yet); "utterance" = the phrase was heard (already routed to the PAI
@@ -471,6 +480,14 @@ export function App() {
     api.setProvider(key);
     setProvider(key);
     setPaletteOpen(false);
+  }, []);
+
+  // Optimistic toggle: paint the new mode immediately, then persist. The hub's
+  // send_capabilities broadcast is the source of truth and reconciles — if the
+  // write fails, the next broadcast (or reconnect) snaps it back.
+  const onSetSendMode = useCallback((flag: string, mode: SendMode) => {
+    setSendCaps((prev) => prev.map((c) => (c.flag === flag ? { ...c, mode } : c)));
+    api.setSendMode(flag, mode);
   }, []);
 
   const handleInterrupt = useCallback(() => {
@@ -851,6 +868,8 @@ export function App() {
           procs={procs}
           events={events}
           logLines={logLines}
+          sendCaps={sendCaps}
+          onSetSendMode={onSetSendMode}
         />
       </main>
       {paletteOpen && (

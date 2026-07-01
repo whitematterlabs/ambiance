@@ -1974,6 +1974,45 @@ button {
   padding: 8px 14px;
 }
 
+/* ---------- Send permissions (sidebar tri-state control) ---------- */
+.send-perms {
+  flex: 0 0 auto;
+}
+
+.send-perms-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.send-perm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.send-perm-channel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Reuses .segmented, but three compact columns for off/approve/auto. */
+.send-perm-modes {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  min-width: 168px;
+}
+
+.send-perm-modes .segment {
+  min-height: 28px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
 /* ---------- Status card ---------- */
 .status-card {
   position: relative;

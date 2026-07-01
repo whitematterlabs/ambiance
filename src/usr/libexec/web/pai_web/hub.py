@@ -284,6 +284,7 @@ class Hub:
         self._procs: list[dict] = []
         self._fleet: list[dict] = []
         self._pending_approvals: list[dict] = []
+        self._send_caps: list[dict] = []
         self._log_offset = 0
 
     # -- subscriptions --
@@ -310,6 +311,7 @@ class Hub:
                 "fleet": list(self._fleet),
                 "procs": list(self._procs),
                 "pending_approvals": list(self._pending_approvals),
+                "send_capabilities": list(self._send_caps),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
                 # The live tail only streams *new* lines (starts at EOF), so a
                 # fresh client would see an empty feed despite a populated log.
@@ -354,6 +356,18 @@ class Hub:
         self._workers.append(approvals_worker)
         self._watch(approvals_dir, lambda _p: approvals_worker.poke(), recursive=False)
         self._recompute_approvals(broadcast=False)
+
+        # Send-permission control: mode per mounted channel. Both the mode and
+        # which channels are mounted derive from /etc/config.yaml, so a single
+        # watch on etc/ keeps the sidebar in step with the file — whether the
+        # edit came from the toggle itself or a hand-edit.
+        etc_dir = paths.etc()
+        etc_dir.mkdir(parents=True, exist_ok=True)
+        caps_worker = _Debounced(lambda: self._recompute_send_caps(broadcast=True))
+        caps_worker.start()
+        self._workers.append(caps_worker)
+        self._watch(etc_dir, lambda _p: caps_worker.poke(), recursive=False)
+        self._recompute_send_caps(broadcast=False)
 
     def _watch(self, path: Path, cb, recursive: bool) -> None:
         obs = Observer()
@@ -402,6 +416,14 @@ class Hub:
         self._pending_approvals = pend
         if broadcast:
             self._broadcast({"type": "pending_approvals", "approvals": pend})
+
+    def _recompute_send_caps(self, broadcast: bool) -> None:
+        caps = actions.list_send_capabilities()
+        if caps == self._send_caps:
+            return
+        self._send_caps = caps
+        if broadcast:
+            self._broadcast({"type": "send_capabilities", "capabilities": caps})
 
     def _recompute_threads(self) -> None:
         for pid in list(self._fleet_pids):

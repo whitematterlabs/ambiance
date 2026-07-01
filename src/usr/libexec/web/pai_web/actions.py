@@ -618,6 +618,81 @@ def reject_action(ident: str, reason: str = "") -> dict:
     return _decide(ident, "rejected", error=reason)
 
 
+# --- send permissions: sidebar tri-state control ---------------------------
+#
+# The same `capabilities:` map the approval queue enforces, exposed as an
+# owner-facing control. `list_send_capabilities` projects the current mode per
+# *mounted* channel (a toggle for a channel no PAI can use would be a dead
+# control); `set_send_mode` writes the choice back to config.yaml and asks the
+# kernel to reload, which re-projects the driver freeze via
+# `config.project_capabilities` — the exact mechanism a hand-edited config uses,
+# so the sidebar and the file can never mean different things.
+
+# Human labels for the send capabilities, keyed by their config flag.
+SEND_CHANNEL_LABELS = {"email_send": "Email", "imessage_send": "iMessage"}
+
+
+def _mounted_driver_union() -> set[str]:
+    """Union of drivers mounted across the declared fleet.
+
+    A send channel is only worth showing if some PAI can actually send on it.
+    The owner-facing PAI is a fallback, so every *installed* driver lands here
+    in practice — but computing the real union keeps the control honest on a
+    fleet with no fallback."""
+    try:
+        slugs = list(config.load_config().keys())
+    except Exception:  # noqa: BLE001 — a broken config shouldn't crash the surface
+        return set()
+    union: set[str] = set()
+    for slug in slugs:
+        try:
+            union |= stitch.mounted_drivers_for(slug)
+        except Exception:  # noqa: BLE001 — skip a PAI we can't resolve
+            continue
+    return union
+
+
+def list_send_capabilities() -> list[dict]:
+    """One row per mounted send channel: `{flag, channel, mode}`.
+
+    Channels whose driver isn't mounted anywhere are omitted (no dead toggles).
+    `mode` is the live config value (off/approve/auto), normalized on read."""
+    mounted = _mounted_driver_union()
+    modes = config.capability_modes()
+    out: list[dict] = []
+    for flag, spec in config.CAPABILITY_SPECS.items():
+        if not (spec.get("mounts") or set()) & mounted:
+            continue
+        out.append(
+            {
+                "flag": flag,
+                "channel": SEND_CHANNEL_LABELS.get(flag, flag),
+                "mode": modes.get(flag, "off"),
+            }
+        )
+    return out
+
+
+def set_send_mode(flag: str, mode: str) -> dict:
+    """Persist a send-mode choice and trigger a kernel reload.
+
+    `config.set_capability_mode` is strict — it raises ValueError on an unknown
+    flag or mode, which the server maps to a 400. On success the reload event
+    makes `project_capabilities` re-write the driver freeze so the change takes
+    effect without a restart (and, if the kernel is down, on its next boot)."""
+    updated = config.set_capability_mode(flag, mode)
+    emit_event(
+        {
+            "kind": "kernel:reload_config",
+            "source": "web",
+            "action": "send_mode",
+            "flag": flag,
+            "mode": updated,
+        }
+    )
+    return {"flag": flag, "mode": updated}
+
+
 def run_shell(pid: int, cmd: str) -> dict:
     """Run `cmd` with PAI's PATH/cwd/env. Returns {lines, rc, ctx_applied}.
 

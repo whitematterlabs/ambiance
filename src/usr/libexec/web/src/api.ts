@@ -94,6 +94,17 @@ export const reject = (id: string, reason: string) =>
 
 export const setProvider = (key: string) => post("/api/provider", { key });
 
+// Set a send channel's tri-state mode (off/approve/auto). The backend rewrites
+// capabilities in config.yaml and reloads the kernel; the hub then rebroadcasts
+// send_capabilities, so callers update optimistically and let it reconcile.
+export const setSendMode = (flag: string, mode: string) =>
+  post("/api/send-mode", { flag, mode }) as Promise<{
+    ok: boolean;
+    flag?: string;
+    mode?: string;
+    error?: string;
+  }>;
+
 export async function transcribeAudio(audio: Blob): Promise<{
   ok: boolean;
   text?: string;

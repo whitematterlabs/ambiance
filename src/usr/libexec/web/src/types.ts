@@ -68,8 +68,17 @@ export interface PendingApproval {
   body?: string;
 }
 
+// One mounted send channel and its current tri-state permission. Drives the
+// sidebar's Send permissions control; only channels a PAI can actually use ship.
+export type SendMode = "off" | "approve" | "auto";
+export interface SendCapability {
+  flag: string;
+  channel: string;
+  mode: SendMode;
+}
+
 export type ServerMessage =
-  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[] }
+  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[] }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
   | { type: "thread"; pid: number; messages: ThreadMessage[] }
@@ -81,4 +90,6 @@ export type ServerMessage =
   // transcribed (the kernel already routed it to the PAI — this is display-only).
   | { type: "voice"; phase: "listening" | "utterance"; text?: string }
   // The owner approval queue changed — full pending list, single source of truth.
-  | { type: "pending_approvals"; approvals: PendingApproval[] };
+  | { type: "pending_approvals"; approvals: PendingApproval[] }
+  // Send permissions changed (toggle or hand-edit) — full list per channel.
+  | { type: "send_capabilities"; capabilities: SendCapability[] };

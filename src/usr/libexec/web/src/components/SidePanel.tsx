@@ -1,7 +1,8 @@
 import { useState } from "react";
-import type { EventSighting, ProcRow } from "../types";
+import type { EventSighting, ProcRow, SendCapability, SendMode } from "../types";
 import type { ActivityEntry } from "../activity";
 import { StatusCard } from "./StatusCard";
+import { SendPermissions } from "./SendPermissions";
 import { ActivityFeed } from "./ActivityFeed";
 import { ProcList } from "./ProcList";
 import { EventStrip } from "./EventStrip";
@@ -18,12 +19,16 @@ export function SidePanel({
   procs,
   events,
   logLines,
+  sendCaps,
+  onSetSendMode,
 }: {
   activeProc: ProcRow | null;
   activity: ActivityEntry[];
   procs: ProcRow[];
   events: EventSighting[];
   logLines: string[];
+  sendCaps: SendCapability[];
+  onSetSendMode: (flag: string, mode: SendMode) => void;
 }) {
   const [tab, setTab] = useState<Tab>("activity");
 
@@ -51,6 +56,7 @@ export function SidePanel({
       {tab === "activity" ? (
         <div className="side-body activity-body">
           <StatusCard proc={activeProc} />
+          <SendPermissions capabilities={sendCaps} onSetMode={onSetSendMode} />
           <div className="sys-block grow">
             <div className="sys-head">Recent activity</div>
             <ActivityFeed entries={activity} />

@@ -852,3 +852,100 @@ pais:
     assert "email_send=approve" in email_freeze.read_text()
     # auto → cleared.
     assert not (PA.sys_drivers("imessage") / "outbound.freeze").exists()
+
+
+# ----- set_capability_mode (sidebar toggle writer) -----
+
+
+def test_set_capability_mode_writes_and_reads_back(repo_root):
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: off
+  imessage_send: off
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    assert C.set_capability_mode("email_send", "approve") == "approve"
+    modes = C.capability_modes()
+    assert modes["email_send"] == "approve"
+    # The untouched channel keeps its value.
+    assert modes["imessage_send"] == "off"
+
+
+def test_set_capability_mode_preserves_siblings(repo_root):
+    path = _write_config(
+        repo_root,
+        """
+onboarding_pending: false
+capabilities:
+  email_send: off
+  imessage_send: auto
+pais:
+  - name: root
+    pid: 1
+    description: km
+  - name: pai
+    pid: 2
+    description: dflt
+""",
+    )
+    C.set_capability_mode("email_send", "auto")
+    data = yaml.safe_load(path.read_text())
+    # Fleet + top-level flags survive the round-trip; only the one mode changed.
+    assert data["onboarding_pending"] is False
+    assert [e["name"] for e in data["pais"]] == ["root", "pai"]
+    assert data["capabilities"] == {"email_send": "auto", "imessage_send": "auto"}
+
+
+def test_set_capability_mode_creates_block_when_absent(repo_root):
+    path = _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.set_capability_mode("imessage_send", "approve")
+    data = yaml.safe_load(path.read_text())
+    assert data["capabilities"] == {"imessage_send": "approve"}
+
+
+def test_set_capability_mode_rejects_unknown_flag(repo_root):
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    with pytest.raises(ValueError):
+        C.set_capability_mode("sms_send", "auto")
+
+
+def test_set_capability_mode_rejects_invalid_mode(repo_root):
+    # Unlike the tolerant read path, the writer fails loud on a bad mode rather
+    # than coercing to off — a typo here is a caller bug, not a grant.
+    path = _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: approve
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    with pytest.raises(ValueError):
+        C.set_capability_mode("email_send", "maybe")
+    # The file is untouched by the rejected write.
+    assert yaml.safe_load(path.read_text())["capabilities"] == {"email_send": "approve"}
