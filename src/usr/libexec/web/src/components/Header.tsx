@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HelpCircle, Moon, PanelLeft, Smartphone, Sun } from "lucide-react";
+import { HelpCircle, Moon, Smartphone, Sun } from "lucide-react";
 import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
 
@@ -25,8 +25,6 @@ export function Header({
   wakePhrase,
   onShowWelcome,
   onSetupRemote,
-  sidebarOpen,
-  onToggleSidebar,
 }: {
   connected: boolean;
   kernelRunning: boolean;
@@ -52,8 +50,6 @@ export function Header({
   wakePhrase: string;
   onShowWelcome: () => void;
   onSetupRemote: () => void;
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -80,16 +76,6 @@ export function Header({
   return (
     <header className="header">
       <div className="brand">
-        <button
-          className="ghost-button theme-toggle sidebar-toggle"
-          type="button"
-          onClick={onToggleSidebar}
-          aria-pressed={sidebarOpen}
-          title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-        >
-          <PanelLeft size={15} aria-hidden="true" />
-        </button>
         <Logo className="brand-logo" />
         <button
           className="kernel-toggle"

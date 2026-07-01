@@ -243,9 +243,9 @@ button {
 .kernel-toggle {
   flex: 0 0 auto;
   min-height: 30px;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background: var(--surface);
   color: var(--muted);
   font-size: 12.5px;
@@ -282,9 +282,9 @@ button {
   display: inline-flex;
   align-items: center;
   min-height: 36px;
-  padding: 0 15px;
+  padding: 0 16px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
@@ -316,11 +316,12 @@ button {
   letter-spacing: 0.01em;
 }
 
-/* Theme toggle — a quiet square icon button, not an accent-filled pill. */
+/* Theme toggle — a quiet round icon button, not an accent-filled pill. */
 .theme-toggle {
   justify-content: center;
   padding: 0;
   width: 36px;
+  border-radius: 50%;
   flex: 0 0 auto;
 }
 
@@ -335,6 +336,49 @@ button {
 .theme-toggle:focus-visible {
   color: var(--accent);
   border-color: var(--accent-border);
+}
+
+/* Floating sidebar toggle — a round button that hovers over the bottom-left of
+   the canvas instead of riding in the navbar. Collapses the left rail. */
+.sidebar-fab {
+  position: fixed;
+  left: 18px;
+  bottom: 20px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease),
+    background 0.2s var(--ease), transform 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+
+.sidebar-fab:hover,
+.sidebar-fab:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  outline: none;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.sidebar-fab:active {
+  transform: translateY(0);
+}
+
+.sidebar-fab[data-sidebar="closed"] {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: var(--spectrum-glow);
 }
 
 /* ---------- Voice split button + picker popover ---------- */
@@ -3282,6 +3326,7 @@ button {
   .header,
   .fleet-strip,
   .workspace-sidebar,
+  .sidebar-fab,
   .mobile-view-switch,
   .chat-head,
   .status-bar,
