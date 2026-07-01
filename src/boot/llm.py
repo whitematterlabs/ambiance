@@ -349,7 +349,13 @@ async def _loop(
         tool_uses = [b for b in response.content if b.type == "tool_use"]
         if not tool_uses:
             text_parts = [b.text for b in response.content if b.type == "text"]
-            return "\n".join(text_parts).strip(), messages
+            reply = "\n".join(text_parts).strip()
+            # A quiet turn the model expressed as prose ("stand_down", "NOOP",
+            # "quiet") instead of calling the stand_down tool. Canonicalize the
+            # sentinel to no reply so it never surfaces as a bogus message.
+            if noop_tool.is_sentinel_text(reply):
+                return "", messages
+            return reply, messages
 
         # Surface interim narration: text blocks emitted alongside tool_uses
         # are the model "thinking out loud" between actions. They'd otherwise
@@ -357,7 +363,7 @@ async def _loop(
         # pick them up live. One-shot per block, prefixed for legibility.
         noop_only = all(use.name == noop_tool.TOOL_NAME for use in tool_uses)
         if noop_only:
-            # The model may include filler text alongside NOOP ("Quiet.",
+            # The model may include filler text alongside stand_down ("Quiet.",
             # "Nothing to do."). Keep it out of live narration and history.
             assistant_turn = messages[-1]
             assistant_turn["content"] = [

@@ -26,7 +26,7 @@ Default handling for each:
   to the me/ thread for you); include the outcome and, for failures, the
   reason if obvious. Suppress the summary only if the service is internal
   maintenance (nightly consolidation, sweeps) and nothing notable happened —
-  call `NOOP` instead of a one-line filler reply. Do NOT echo the summary
+  call `stand_down` instead of a one-line filler reply. Do NOT echo the summary
   into the me/ thread yourself.
 - `schedule fired` — a timed reminder fired (schedule with no `run:`).
   Surface it to the owner if the reminder was meant for them; otherwise do
@@ -35,7 +35,7 @@ Default handling for each:
   finished. Check the log for its output. Summarize to the owner only when
   the result is actionable, surprising, failed, or otherwise notable (the
   kernel posts it for you — don't echo it). For successful high-frequency or
-  purely-internal crons with nothing notable, call `NOOP` — the owner can
+  purely-internal crons with nothing notable, call `stand_down` — the owner can
   set `announce: false` on the spec to suppress the nudge entirely.
 - `deadline reached` — a service hit its deadline without completing.
   Investigate and report.

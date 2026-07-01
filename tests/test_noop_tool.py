@@ -41,13 +41,16 @@ def _response(*blocks: _Block):
 def test_noop_policy_is_required_for_quiet_turns() -> None:
     instructions = " ".join(bootstrap.OPERATING_INSTRUCTIONS.split())
 
-    assert "call the `NOOP` tool as your final action" in instructions
+    assert "calling the `stand_down` tool as your final action" in instructions
     assert "required for quiet turns" in instructions
+    assert "never write the word itself" in instructions
     assert "one-line reply is preferred over silence" not in instructions
 
 
 def test_noop_schema_is_registered(monkeypatch) -> None:
-    response = _response(_Block("tool_use", id="noop-1", name="NOOP", input={}))
+    response = _response(
+        _Block("tool_use", id="noop-1", name=noop_tool.TOOL_NAME, input={})
+    )
     messages_api = _Messages([response])
     client = SimpleNamespace(messages=messages_api)
     monkeypatch.setattr(L.tokens, "record", lambda *args, **kwargs: None)
@@ -86,10 +89,50 @@ def test_noop_schema_is_registered(monkeypatch) -> None:
     }
 
 
+def test_sentinel_prose_is_canonicalized_to_no_reply(monkeypatch) -> None:
+    # The model types the sentinel as text instead of calling the tool; the
+    # kernel must swallow it rather than surfacing "NOOP" as a message.
+    response = _response(_Block("text", text="NOOP"))
+    client = SimpleNamespace(messages=_Messages([response]))
+    monkeypatch.setattr(L.tokens, "record", lambda *args, **kwargs: None)
+
+    reply, _ = asyncio.run(
+        L._loop(
+            client,
+            "test-model",
+            {},
+            "system",
+            [{"role": "user", "content": "x"}],
+            None,
+        )
+    )
+
+    assert reply == ""
+
+
+def test_real_reply_is_not_swallowed(monkeypatch) -> None:
+    response = _response(_Block("text", text="Done — profile updated."))
+    client = SimpleNamespace(messages=_Messages([response]))
+    monkeypatch.setattr(L.tokens, "record", lambda *args, **kwargs: None)
+
+    reply, _ = asyncio.run(
+        L._loop(
+            client,
+            "test-model",
+            {},
+            "system",
+            [{"role": "user", "content": "x"}],
+            None,
+        )
+    )
+
+    assert reply == "Done — profile updated."
+
+
 def test_noop_only_suppresses_interim_narration(monkeypatch) -> None:
     response = _response(
         _Block("text", text="Quiet."),
-        _Block("tool_use", id="noop-1", name="NOOP", input={}),
+        _Block("tool_use", id="noop-1", name=noop_tool.TOOL_NAME, input={}),
     )
     client = SimpleNamespace(messages=_Messages([response]))
     log_lines: list[str] = []
@@ -119,6 +162,11 @@ def test_noop_only_suppresses_interim_narration(monkeypatch) -> None:
     assert messages[-3] == {
         "role": "assistant",
         "content": [
-            {"type": "tool_use", "id": "noop-1", "name": "NOOP", "input": {}}
+            {
+                "type": "tool_use",
+                "id": "noop-1",
+                "name": noop_tool.TOOL_NAME,
+                "input": {},
+            }
         ],
     }

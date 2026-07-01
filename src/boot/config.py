@@ -521,6 +521,34 @@ def capability_modes(path: Path | None = None) -> dict[str, str]:
     return {k: _normalize_capability_mode(caps.get(k)) for k in CAPABILITY_SPECS}
 
 
+def set_capability_mode(flag: str, mode: str, path: Path | None = None) -> str:
+    """Write `capabilities.<flag> = <mode>` into config.yaml and return the mode.
+
+    Strict, unlike the tolerant read path: an unknown `flag` or a `mode` outside
+    `CAPABILITY_MODES` raises ValueError rather than silently coercing to `off`.
+    Reading fails *closed* (a typo never sends); writing fails *loud* (a typo is a
+    caller bug we surface, not persist). Preserves every other key in the file —
+    a full-document round-trip via the same yaml path paiadd/paidel use, so the
+    hand-maintained fleet block survives. Atomic (tmp + rename). The caller emits
+    `kernel:reload_config` so `project_capabilities` re-projects the freeze."""
+    if flag not in CAPABILITY_SPECS:
+        raise ValueError(f"unknown send capability: {flag!r}")
+    if mode not in CAPABILITY_MODES:
+        raise ValueError(f"invalid send mode: {mode!r} (want one of {CAPABILITY_MODES})")
+    p = path or CONFIG_PATH
+    data = _load_yaml(p) if p.exists() else {}
+    caps = data.get("capabilities")
+    if not isinstance(caps, dict):
+        caps = {}
+    caps[flag] = mode
+    data["capabilities"] = caps
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.rename(p)
+    return mode
+
+
 def capability_flags(path: Path | None = None) -> dict[str, bool]:
     """Back-compat predicate: True iff the capability lets the PAI send
     *directly and autonomously* (mode `auto`). Both `off` and `approve` are
