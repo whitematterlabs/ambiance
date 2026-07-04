@@ -31,7 +31,7 @@ _ROOT_ONLY_SKILLS: frozenset[str] = frozenset({
 })
 
 _HIDDEN: dict[str, frozenset[str]] = {
-    "driver": frozenset(KERNEL_SEED_DRIVERS),
+    "driver": frozenset(KERNEL_SEED_DRIVERS) | frozenset({"approvals"}),
     "skill": frozenset(KERNEL_SEED_SKILLS) | _ROOT_ONLY_SKILLS,
     "bin": frozenset(KERNEL_SEED_BINS),
     "pai": frozenset(KERNEL_SEED_PAIS),
