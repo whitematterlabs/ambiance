@@ -40,6 +40,62 @@ _BUNDLELESS_SEEDS: dict[str, tuple[tuple[str, Path], ...]] = {
 }
 
 
+def _merge_real_dir_into(src: Path, dst: Path) -> bool:
+    """Move real content out of `src` — a real dir wrongly sitting where a
+    managed symlink to `dst` belongs — into `dst`, preserving data. Returns
+    True iff `src` ends up empty, i.e. it is safe to `rmdir` it and lay down
+    the symlink. Any entry we cannot move without discarding data is left in
+    place and the function returns False, so the caller keeps the real dir and
+    nothing is lost.
+
+    This is the heal path for a clobbered universal link: a nested driver link
+    (`communication/email`) can materialize `communication` as a real dir
+    before the universal `communication → var/spool/communication` seed is
+    laid, after which the kernel's own owner-thread writes
+    (`communication/messages/me/<pid>/…`) accumulate in the unwatched real dir
+    instead of the spool the message drivers tail.
+    """
+    clean = True
+    for child in sorted(src.iterdir()):
+        peer = dst / child.name
+        # A symlink that merely re-exposes the target's own child (e.g. a
+        # driver's `communication/email → …/communication/email`) becomes a
+        # pure duplicate once `src` itself is the symlink — drop it.
+        if child.is_symlink() and child.resolve(strict=False) == peer:
+            child.unlink()
+            continue
+        if not (peer.is_symlink() or peer.exists()):
+            os.rename(child, peer)
+            continue
+        # Both plain dirs — recurse.
+        if (
+            child.is_dir() and not child.is_symlink()
+            and peer.is_dir() and not peer.is_symlink()
+        ):
+            if _merge_real_dir_into(child, peer):
+                child.rmdir()
+            else:
+                clean = False
+            continue
+        # Destination is an empty placeholder file — source content wins.
+        if (
+            child.is_file() and not child.is_symlink()
+            and peer.is_file() and not peer.is_symlink()
+            and peer.stat().st_size == 0
+        ):
+            os.replace(child, peer)
+            continue
+        # Identical duplicate symlink.
+        if (
+            child.is_symlink() and peer.is_symlink()
+            and child.readlink() == peer.readlink()
+        ):
+            child.unlink()
+            continue
+        clean = False
+    return clean
+
+
 def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
     # Symlink targets are relative so the home tree is portable if PAI_ROOT moves.
     # Computed against the link's *physical* parent (resolve()) so links that
@@ -83,7 +139,15 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
                 continue
             link.unlink()
         elif link.exists():
-            if link.is_dir() and not any(link.iterdir()):
+            if not link.is_dir():
+                continue  # a real file sits here — never clobber it
+            if not any(link.iterdir()):
+                link.rmdir()
+            elif target_abs.is_dir() and _merge_real_dir_into(link, target_abs):
+                # Non-empty real dir where a managed symlink belongs (a prior
+                # stitch was clobbered). Content migrated into the shared
+                # target above; drop the now-empty dir and lay the symlink so
+                # stitch's heal contract holds.
                 link.rmdir()
             else:
                 continue

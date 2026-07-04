@@ -52,6 +52,42 @@ def test_stitches_simple_communication_link_for_bundleless_pai(fhs: Path) -> Non
     assert comm.resolve() == (fhs / "var" / "spool" / "communication").resolve()
 
 
+def test_heals_clobbered_communication_real_dir_migrating_content(fhs: Path) -> None:
+    """A prior stitch left `communication` as a *non-empty real dir* (a nested
+    driver link materialized it before the universal seed, then the kernel
+    wrote owner threads into it). Re-stitch must convert it to the symlink and
+    migrate the divergent content into the spool without losing data."""
+    spool = fhs / "var" / "spool" / "communication"
+    home = fhs / "home" / "pai"
+    home.mkdir(parents=True, exist_ok=True)
+
+    # Spool side: an empty owner-thread placeholder the writer had touched.
+    stub = spool / "messages" / "me" / "2" / "2026-07-03.md"
+    stub.parent.mkdir(parents=True)
+    stub.write_text("")
+
+    # Clobbered real `communication` dir with real content only it holds:
+    #  - owner narration (fills the empty spool stub)
+    #  - an orphaned outbound line to a contact (spool has no such file yet)
+    #  - a duplicate `email` symlink that just re-exposes the spool child
+    comm = home / "communication"
+    (comm / "messages" / "me" / "2").mkdir(parents=True)
+    (comm / "messages" / "me" / "2" / "2026-07-03.md").write_text("narration\n")
+    (comm / "messages" / "engin").mkdir(parents=True)
+    (comm / "messages" / "engin" / "2026-07-03.md").write_text("queued send\n")
+    (spool / "email").mkdir()
+    os.symlink(os.path.relpath(spool / "email", comm), comm / "email")
+
+    stitch.stitch_home("pai")
+
+    # Converted to the symlink...
+    assert comm.is_symlink()
+    assert comm.resolve() == spool.resolve()
+    # ...with content migrated into the watched spool, nothing lost.
+    assert (spool / "messages" / "me" / "2" / "2026-07-03.md").read_text() == "narration\n"
+    assert (spool / "messages" / "engin" / "2026-07-03.md").read_text() == "queued send\n"
+
+
 def _install_email_driver(fhs: Path) -> None:
     pkg = fhs / "usr" / "lib" / "drivers" / "email"
     pkg.mkdir(parents=True, exist_ok=True)
