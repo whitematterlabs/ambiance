@@ -145,9 +145,9 @@
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -14px rgba(0, 0, 0, 0.5);
   --shadow-lift: 0 18px 40px -22px rgba(0, 0, 0, 0.75);
 
-  --header-bg: rgba(15, 10, 26, 0.8);
-  --bubble-me: #ece9f6; /* on dark the user pill inverts to light too */
-  --bubble-me-ink: #0f0a1a;
+  --header-bg: rgba(12, 13, 16, 0.8);
+  --bubble-me: #ececee; /* on dark the user pill inverts to light too */
+  --bubble-me-ink: #0c0d10;
 
   color-scheme: dark;
 }
