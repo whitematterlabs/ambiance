@@ -32,6 +32,18 @@ FSEvents, which is push-based and so stays within the tickless dogma. The one
 enrichment we keep, because it's cheap and high-value, is reading a new file's
 "where from" xattr so a download's source URL lands in the log.
 
+We watch the owner's **whole home tree**, not a hand-picked set of folders — the
+goal is "what happened to my files," and files the owner cares about live all
+over `~/`, not just `~/Downloads`. The cost of that breadth is `~/Library` and
+similar machine-paced churn, which we suppress with a denylist (see Data flow)
+rather than by narrowing the watch root. This is why the driver asks for **Full
+Disk Access** rather than the three scoped per-folder grants: `~/` spans several
+TCC-protected subtrees, and without FDA macOS redacts events for the ones we
+haven't been granted, giving only partial coverage. FDA is a heavier, scarier
+ask than a per-folder prompt; that tradeoff is accepted deliberately in exchange
+for complete home coverage, and disclosed via the toggle copy and the
+`<capabilities>` block.
+
 This is a meaningful departure from precedent: the existing `ax` driver is
 deliberately scoped as "piloting, not surveillance" — no ambient firehose, no
 observation without an explicit per-session `attach`. Cowork mode is PAI's
@@ -51,10 +63,11 @@ piloting-only posture.
 - On each app-switch, sample the pasteboard's `changeCount`; if it changed
   since the last sample, log the new clipboard contents (event-driven copy-log,
   no timer).
-- Watch a configured set of folders (default `~/Downloads`, `~/Desktop`,
-  `~/Documents`) via FSEvents and log every file create/remove/rename/modify as
-  it happens — the raw event, not a guessed operation. Enrich a newly-appeared
-  file with its `kMDItemWhereFroms` source URL when present.
+- Watch the owner's whole home tree (`~/`) via FSEvents and log every file
+  create/remove/rename/modify as it happens — the raw event, not a guessed
+  operation. Exclude machine-paced noise (`~/Library`, caches, VCS/build dirs,
+  journal files) via a denylist so the residual stream stays human-paced. Enrich
+  a newly-appeared file with its `kMDItemWhereFroms` source URL when present.
 - Ship as processes inside a `cowork` driver package designed to grow
   additional trackers (downloads, browser, richer clipboard) later without
   restructuring.
@@ -68,8 +81,8 @@ piloting-only posture.
   keyboard tap + Input Monitoring TCC. Deferred, separate spec.
 - Classifying file operations (mv vs cp vs download vs app-save) — deliberately
   not attempted; we log raw FSEvents, not inferred intent.
-- Watching the *entire* filesystem — v1 watches a configured, bounded set of
-  folders, not `/`.
+- Watching the *entire* filesystem — v1 watches `~/` (minus the denylist), not
+  `/` or other volumes.
 - Browser history/tabs — future spec.
 - Any proactive "nudge" heuristics (idle detection, focus-fragmentation
   alerts, etc.) — PAI decides per-event whether to act; no driver-side trigger
@@ -98,16 +111,20 @@ inbound-driver pattern (same shape as `imessage`, `email`, etc.):
   clipboard entry. No new TCC — pasteboard reads need no permission. This rides
   the window-focus event, so it stays a single event-driven process, not a
   second poller.
-- `file_activity.py` — pure Python via `pyobjc`: opens an `FSEventStream` over
-  the configured watch roots with `kFSEventStreamCreateFlagFileEvents`, so each
-  callback carries per-file paths and change flags (created / removed / renamed /
-  modified). It logs the raw event and emits `cowork:file_changed`; it does not
-  classify the operation. For a path flagged created/renamed it best-effort reads
-  the `com.apple.metadata:kMDItemWhereFroms` xattr and, if present, includes the
-  source URL. Watch roots come from the driver's shipped config, defaulting to
-  `~/Downloads`, `~/Desktop`, `~/Documents`. Watching those protected folders
-  trips a macOS TCC prompt on first run (distinct from the Accessibility grant) —
-  see Capability gating.
+- `file_activity.py` — pure Python via `pyobjc`: opens a single `FSEventStream`
+  rooted at `~/` with `kFSEventStreamCreateFlagFileEvents`, so each callback
+  carries per-file paths and change flags (created / removed / renamed /
+  modified). Noise is suppressed in two layers: (1) `FSEventStreamSetExclusionPaths`
+  for the big prefix-matchable offenders (`~/Library` above all — capped at 8
+  paths by the API); (2) an in-callback ignore-list for the scattered patterns
+  prefixes can't catch (`node_modules`, `.git`, `Caches/`, `~/.cache`, `*.tmp`,
+  `*-wal`, `*-journal`, `.DS_Store`). Only events surviving both layers are
+  logged/emitted, which keeps the residual stream human-paced. It logs the raw
+  event and emits `cowork:file_changed`; it does not classify the operation. For
+  a path flagged created/renamed it best-effort reads the
+  `com.apple.metadata:kMDItemWhereFroms` xattr and, if present, includes the
+  source URL. Watching `~/` requires **Full Disk Access** (not the scoped
+  per-folder grant) — see Capability gating.
 
 No new compiled/Swift sidecar. This follows the lesson already burned into
 project history: `PAI.app` was deleted because an Xcode-only build broke setup
@@ -143,15 +160,22 @@ On every window-focus change:
 Independently, on every filesystem change under a watch root:
 
 1. `file_activity.py`'s FSEvents callback fires with one or more `(path, flags)`
-   pairs.
-2. For each, builds a payload `{path, change, timestamp}` where `change` is the
-   raw FSEvents flag set (created/removed/renamed/modified), not an inferred
-   operation. If the path was created/renamed and carries a `kMDItemWhereFroms`
-   xattr, adds `source_url`.
-3. Appends one line per event to `/sys/drivers/cowork/file_activity.ndjson` and
-   emits `cowork:file_changed`. Same routing as the others — every change wakes
-   PAI, PAI decides whether to react. FSEvents coalesces rapid bursts; we log
-   whatever the callback delivers without re-expanding.
+   pairs. (`~/Library` and the other exclusion-path prefixes never reach the
+   callback — they're filtered by FSEvents itself.)
+2. Each path is checked against the in-callback ignore-list; matches are dropped
+   before any work. This is what keeps the whole-`~/` watch human-paced — the
+   per-event wake model (below) is only safe because the denylist has already
+   removed the machine-paced churn.
+3. For each survivor, builds a payload `{path, change, timestamp}` where `change`
+   is the raw FSEvents flag set (created/removed/renamed/modified), not an
+   inferred operation. If the path was created/renamed and carries a
+   `kMDItemWhereFroms` xattr, adds `source_url`.
+4. Appends one line per surviving event to
+   `/sys/drivers/cowork/file_activity.ndjson` and emits `cowork:file_changed`.
+   Same routing as the others — **every surviving change wakes PAI**, no
+   coalescing (consistent with the window/clipboard trackers); the denylist, not
+   debouncing, is what bounds the volume. FSEvents may coalesce rapid bursts
+   itself; we log whatever the callback delivers without re-expanding.
 
 No cursor file (unlike `imessage`) — this isn't replaying a backlog from an
 external store, it's a live push stream starting from kernel boot. A missed
@@ -178,13 +202,16 @@ recovered.)
   whether the driver captures at all: when the flag is `no`, both processes
   either don't run or immediately no-op — no window titles, no clipboard
   contents, and no file events are ever touched while disabled.
-- **New TCC surface:** watching `~/Downloads`/`~/Desktop`/`~/Documents` trips
-  macOS's protected-folder prompt on first run — a *separate* grant from the
-  Accessibility permission `ax`/window-tracking already have. Because Cowork
-  Mode defaults on, the owner will hit this prompt the first time the driver
-  starts; the web toggle copy should say so. If the grant is denied,
-  `file_activity.py` logs one warning and exits cleanly (same posture as the
-  ax-TCC-missing path); the window/clipboard processes are unaffected.
+- **New TCC surface — Full Disk Access:** watching all of `~/` spans several
+  TCC-protected subtrees, so the driver needs **Full Disk Access**, not the
+  scoped per-folder grant. This is a *separate*, heavier permission than the
+  Accessibility one `ax`/window-tracking already have, and can't be triggered by
+  a passive prompt — the owner must add PAI in System Settings › Privacy &
+  Security › Full Disk Access. Because Cowork Mode defaults on, the web toggle
+  copy must explain this and link/walk the owner there; until it's granted,
+  file-activity coverage is partial (macOS redacts protected paths) and
+  `file_activity.py` logs one warning. Denial doesn't crash the driver — it
+  exits cleanly and the window/clipboard processes are unaffected.
 - The same flag feeds the `<capabilities>` prompt block, so PAI's own
   self-description discloses that it's watching window activity, clipboard
   copies, *and file activity in the watched folders* when enabled — enforcement
@@ -221,9 +248,11 @@ All three append-only, never rotated/truncated by the driver itself.
 - If Accessibility permission isn't granted, `window_activity.py` logs a
   single warning to its own process log (`/proc/<slug>/log`) and exits
   cleanly rather than crashing/retrying — same TCC-missing behavior as `ax`.
-- If protected-folder access isn't granted, `file_activity.py` does the same:
-  one warning, clean exit. It fails independently of `window_activity` — one
-  process dying doesn't take the other down.
+- If Full Disk Access isn't granted, `file_activity.py` logs one warning noting
+  coverage is partial and keeps running against whatever paths it can see (FDA
+  can be granted later without a code change — the next event stream picks up the
+  now-visible paths). It fails independently of `window_activity` — one process
+  degrading or dying doesn't take the other down.
 - Dropped NSWorkspace notifications or FSEvents callbacks (rare) simply don't
   appear in the log — no cursor/backlog to recover, since this is a live
   stream, not a replay.
@@ -238,10 +267,12 @@ Manual verification only for v1:
    receives `cowork:window_changed` events (visible in kernel/process logs).
 4. Copy some text, then switch apps; confirm `clipboard.ndjson` gets a line and
    a `cowork:clipboard_changed` event fires.
-5. Download a file, and mv/rm one in a watched folder; confirm
-   `file_activity.ndjson` gets lines (with `source_url` on the download) and
-   `cowork:file_changed` events fire.
-6. Toggle Cowork Mode off; confirm no further lines are appended to any log
+5. Download a file, and mv/rm one somewhere in `~/` *outside* the old three
+   folders (e.g. `~/some-project/`); confirm `file_activity.ndjson` gets lines
+   (with `source_url` on the download) and `cowork:file_changed` events fire.
+6. Confirm the denylist works: normal app usage does *not* flood the log with
+   `~/Library` / cache / `-wal` churn, and the event rate stays human-paced.
+7. Toggle Cowork Mode off; confirm no further lines are appended to any log
    and no further events are emitted.
 
 No automated test suite for this slice — it's OS-level capture, not logic;
@@ -259,8 +290,8 @@ existing kernel event-routing tests (if any) already cover event delivery.
 - Richer file classification (mv vs cp vs download) — only if PAI turns out to
   need the operation, not just the fact of change; would use the inode + xattr
   heuristics we deliberately skipped in v1.
-- Configurable / expanded watch roots via the web console (v1 ships a fixed
-  default set).
+- Owner-tunable denylist via the web console (v1 ships a fixed default denylist;
+  the watch root is always `~/`).
 - `browser` process — URLs/tab titles, requires browser-specific integration.
 - Proactive nudge heuristics built on top of the logged activity stream, once
   there's real data to design against.
