@@ -31,7 +31,7 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as _StdlibThreadingHTTPServer
 from pathlib import Path
 
-from boot.paths import REPO_ROOT, usr_libexec
+from boot.paths import PAI_ROOT, REPO_ROOT, usr_libexec
 
 from . import actions
 from .hub import Hub, Subscriber
@@ -75,6 +75,19 @@ _CONTENT_TYPES = {
     ".ico": "image/x-icon",
     ".woff2": "font/woff2",
     ".map": "application/json",
+}
+
+# Image files under PAI_ROOT that `/api/asset` will surface into the console.
+# Screenshots and downloaded images render inline by their absolute path; the
+# route is the only way the browser can reach a file the SPA didn't ship.
+_ASSET_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".bmp": "image/bmp",
 }
 
 HUB = Hub()
@@ -178,6 +191,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, **actions.kernel_status()})
         if path == "/api/state":
             return self._json(HUB.snapshot(actions.read_provider()))
+        if path == "/api/asset":
+            return self._asset()
         return self._static(path)
 
     def do_POST(self):
@@ -360,6 +375,41 @@ class Handler(BaseHTTPRequestHandler):
     def _sse_send(self, obj: dict) -> None:
         self.wfile.write(b"data: " + json.dumps(obj).encode() + b"\n\n")
         self.wfile.flush()
+
+    # -- asset (PAI-local images: screenshots, downloads) --
+    def _asset(self):
+        """Serve an image file addressed by absolute path via `?abs=<path>`.
+
+        The screenshot tool and downloads reference images by their absolute
+        on-disk path (e.g. `![screenshot](/Users/…/.pai/…/shot.png)`); the
+        frontend rewrites such refs to `/api/asset?abs=…&token=…`. This is the
+        only route that reaches files the SPA didn't ship, so it is fenced hard:
+
+          - the path must resolve *inside* PAI_ROOT (symlinks resolved first, so
+            a symlink escape is caught),
+          - it must carry a known image extension,
+          - it must be a real file.
+
+        Anything else is a flat 404 — no directory listing, no error detail.
+        Auth is already enforced upstream: this is an `/api/*` path, so on the
+        remote tunnel `_check_auth` requires the token (passed as `?token=`,
+        since `<img>` tags can't set an Authorization header).
+        """
+        query = self.path.partition("?")[2]
+        abs_vals = urllib.parse.parse_qs(query).get("abs")
+        if not abs_vals:
+            return self._json({"error": "missing abs"}, status=400)
+        try:
+            target = Path(abs_vals[0]).resolve()
+            root = PAI_ROOT.resolve()
+        except (OSError, ValueError):
+            return self._json({"error": "not found"}, status=404)
+        if not target.is_relative_to(root):
+            return self._json({"error": "not found"}, status=404)
+        ctype = _ASSET_TYPES.get(target.suffix.lower())
+        if ctype is None or not target.is_file():
+            return self._json({"error": "not found"}, status=404)
+        return self._binary(target.read_bytes(), ctype)
 
     # -- static (SPA) --
     def _static(self, path: str):

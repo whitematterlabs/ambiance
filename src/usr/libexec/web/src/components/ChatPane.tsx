@@ -1,8 +1,22 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { withTokenParam } from "../auth";
 import type { ProcRow, ShellEntry, ThreadMessage } from "../types";
 import { WorkingIndicator } from "./WorkingIndicator";
+
+// PAI-local images (screenshots, downloads) arrive as `![](/abs/on-disk/path)`.
+// react-markdown's default sanitizer would keep the raw filesystem path, which
+// 404s — the browser can only reach a file the SPA shipped. Rewrite any
+// absolute-path image `src` to the auth-gated `/api/asset` route (token rides
+// as a query param since <img> can't set an Authorization header). Everything
+// else — remote images, links, relative URLs — falls through to the default.
+function transformUrl(url: string, key: string): string {
+  if (key === "src" && url.startsWith("/") && !url.startsWith("/api/")) {
+    return withTokenParam(`/api/asset?abs=${encodeURIComponent(url)}`);
+  }
+  return defaultUrlTransform(url);
+}
 
 const STICKY_BOTTOM_PX = 72;
 
@@ -258,7 +272,9 @@ function Message({ m, showAvatar }: { m: ThreadMessage; showAvatar: boolean }) {
       <div className="msg-col">
         {label && <span className="msg-label">{label}</span>}
         <div className="msg-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.body}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transformUrl}>
+            {m.body}
+          </ReactMarkdown>
         </div>
         <span className="msg-ts-hover">{m.ts}</span>
       </div>
