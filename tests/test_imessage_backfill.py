@@ -146,3 +146,32 @@ def test_running_outbound_driver_still_blocks_backfill(
     assert rc == 3
     assert "imessage-out running" in err
     assert "imessage-in" not in err
+
+
+def test_seed_outbound_cursors_uses_fhs_relative_keys(
+    imessage_backfill_module, tmp_path
+) -> None:
+    module, _saved_cursor = imessage_backfill_module
+    pai_root = tmp_path / "pai_root"
+    day_file = (
+        pai_root
+        / "var"
+        / "spool"
+        / "communication"
+        / "messages"
+        / "thread"
+        / "2026-01-01.md"
+    )
+    day_file.parent.mkdir(parents=True)
+    day_file.write_text("[12:00] me: historical\n")
+
+    module.paths.PAI_ROOT = pai_root
+    module.OUT_CURSORS = tmp_path / "cursors.yaml"
+
+    assert module._seed_outbound_cursors({day_file}) == 1
+    with module.OUT_CURSORS.open() as f:
+        cursors = module.yaml.safe_load(f) or {}
+
+    assert cursors == {
+        "var/spool/communication/messages/thread/2026-01-01.md": day_file.stat().st_size
+    }

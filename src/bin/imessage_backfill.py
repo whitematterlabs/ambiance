@@ -44,6 +44,7 @@ from drivers.imessage.inbound import (
     _mac_date_to_iso,
     _save_cursor as _save_in_cursor,
 )
+from boot import paths
 from boot import processes as P
 from drivers.messages import MESSAGES_DIR, ingest
 
@@ -100,7 +101,7 @@ def _seed_outbound_cursors(touched: set[Path]) -> int:
     for path in touched:
         if not path.exists():
             continue
-        rel = str(path.relative_to(P.HOME_DIR))
+        rel = str(path.resolve().relative_to(paths.PAI_ROOT.resolve()))
         cursors[rel] = path.stat().st_size
         seeded += 1
     OUT_CURSORS.parent.mkdir(parents=True, exist_ok=True)
