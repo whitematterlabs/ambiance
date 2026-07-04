@@ -12,7 +12,7 @@ def test_memory_usage_routes_durable_writes_to_librarian() -> None:
 
     # Single write path through the librarian, no direct edits.
     assert "There is one write path: `memorize`" in text
-    assert "librarian-pai" in text
+    assert "librarian" in text
     assert "Never edit memory files yourself" in text
     assert "report that memory storage failed" in text
     # When to call it.
@@ -25,7 +25,7 @@ def test_memory_usage_routes_durable_writes_to_librarian() -> None:
     assert "`--private` is for classified or very sensitive info" in text
     assert "cross-contaminate PAIs" in text
     assert "`remember '<question>'`" in text
-    assert "read-only lookup to `librarian-pai`" in text
+    assert "read-only lookup to `librarian`" in text
     # Deduped away: no shared flag, no raw redirection, no path enumeration.
     assert "memorize --shared" not in text
     assert ">> memory/" not in text
@@ -48,5 +48,5 @@ def test_owner_onboarding_skill_seeded_for_fresh_roots() -> None:
 
 
 def test_private_memory_seed_header_does_not_invite_direct_edits() -> None:
-    assert "Owned by librarian-pai" in stitch._PRIVATE_MEMORY_INDEX_HEADER
+    assert "Owned by librarian" in stitch._PRIVATE_MEMORY_INDEX_HEADER
     assert "You write here" not in stitch._PRIVATE_MEMORY_INDEX_HEADER

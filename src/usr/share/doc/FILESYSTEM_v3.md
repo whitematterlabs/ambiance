@@ -553,10 +553,10 @@ yaml file, not a dated directory tree.
   dated bullets (history). `last_updated:` frontmatter is the freshness signal.
 - **Links**: `[[slug]]` inline (bare slug resolves people → projects → topics).
   Backlinks are not stored — grep them: `rg "\[\[<slug>\]\]" memory/`.
-- **Journals are reconstructed retroactively** by `librarian-pai` at 3am: it
+- **Journals are reconstructed retroactively** by `librarian` at 3am: it
   reads the prior day's comms archives (messages/email) and writes the episodic
   record itself, then threads durable episodes into the people/project files.
-  Fleet PAIs do not journal directly. See `pais/librarian-pai/prompt.md`.
+  Fleet PAIs do not journal directly. See `pais/librarian/prompt.md`.
 
 The earlier dated-directory shape (`topics/<topic>/<date>/summary.md`,
 `journal/<date>/notes.md`) was never implemented — the runtime has always been

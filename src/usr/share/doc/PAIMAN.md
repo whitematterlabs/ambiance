@@ -159,7 +159,7 @@ pairegistry/
     skills/<topic>/<name>/package.yaml
     bins/memorize/package.yaml
     bins/remember/package.yaml
-    pais/librarian-pai/package.yaml
+    pais/librarian/package.yaml
     libs/tailer/package.yaml
     prompts/root/package.yaml
 ```
@@ -356,7 +356,7 @@ tight seed set declared as module constants in `src/bin/paifs_init.py`:
 - `KERNEL_SEED_BINS` — `memorize`, `remember`, `imessage-history`. The
   memory-usage and owner-onboarding boilerplate in the default prompts
   references them directly; without them installed the contract is inert.
-- `KERNEL_SEED_PAIS` — `librarian-pai`. Sole writer to shared/private
+- `KERNEL_SEED_PAIS` — `librarian`. Sole writer to shared/private
   MEMORY indexes; reserved fleet member so reconcile spawns it on first
   boot.
 

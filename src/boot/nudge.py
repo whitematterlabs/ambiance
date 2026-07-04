@@ -53,11 +53,11 @@ DEFAULT_COMPACT_THRESHOLD = 150_000
 DEFAULT_HARD_COMPACT_THRESHOLD = 400_000
 
 # Post-turn skill-candidate trigger. After a non-trivial turn the kernel nudges
-# librarian-pai to consider distilling the just-finished workflow into a SKILL.md
+# librarian to consider distilling the just-finished workflow into a SKILL.md
 # (the procedural twin of `memorize`). Librarian is the sole skills writer.
 SKILL_CANDIDATE_DURATION_SECS = 30
 SKILL_CANDIDATE_TOOL_CALLS = 5
-LIBRARIAN_SLUG = "librarian-pai"
+LIBRARIAN_SLUG = "librarian"
 
 OVERCLOCK_SENTINEL = "<PAI_OVERCLOCK_COMPLETE>"
 OVERCLOCK_MAX_TURNS = 10
@@ -823,7 +823,7 @@ def _is_skill_candidate(pai_slug: str, duration: float, tool_calls: int) -> bool
 
 
 def _resolve_librarian_pid() -> Optional[int]:
-    """Find librarian-pai's pid by scanning proc specs (same shape as the
+    """Find librarian's pid by scanning proc specs (same shape as the
     `memorize` bin's resolver — librarian is identified by slug)."""
     for slug, spec in P._iter_pai_specs():
         if slug == LIBRARIAN_SLUG:
@@ -1119,7 +1119,7 @@ async def _nudge_body(
     })
 
     # Procedural self-learning: after a non-trivial turn, nudge librarian to
-    # consider distilling the workflow into a SKILL.md. The `!= librarian-pai`
+    # consider distilling the workflow into a SKILL.md. The `!= librarian`
     # loop guard (in `_is_skill_candidate`) keeps librarian's own turns — which
     # hit this same path — from re-waking it. Best-effort; never raises.
     _maybe_emit_skill_candidate(

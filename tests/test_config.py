@@ -305,10 +305,10 @@ def test_seed_config_overrides_librarian_package_provider(repo_root):
         p.write_text(f"# {name}\n")
     _write_package(
         repo_root,
-        "librarian-pai",
+        "librarian",
         {
             "kind": "pai",
-            "name": "librarian-pai",
+            "name": "librarian",
             "description": "from package",
             "provider": "deepseek",
             "model": "deepseek-v4-pro",
@@ -321,8 +321,8 @@ def test_seed_config_overrides_librarian_package_provider(repo_root):
     )
 
     cfg = C.load_config()
-    assert cfg["librarian-pai"]["provider"] == "openai"
-    assert cfg["librarian-pai"]["model"] == "gpt-5.5"
+    assert cfg["librarian"]["provider"] == "openai"
+    assert cfg["librarian"]["model"] == "gpt-5.5"
 
 
 def test_package_kind_unsupported(repo_root):

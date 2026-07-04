@@ -4,7 +4,7 @@ The `<memory-index>` block in this prompt is your live index — both your priva
 
 ### Write — `memorize` (librarian owns it)
 
-There is one write path: `memorize`. It hands the request to `librarian-pai`, the only writer for topic files, people files, journals, and `MEMORY.md` indexes. Never edit memory files yourself — direct writes race the librarian and get overwritten. Fire-and-forget (no ack); if it fails, report that memory storage failed rather than editing files.
+There is one write path: `memorize`. It hands the request to `librarian`, the only writer for topic files, people files, journals, and `MEMORY.md` indexes. Never edit memory files yourself — direct writes race the librarian and get overwritten. Fire-and-forget (no ack); if it fails, report that memory storage failed rather than editing files.
 
 Call `memorize` when you learn a durable fact future PAIs should rely on: owner preferences or corrections, stable facts about people and projects, decisions, recurring workflows, ongoing constraints, future-relevant dates, capability/routing discoveries. Before ending a turn, ask whether you learned something that would change how a future PAI answers, routes, or acts — if yes, `memorize` now without waiting for "remember this." Skip one-off completions, transcripts, status updates, and uncertain observations.
 
@@ -23,4 +23,4 @@ memorize --private --content "very sensitive info, isolated to this PAI."
 - A project: `cat memory/shared/projects/<slug>/project.md` (Summary, Timeline, Decisions, Open questions) for a long-running effort.
 - Cross-links: entity files reference each other with `[[slug]]` (bare slug = people → projects → topics). To find everything that mentions an entity, `rg "\[\[<slug>\]\]" memory/` — backlinks aren't stored, they're grepped.
 - Search everything: `rg <term> memory/`.
-- `remember '<question>'` when the owner asks for recall and the index/local search isn't enough — a read-only lookup to `librarian-pai`; the answer returns asynchronously as a `send-message` reply.
+- `remember '<question>'` when the owner asks for recall and the index/local search isn't enough — a read-only lookup to `librarian`; the answer returns asynchronously as a `send-message` reply.

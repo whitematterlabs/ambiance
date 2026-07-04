@@ -153,12 +153,12 @@ KERNEL_SEED_BINS: tuple[str, ...] = (
     "imessage-history",
 )
 
-# PAIs the kernel itself requires to close core loops. `librarian-pai`
+# PAIs the kernel itself requires to close core loops. `librarian`
 # is the sole writer to shared/private MEMORY indexes and the consumer
 # of `memorize`/`remember` requests; the default config below declares it as a
 # reserved fleet member so reconcile spawns it on first boot.
 KERNEL_SEED_PAIS: tuple[str, ...] = (
-    "librarian-pai",
+    "librarian",
 )
 
 # Provider/model the seed config.yaml uses when install.sh doesn't pass an
@@ -239,8 +239,8 @@ pais:
     model: {model}
     fallback: true
 
-  - name: librarian-pai
-    package: librarian-pai
+  - name: librarian
+    package: librarian
     description: nightly + on-demand memory consolidator; sole writer of shared/private MEMORY
     provider: {provider}
     model: {model}

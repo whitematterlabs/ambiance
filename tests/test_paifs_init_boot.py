@@ -24,6 +24,6 @@ def test_seed_config_puts_selected_provider_on_all_seed_pais() -> None:
     )
     by_name = {entry["name"]: entry for entry in cfg["pais"]}
 
-    for name in ("root", "pai", "librarian-pai"):
+    for name in ("root", "pai", "librarian"):
         assert by_name[name]["provider"] == "openai"
         assert by_name[name]["model"] == "gpt-5.5"

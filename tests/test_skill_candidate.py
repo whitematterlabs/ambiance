@@ -1,7 +1,7 @@
 """Unit tests for the post-turn skill-candidate trigger in `boot.nudge`.
 
 Pins the predicate that decides whether a finished turn is offered to
-librarian-pai as a skill candidate, and the tool-call counter that feeds it.
+librarian as a skill candidate, and the tool-call counter that feeds it.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def test_predicate_boundaries_are_strict() -> None:
 def test_predicate_never_fires_for_librarian() -> None:
     # Loop guard: librarian's own turns hit the same path; it must never
     # nominate itself or it would re-wake on its own output.
-    assert not nudge._is_skill_candidate("librarian-pai", duration=999, tool_calls=99)
+    assert not nudge._is_skill_candidate("librarian", duration=999, tool_calls=99)
 
 
 def test_count_tool_calls_counts_tool_use_blocks() -> None:

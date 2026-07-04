@@ -207,7 +207,7 @@ def _overlay_skills(
 
 
 _PRIVATE_MEMORY_INDEX_HEADER = (
-    "<!-- Private MEMORY index. Owned by librarian-pai; use `memorize --private` instead of editing directly. -->\n"
+    "<!-- Private MEMORY index. Owned by librarian; use `memorize --private` instead of editing directly. -->\n"
 )
 
 

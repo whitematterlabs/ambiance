@@ -84,9 +84,9 @@ Severity: P0 = system-breaking now, P1 = actively degrading, P2 = contained.
   `pai_message` — so `bin/send_message emit librarian:consolidate` could never
   work (`rc=127`/`rc=2`). Dated-suffix orphans came from `paicron start`
   (auto-appends a date) instead of `ensure`.
-  Fix (schedule-only reminder-nudge, pairegistry `pais/librarian-pai/`):
+  Fix (schedule-only reminder-nudge, pairegistry `pais/librarian/`):
   dropped `--run` from the boot hook; a schedule-only cron with
-  `--parent-slug librarian-pai` nudges the librarian directly at 03:00
+  `--parent-slug librarian` nudges the librarian directly at 03:00
   (reason "schedule fired") — no new kernel surface. Added a `--description`
   carrying intent and updated `prompt.md` to treat a scheduled wake as the
   nightly run. `ensure` keeps the slug stable so dated dupes won't recur.
