@@ -21,12 +21,17 @@ def test_history_path_display_is_namespace_absolute() -> None:
     assert "home" in disp and disp.endswith("/proc/pai/messages.jsonl"), disp
 
 
-def test_predicate_fires_on_long_duration() -> None:
-    assert nudge._is_skill_candidate("main", duration=31, tool_calls=0)
+def test_predicate_fires_when_both_signals_exceed() -> None:
+    # Both signals required: long duration AND many tool calls.
+    assert nudge._is_skill_candidate("main", duration=61, tool_calls=11)
 
 
-def test_predicate_fires_on_many_tool_calls() -> None:
-    assert nudge._is_skill_candidate("main", duration=1, tool_calls=6)
+def test_predicate_does_not_fire_on_duration_alone() -> None:
+    assert not nudge._is_skill_candidate("main", duration=999, tool_calls=0)
+
+
+def test_predicate_does_not_fire_on_tool_calls_alone() -> None:
+    assert not nudge._is_skill_candidate("main", duration=1, tool_calls=99)
 
 
 def test_predicate_does_not_fire_on_trivial_turn() -> None:
@@ -34,10 +39,11 @@ def test_predicate_does_not_fire_on_trivial_turn() -> None:
 
 
 def test_predicate_boundaries_are_strict() -> None:
-    # Thresholds are strict `>` — exactly at the bound does not fire.
-    assert not nudge._is_skill_candidate("main", duration=30, tool_calls=5)
-    assert nudge._is_skill_candidate("main", duration=30.1, tool_calls=5)
-    assert nudge._is_skill_candidate("main", duration=30, tool_calls=6)
+    # Thresholds are strict `>` — exactly at either bound does not fire,
+    # and both must be strictly exceeded together.
+    assert not nudge._is_skill_candidate("main", duration=60, tool_calls=11)
+    assert not nudge._is_skill_candidate("main", duration=61, tool_calls=10)
+    assert nudge._is_skill_candidate("main", duration=60.1, tool_calls=11)
 
 
 def test_predicate_never_fires_for_librarian() -> None:

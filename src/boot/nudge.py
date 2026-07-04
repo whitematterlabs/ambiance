@@ -55,8 +55,8 @@ DEFAULT_HARD_COMPACT_THRESHOLD = 400_000
 # Post-turn skill-candidate trigger. After a non-trivial turn the kernel nudges
 # librarian to consider distilling the just-finished workflow into a SKILL.md
 # (the procedural twin of `memorize`). Librarian is the sole skills writer.
-SKILL_CANDIDATE_DURATION_SECS = 30
-SKILL_CANDIDATE_TOOL_CALLS = 5
+SKILL_CANDIDATE_DURATION_SECS = 60
+SKILL_CANDIDATE_TOOL_CALLS = 10
 LIBRARIAN_SLUG = "librarian"
 
 OVERCLOCK_SENTINEL = "<PAI_OVERCLOCK_COMPLETE>"
@@ -813,12 +813,16 @@ def _is_skill_candidate(pai_slug: str, duration: float, tool_calls: int) -> bool
     Loop guard is mandatory: librarian's own turns hit this same post-turn path,
     so it must never nominate itself (that would wake it on its own output and
     spin). A turn qualifies when it ran long or fanned out across many tools —
-    the cheap signal that a reusable multi-step procedure just happened."""
+    the cheap signal that a reusable multi-step procedure just happened.
+
+    Both signals must fire (long *and* fanned-out): a turn that only ran long
+    or only touched many tools is usually a stall or a one-off, not a reusable
+    procedure. Requiring both keeps us from waking librarian on noise."""
     if pai_slug == LIBRARIAN_SLUG:
         return False
     return (
         duration > SKILL_CANDIDATE_DURATION_SECS
-        or tool_calls > SKILL_CANDIDATE_TOOL_CALLS
+        and tool_calls > SKILL_CANDIDATE_TOOL_CALLS
     )
 
 
@@ -852,7 +856,7 @@ def _maybe_emit_skill_candidate(
         lib_pid = _resolve_librarian_pid()
         if lib_pid is None:
             return
-        reason = "duration" if duration > SKILL_CANDIDATE_DURATION_SECS else "toolcalls"
+        reason = "duration+toolcalls"
         P.emit_event({
             "source": "pai",
             "kind": "pai_message",
