@@ -126,6 +126,13 @@ ROOT_SEED_PROMPTS: tuple[str, ...] = (
 # tools pull email/iMessage so their shared query code is importable.
 KERNEL_SEED_DRIVERS: tuple[str, ...] = ("contacts", "messages")
 
+# Drivers every instance needs regardless of which PAIs/capabilities are
+# configured. `approvals` is deliberately hidden from the paisetup picker
+# (an owner never picks it standalone) so it must be seeded here instead —
+# otherwise flipping a send capability to `approve` leaves the approved
+# queue with nothing watching it.
+ALWAYS_SEED_DRIVERS: tuple[str, ...] = ("approvals",)
+
 # Skills every PAI needs at first boot. Kept tight: only skills that
 # teach the use of a kernel-provided tool the PAI cannot reasonably
 # invent on its own.
@@ -728,7 +735,7 @@ def seed_kernel_essentials(root: Path) -> None:
     ]
     drivers_dir = root / "usr" / "lib" / "drivers"
     needed_drivers = [
-        name for name in KERNEL_SEED_DRIVERS
+        name for name in (*KERNEL_SEED_DRIVERS, *ALWAYS_SEED_DRIVERS)
         if not (drivers_dir / name / "events.yaml").exists()
         and not (drivers_dir / name / "package.yaml").exists()
     ]
