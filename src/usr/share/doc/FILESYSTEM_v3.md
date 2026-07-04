@@ -391,6 +391,10 @@ All persistent mutable state.
   `/var/lib/browse/chrome-cdp-profile/`.
 - `var/log/` — append-only logs.
 - `var/spool/communication/` — message queues (see Communication Layout).
+- `var/spool/approvals/` — channel-agnostic owner-approval queue. One yaml
+  per outbound send an `email`/`imessage` driver blocked because the
+  capability is in `ask` mode; the `approvals` driver watches it and
+  delivers what the owner approves.
 - `var/cache/` — regenerable derived state (deferred).
 
 ## Bundle anatomy

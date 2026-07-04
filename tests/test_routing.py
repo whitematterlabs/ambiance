@@ -381,7 +381,7 @@ def test_capabilities_block_reflects_grant(monkeypatch: pytest.MonkeyPatch) -> N
     )
     monkeypatch.setattr(
         C, "capability_modes",
-        lambda path=None: {"email_send": "auto", "imessage_send": "off"},
+        lambda path=None: {"email_send": "yes", "imessage_send": "no"},
     )
     out = bootstrap._capabilities_block(7)
     assert "<capabilities>" in out
@@ -390,7 +390,7 @@ def test_capabilities_block_reflects_grant(monkeypatch: pytest.MonkeyPatch) -> N
     assert "iMessage" not in out
 
 
-def test_capabilities_block_approve_is_approval_required(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_capabilities_block_ask_is_approval_required(monkeypatch: pytest.MonkeyPatch) -> None:
     from boot import config as C
 
     monkeypatch.setattr(
@@ -398,11 +398,11 @@ def test_capabilities_block_approve_is_approval_required(monkeypatch: pytest.Mon
     )
     monkeypatch.setattr(
         C, "capability_modes",
-        lambda path=None: {"email_send": "approve", "imessage_send": "off"},
+        lambda path=None: {"email_send": "ask", "imessage_send": "no"},
     )
     out = bootstrap._capabilities_block(7)
     assert "Email — APPROVAL REQUIRED" in out
-    assert "propose-send" in out
+    assert "action: send" in out
 
 
 def test_capabilities_block_denied_is_drafts_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -413,7 +413,7 @@ def test_capabilities_block_denied_is_drafts_only(monkeypatch: pytest.MonkeyPatc
     )
     monkeypatch.setattr(
         C, "capability_modes",
-        lambda path=None: {"email_send": "off", "imessage_send": "off"},
+        lambda path=None: {"email_send": "no", "imessage_send": "no"},
     )
     out = bootstrap._capabilities_block(7)
     assert "Email — DRAFTS ONLY" in out

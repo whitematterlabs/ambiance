@@ -60,7 +60,6 @@ export interface ShellEntry {
 export interface PendingApproval {
   id: string;
   channel: string;
-  summary: string;
   created_by: string;
   created_at: string;
   recipient?: string;
@@ -70,7 +69,7 @@ export interface PendingApproval {
 
 // One mounted send channel and its current tri-state permission. Drives the
 // sidebar's Send permissions control; only channels a PAI can actually use ship.
-export type SendMode = "off" | "approve" | "auto";
+export type SendMode = "no" | "ask" | "yes";
 export interface SendCapability {
   flag: string;
   channel: string;

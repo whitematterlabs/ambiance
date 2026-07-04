@@ -480,10 +480,13 @@ def delete_pai(name: str, *, stop_timeout: float = 10.0) -> dict:
 def kill_subagent(name: str) -> dict:
     """Abort a running subagent from the web UI (owner-initiated).
 
-    A subagent is a `kind: pai` proc that carries a `parent`. Killing it is the
-    same single write the `subagent kill` CLI makes — `processes.resolve(slug,
-    "completed")` — which flips its status, nudges the parent (proc_resolved),
-    and lets the kernel reap the ephemeral proc dir. The fleet SSE then drops
+    A subagent is a `kind: pai` proc that carries a `parent`. Killing it must
+    both stop its in-flight turn and mark it done: first `interrupt(pid)` to
+    cancel the `_active_nudges` task actually running the subagent's work
+    (same event the CLI's ESC-to-interrupt uses), then `processes.resolve(slug,
+    "completed")` to flip its status, nudge the parent (proc_resolved), and let
+    the kernel reap the ephemeral proc dir. Cancel-before-resolve so the task
+    is stopped before it's marked done, not after. The fleet SSE then drops
     the tab once the proc disappears.
 
     Unlike the CLI path there is no parent-pid gate: the owner is allowed to
@@ -503,6 +506,9 @@ def kill_subagent(name: str) -> dict:
         raise ValueError(f"{name!r} is not a subagent")
     if spec.get("persub"):
         raise ValueError(f"{name!r} is a persistent subagent and cannot be killed")
+    pid = spec.get("pid")
+    if isinstance(pid, int):
+        interrupt(pid)
     try:
         P.resolve(name, "completed")
     except P.ProcessNotFound:
@@ -512,14 +518,15 @@ def kill_subagent(name: str) -> dict:
 
 # --- draft & approve: owner approval queue (web surface) -------------------
 #
-# A PAI under a send capability in `approve` mode proposes a send with
-# `propose-send`, which writes a `pending` record to var/spool/approvals/. The
-# web surface renders the queue and lets the owner approve or reject; the
-# `approvals` driver watches the file and delivers anything the owner moves to
-# `approved`. These helpers only flip status fields on the record — they never
-# send, and (unlike the rest of this module) they never emit an event: the
-# driver's own file watcher is the trigger. The secret grant token lives only
-# in sys/drivers/approvals/ and never touches the queue record, so the review
+# A PAI under a send capability in `ask` mode sends normally; the outbound
+# driver detects the gate and stages a `pending` record to
+# var/spool/approvals/ instead of delivering. The web surface renders the
+# queue and lets the owner approve or reject; the `approvals` driver watches
+# the file and delivers anything the owner moves to `approved`. These helpers
+# only flip status fields on the record — they never send, and (unlike the
+# rest of this module) they never emit an event: the driver's own file
+# watcher is the trigger. The secret grant token lives only in
+# sys/drivers/approvals/ and never touches the queue record, so the review
 # projection below leaks nothing.
 
 
@@ -545,9 +552,9 @@ def _approval_dump(path: Path, data: dict) -> None:
 def list_pending() -> list[dict]:
     """Review projection of every `pending` record, sorted by created_at.
 
-    Keeps only the subset the owner needs to read before deciding — never the
-    raw record, which carries provenance the surface doesn't render. (No token
-    lives in the record, so there's nothing to redact.)
+    Exposes the actual attempted action (to/subject/body for email,
+    thread/body for imessage) directly — there's no PAI-authored summary to
+    fall back to, so the owner reads exactly what would go out.
     """
     out: list[dict] = []
     queue = paths.var_spool_approvals()
@@ -575,7 +582,6 @@ def list_pending() -> list[dict]:
             {
                 "id": rec.get("id") or path.stem,
                 "channel": rec.get("channel") or "",
-                "summary": rec.get("summary") or "",
                 "created_by": rec.get("created_by") or "",
                 "created_at": rec.get("created_at") or "",
                 "recipient": recipient,
@@ -587,11 +593,13 @@ def list_pending() -> list[dict]:
     return out
 
 
-def _decide(ident: str, status: str, *, error: str | None = None) -> dict:
+def _decide(ident: str, status: str, *, error: str | None = None, body_override: str | None = None) -> dict:
     """Flip a still-`pending` record to a terminal owner decision.
 
     Terminal-guard: a record already decided (a double-click, or the driver
     having moved it on) is left untouched so we can't approve something twice.
+    `body_override` merges an owner-edited body into the record's action
+    before dispatch (`content` for email, `text` for imessage).
     """
     path = _approval_path(ident)
     try:
@@ -602,6 +610,11 @@ def _decide(ident: str, status: str, *, error: str | None = None) -> dict:
         return {"id": ident, "status": "missing", "error": "not found"}
     if rec.get("status") != "pending":
         return {"id": ident, "status": rec.get("status"), "error": "not pending"}
+    if body_override is not None:
+        action = rec.get("action") or {}
+        key = "text" if rec.get("channel") == "imessage" else "content"
+        action[key] = body_override
+        rec["action"] = action
     rec["status"] = status
     rec["decided_at"] = datetime.now().isoformat(timespec="seconds")
     rec["decided_by"] = "owner"
@@ -611,9 +624,9 @@ def _decide(ident: str, status: str, *, error: str | None = None) -> dict:
     return {"id": ident, "status": status}
 
 
-def approve_action(ident: str) -> dict:
+def approve_action(ident: str, body_override: str | None = None) -> dict:
     """Mark a pending record `approved`; the approvals driver delivers it."""
-    return _decide(ident, "approved")
+    return _decide(ident, "approved", body_override=body_override)
 
 
 def reject_action(ident: str, reason: str = "") -> dict:
@@ -659,7 +672,7 @@ def list_send_capabilities() -> list[dict]:
     """One row per mounted send channel: `{flag, channel, mode}`.
 
     Channels whose driver isn't mounted anywhere are omitted (no dead toggles).
-    `mode` is the live config value (off/approve/auto), normalized on read."""
+    `mode` is the live config value (no/ask/yes), normalized on read."""
     mounted = _mounted_driver_union()
     modes = config.capability_modes()
     out: list[dict] = []
@@ -670,7 +683,7 @@ def list_send_capabilities() -> list[dict]:
             {
                 "flag": flag,
                 "channel": SEND_CHANNEL_LABELS.get(flag, flag),
-                "mode": modes.get(flag, "off"),
+                "mode": modes.get(flag, "no"),
             }
         )
     return out

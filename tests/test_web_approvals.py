@@ -25,8 +25,6 @@ def _write(queue: Path, ident: str, **over) -> Path:
         "status": "pending",
         "created_by": "email-pai",
         "created_at": "2026-06-30T09:00:00",
-        "summary": "reply to bob",
-        "body_preview": "hi bob",
         "action": {
             "from": "me@x.com",
             "to": ["bob@acme.com"],
@@ -55,7 +53,6 @@ def test_list_pending_projects_review_subset(queue: Path) -> None:
     assert item == {
         "id": "20260630-090000-bob",
         "channel": "email",
-        "summary": "reply to bob",
         "created_by": "email-pai",
         "created_at": "2026-06-30T09:00:00",
         "recipient": "bob@acme.com",
@@ -102,6 +99,27 @@ def test_approve_flips_only_pending(queue: Path) -> None:
     assert rec["status"] == "approved"
     assert rec["decided_by"] == "owner"
     assert rec["decided_at"]
+
+
+def test_approve_with_body_override_merges_edited_content(queue: Path) -> None:
+    path = _write(queue, "x")
+    assert actions.approve_action("x", body_override="edited body") == {
+        "id": "x", "status": "approved",
+    }
+    rec = _load(path)
+    assert rec["action"]["content"] == "edited body"
+    # Nothing else in the action changed.
+    assert rec["action"]["to"] == ["bob@acme.com"]
+
+
+def test_approve_with_body_override_imessage_uses_text_key(queue: Path) -> None:
+    path = _write(
+        queue, "x", channel="imessage",
+        action={"thread": "bob", "text": "original"},
+    )
+    actions.approve_action("x", body_override="edited")
+    rec = _load(path)
+    assert rec["action"]["text"] == "edited"
 
 
 def test_approve_guards_already_decided(queue: Path) -> None:

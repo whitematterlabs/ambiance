@@ -760,7 +760,7 @@ def test_default_config_yaml_seeds_capabilities():
     assert granted["capabilities"] == {"email_send": True, "imessage_send": True}
 
 
-# ----- capabilities: tri-state modes (off / approve / auto) -----
+# ----- capabilities: tri-state modes (no / ask / yes) -----
 
 
 def test_capability_modes_parses_all_three(repo_root):
@@ -768,8 +768,8 @@ def test_capability_modes_parses_all_three(repo_root):
         repo_root,
         """
 capabilities:
-  email_send: approve
-  imessage_send: auto
+  email_send: ask
+  imessage_send: yes
 pais:
   - name: root
     pid: 1
@@ -777,11 +777,11 @@ pais:
 """,
     )
     modes = C.capability_modes()
-    assert modes == {"email_send": "approve", "imessage_send": "auto"}
+    assert modes == {"email_send": "ask", "imessage_send": "yes"}
 
 
 def test_capability_modes_legacy_bools_map(repo_root):
-    # true→auto, false→off so existing configs keep their meaning.
+    # true→yes, false→no so existing configs keep their meaning.
     _write_config(
         repo_root,
         """
@@ -794,7 +794,7 @@ pais:
     description: km
 """,
     )
-    assert C.capability_modes() == {"email_send": "auto", "imessage_send": "off"}
+    assert C.capability_modes() == {"email_send": "yes", "imessage_send": "no"}
 
 
 def test_capability_modes_unknown_value_fails_closed(repo_root):
@@ -810,17 +810,17 @@ pais:
     description: km
 """,
     )
-    assert C.capability_modes() == {"email_send": "off", "imessage_send": "off"}
+    assert C.capability_modes() == {"email_send": "no", "imessage_send": "no"}
 
 
-def test_capability_flags_approve_is_not_direct_send(repo_root):
-    # approve must NOT clear the freeze — the PAI can't send directly.
+def test_capability_flags_ask_is_not_direct_send(repo_root):
+    # ask must NOT clear the freeze — the PAI can't send directly.
     _write_config(
         repo_root,
         """
 capabilities:
-  email_send: approve
-  imessage_send: off
+  email_send: ask
+  imessage_send: no
 pais:
   - name: root
     pid: 1
@@ -831,15 +831,15 @@ pais:
     assert flags == {"email_send": False, "imessage_send": False}
 
 
-def test_project_capabilities_approve_keeps_freeze(repo_root, tmp_path, monkeypatch):
+def test_project_capabilities_ask_keeps_freeze(repo_root, tmp_path, monkeypatch):
     monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
     email_freeze = PA.sys_drivers("email") / "outbound.freeze"
     _write_config(
         repo_root,
         """
 capabilities:
-  email_send: approve
-  imessage_send: auto
+  email_send: ask
+  imessage_send: yes
 pais:
   - name: root
     pid: 1
@@ -847,10 +847,10 @@ pais:
 """,
     )
     C.project_capabilities()
-    # approve → frozen (no direct PAI send), reason records the mode.
+    # ask → frozen (no direct PAI send), reason records the mode.
     assert email_freeze.exists()
-    assert "email_send=approve" in email_freeze.read_text()
-    # auto → cleared.
+    assert "email_send=ask" in email_freeze.read_text()
+    # yes → cleared.
     assert not (PA.sys_drivers("imessage") / "outbound.freeze").exists()
 
 
@@ -862,19 +862,19 @@ def test_set_capability_mode_writes_and_reads_back(repo_root):
         repo_root,
         """
 capabilities:
-  email_send: off
-  imessage_send: off
+  email_send: no
+  imessage_send: no
 pais:
   - name: root
     pid: 1
     description: km
 """,
     )
-    assert C.set_capability_mode("email_send", "approve") == "approve"
+    assert C.set_capability_mode("email_send", "ask") == "ask"
     modes = C.capability_modes()
-    assert modes["email_send"] == "approve"
+    assert modes["email_send"] == "ask"
     # The untouched channel keeps its value.
-    assert modes["imessage_send"] == "off"
+    assert modes["imessage_send"] == "no"
 
 
 def test_set_capability_mode_preserves_siblings(repo_root):
@@ -883,8 +883,8 @@ def test_set_capability_mode_preserves_siblings(repo_root):
         """
 onboarding_pending: false
 capabilities:
-  email_send: off
-  imessage_send: auto
+  email_send: no
+  imessage_send: "yes"
 pais:
   - name: root
     pid: 1
@@ -894,12 +894,12 @@ pais:
     description: dflt
 """,
     )
-    C.set_capability_mode("email_send", "auto")
+    C.set_capability_mode("email_send", "yes")
     data = yaml.safe_load(path.read_text())
     # Fleet + top-level flags survive the round-trip; only the one mode changed.
     assert data["onboarding_pending"] is False
     assert [e["name"] for e in data["pais"]] == ["root", "pai"]
-    assert data["capabilities"] == {"email_send": "auto", "imessage_send": "auto"}
+    assert data["capabilities"] == {"email_send": "yes", "imessage_send": "yes"}
 
 
 def test_set_capability_mode_creates_block_when_absent(repo_root):
@@ -912,9 +912,9 @@ pais:
     description: km
 """,
     )
-    C.set_capability_mode("imessage_send", "approve")
+    C.set_capability_mode("imessage_send", "ask")
     data = yaml.safe_load(path.read_text())
-    assert data["capabilities"] == {"imessage_send": "approve"}
+    assert data["capabilities"] == {"imessage_send": "ask"}
 
 
 def test_set_capability_mode_rejects_unknown_flag(repo_root):
@@ -928,7 +928,7 @@ pais:
 """,
     )
     with pytest.raises(ValueError):
-        C.set_capability_mode("sms_send", "auto")
+        C.set_capability_mode("sms_send", "yes")
 
 
 def test_set_capability_mode_rejects_invalid_mode(repo_root):
@@ -938,7 +938,7 @@ def test_set_capability_mode_rejects_invalid_mode(repo_root):
         repo_root,
         """
 capabilities:
-  email_send: approve
+  email_send: ask
 pais:
   - name: root
     pid: 1
@@ -948,4 +948,4 @@ pais:
     with pytest.raises(ValueError):
         C.set_capability_mode("email_send", "maybe")
     # The file is untouched by the rejected write.
-    assert yaml.safe_load(path.read_text())["capabilities"] == {"email_send": "approve"}
+    assert yaml.safe_load(path.read_text())["capabilities"] == {"email_send": "ask"}

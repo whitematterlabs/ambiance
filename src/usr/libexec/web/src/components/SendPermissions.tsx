@@ -1,14 +1,14 @@
 import type { SendCapability, SendMode } from "../types";
 
 const MODES: { mode: SendMode; label: string; hint: string }[] = [
-  { mode: "off", label: "Off", hint: "Draft only — nothing is queued or sent" },
-  { mode: "approve", label: "Approve", hint: "Proposes a send; you decide in the approval tray" },
-  { mode: "auto", label: "Auto", hint: "Sends autonomously, no approval" },
+  { mode: "no", label: "No", hint: "Draft only — nothing is queued or sent" },
+  { mode: "ask", label: "Ask", hint: "Sends normally, but queues in the approval tray for your decision" },
+  { mode: "yes", label: "Yes", hint: "Sends autonomously, no approval" },
 ];
 
 // Owner control for the tri-state send capabilities. One segmented row per
 // mounted channel; the modal approval tray still handles individual sends in
-// `approve` mode — this only sets which mode a channel runs in. Channels arrive
+// `ask` mode — this only sets which mode a channel runs in. Channels arrive
 // pre-filtered by the backend (only ones a PAI can actually send on), so an
 // empty list means "no send-capable channel is mounted" and the block hides.
 export function SendPermissions({

@@ -2841,15 +2841,10 @@ button {
   color: var(--text);
 }
 
-.approval-summary {
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-.approval-body {
+.approval-body-edit {
   margin: 2px 0 0;
-  max-height: 240px;
+  min-height: 160px;
+  max-height: 360px;
   overflow-y: auto;
   padding: 10px 11px;
   border: 1px solid var(--border);
@@ -2861,6 +2856,13 @@ button {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  resize: vertical;
+}
+
+.approval-body-edit:focus {
+  outline: none;
+  border-color: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent);
 }
 
 .approval-actions,

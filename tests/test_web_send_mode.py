@@ -16,8 +16,8 @@ from usr.libexec.web.pai_web import actions
 
 _BODY = """
 capabilities:
-  email_send: off
-  imessage_send: approve
+  email_send: no
+  imessage_send: ask
 pais:
   - name: root
     pid: 1
@@ -33,10 +33,10 @@ def _write_config(repo_root: Path, body: str = _BODY) -> Path:
 
 def test_set_send_mode_persists_and_emits(repo_root, tmp_path):
     _write_config(repo_root)
-    out = actions.set_send_mode("email_send", "auto")
-    assert out == {"flag": "email_send", "mode": "auto"}
+    out = actions.set_send_mode("email_send", "yes")
+    assert out == {"flag": "email_send", "mode": "yes"}
     # The choice landed in config.yaml (read back through the normal accessor).
-    assert C.capability_modes()["email_send"] == "auto"
+    assert C.capability_modes()["email_send"] == "yes"
     # A kernel:reload_config event was queued so the freeze re-projects live.
     events = list((tmp_path / "events").glob("*.yaml"))
     assert events, "expected a reload event file"
@@ -47,14 +47,14 @@ def test_set_send_mode_rejects_bad_mode(repo_root):
     with pytest.raises(ValueError):
         actions.set_send_mode("email_send", "nope")
     # The rejected write leaves the file untouched.
-    assert C.capability_modes()["email_send"] == "off"
+    assert C.capability_modes()["email_send"] == "no"
     assert path.read_text()  # still there, unchanged
 
 
 def test_set_send_mode_rejects_unknown_flag(repo_root):
     _write_config(repo_root)
     with pytest.raises(ValueError):
-        actions.set_send_mode("sms_send", "auto")
+        actions.set_send_mode("sms_send", "yes")
 
 
 def test_list_send_capabilities_filters_unmounted(repo_root, monkeypatch):
@@ -62,7 +62,7 @@ def test_list_send_capabilities_filters_unmounted(repo_root, monkeypatch):
     # Only the email driver is mounted → only Email shows, at its live mode.
     monkeypatch.setattr(actions, "_mounted_driver_union", lambda: {"email"})
     assert actions.list_send_capabilities() == [
-        {"flag": "email_send", "channel": "Email", "mode": "off"},
+        {"flag": "email_send", "channel": "Email", "mode": "no"},
     ]
 
 
@@ -78,6 +78,6 @@ def test_list_send_capabilities_reports_both_channels(repo_root, monkeypatch):
         actions, "_mounted_driver_union", lambda: {"email", "imessage"}
     )
     assert actions.list_send_capabilities() == [
-        {"flag": "email_send", "channel": "Email", "mode": "off"},
-        {"flag": "imessage_send", "channel": "iMessage", "mode": "approve"},
+        {"flag": "email_send", "channel": "Email", "mode": "no"},
+        {"flag": "imessage_send", "channel": "iMessage", "mode": "ask"},
     ]

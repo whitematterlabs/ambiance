@@ -474,48 +474,48 @@ def _apply_managed_fields(target: dict, desired: dict) -> None:
             del target[k]
 
 
-# A capability is tri-state. Legacy bools still parse (true→auto, false→off):
-#   off      — channel cannot send; the PAI drafts only.
-#   approve  — the PAI may *propose* a send; it lands in the owner's approval
-#              queue and is delivered only after the owner approves it. Outbound
-#              stays frozen for the PAI's own direct sends — only the approvals
-#              driver carries an approved item through. The default-safe grant.
-#   auto     — the PAI sends autonomously at its own discretion.
-# Default is `off` (fail-closed): a missing/broken/typo'd value never sends.
-CAPABILITY_MODES = ("off", "approve", "auto")
+# A capability is tri-state. Legacy bools still parse (true→yes, false→no):
+#   no   — channel cannot send; the PAI drafts only.
+#   ask  — the PAI may *propose* a send; it lands in the owner's approval
+#          queue and is delivered only after the owner approves it. Outbound
+#          stays frozen for the PAI's own direct sends — only the approvals
+#          driver carries an approved item through. The default-safe grant.
+#   yes  — the PAI sends autonomously at its own discretion.
+# Default is `no` (fail-closed): a missing/broken/typo'd value never sends.
+CAPABILITY_MODES = ("no", "ask", "yes")
 
 
 def _normalize_capability_mode(value) -> str:
     """Map a raw `capabilities:` value to one of CAPABILITY_MODES, fail-closed.
 
-    Accepts legacy bools (true→auto, false→off) and string aliases; anything
-    unrecognized — a typo, a number, a list — resolves to `off` so a malformed
+    Accepts legacy bools (true→yes, false→no) and string aliases; anything
+    unrecognized — a typo, a number, a list — resolves to `no` so a malformed
     grant can never enable sending."""
     if value is True:
-        return "auto"
+        return "yes"
     if value is False or value is None:
-        return "off"
+        return "no"
     if isinstance(value, str):
         v = value.strip().lower()
-        if v in ("auto", "on", "yes", "true"):
-            return "auto"
-        if v in ("approve", "approval", "review"):
-            return "approve"
-        if v in ("off", "no", "false", "none", "drafts", "draft", ""):
-            return "off"
-    return "off"
+        if v in ("yes", "on", "auto", "true"):
+            return "yes"
+        if v in ("ask", "approve", "approval", "review"):
+            return "ask"
+        if v in ("no", "off", "false", "none", "drafts", "draft", ""):
+            return "no"
+    return "no"
 
 
 def capability_modes(path: Path | None = None) -> dict[str, str]:
-    """Read the top-level `capabilities:` map as a mode (off/approve/auto) per
+    """Read the top-level `capabilities:` map as a mode (no/ask/yes) per
     capability. A missing key, missing file, parse error, or unrecognized value
-    all resolve to `off` — sending must be an explicit, well-formed, on-disk
+    all resolve to `no` — sending must be an explicit, well-formed, on-disk
     grant, never the result of an absent, broken, or typo'd config."""
     p = path or CONFIG_PATH
     try:
         data = _load_yaml(p)
     except ConfigError:
-        return {k: "off" for k in CAPABILITY_SPECS}
+        return {k: "no" for k in CAPABILITY_SPECS}
     caps = data.get("capabilities") if isinstance(data, dict) else None
     caps = caps if isinstance(caps, dict) else {}
     return {k: _normalize_capability_mode(caps.get(k)) for k in CAPABILITY_SPECS}
@@ -551,22 +551,22 @@ def set_capability_mode(flag: str, mode: str, path: Path | None = None) -> str:
 
 def capability_flags(path: Path | None = None) -> dict[str, bool]:
     """Back-compat predicate: True iff the capability lets the PAI send
-    *directly and autonomously* (mode `auto`). Both `off` and `approve` are
-    False here — in approve mode the PAI cannot send on its own; an approved
+    *directly and autonomously* (mode `yes`). Both `no` and `ask` are
+    False here — in ask mode the PAI cannot send on its own; an approved
     item is carried by the approvals driver, not by clearing this flag. This is
     what `project_capabilities` reads to decide the per-driver freeze, so the
-    freeze stays ON for off+approve and clears only for auto."""
-    return {k: m == "auto" for k, m in capability_modes(path).items()}
+    freeze stays ON for no+ask and clears only for yes."""
+    return {k: m == "yes" for k, m in capability_modes(path).items()}
 
 
 def project_capabilities(path: Path | None = None) -> None:
     """Project capability modes into per-driver freeze files.
 
-    auto         → remove the freeze file (driver sends directly).
-    off / approve → write the freeze file with a reason (driver refuses the
-                    PAI's direct outbound). In approve mode the approvals driver
-                    still delivers approved items via its own trusted path; the
-                    freeze only blocks the PAI from sending on its own.
+    yes      → remove the freeze file (driver sends directly).
+    no / ask → write the freeze file with a reason (driver refuses the
+               PAI's direct outbound). In ask mode the approvals driver
+               still delivers approved items via its own trusted path; the
+               freeze only blocks the PAI from sending on its own.
 
     The freeze file is the hard enforcement boundary the drivers check on every
     send; this keeps it in lockstep with `capabilities:` on boot and on every
@@ -574,9 +574,9 @@ def project_capabilities(path: Path | None = None) -> None:
     without touching driver state by hand."""
     modes = capability_modes(path)
     for flag, spec in CAPABILITY_SPECS.items():
-        mode = modes.get(flag, "off")
+        mode = modes.get(flag, "no")
         freeze = paths.sys_drivers(spec["driver"]) / spec["freeze"]
-        if mode == "auto":
+        if mode == "yes":
             try:
                 freeze.unlink()
             except FileNotFoundError:
@@ -584,7 +584,7 @@ def project_capabilities(path: Path | None = None) -> None:
             except OSError as e:
                 print(f"[kernel] capability: could not clear {freeze}: {e}", flush=True)
             else:
-                print(f"[kernel] capability: {flag} granted (auto) — direct sends enabled", flush=True)
+                print(f"[kernel] capability: {flag} granted (yes) — direct sends enabled", flush=True)
         else:
             try:
                 freeze.parent.mkdir(parents=True, exist_ok=True)
@@ -594,8 +594,8 @@ def project_capabilities(path: Path | None = None) -> None:
             except OSError as e:
                 print(f"[kernel] capability: could not write {freeze}: {e}", flush=True)
             else:
-                if mode == "approve":
-                    print(f"[kernel] capability: {flag} approve — direct sends frozen, approvals queue active", flush=True)
+                if mode == "ask":
+                    print(f"[kernel] capability: {flag} ask — direct sends frozen, approvals queue active", flush=True)
 
 
 def reconcile_from_config(path: Path | None = None) -> None:

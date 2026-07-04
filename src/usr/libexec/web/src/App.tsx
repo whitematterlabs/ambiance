@@ -919,7 +919,7 @@ export function App() {
       {approvalsOpen && approvals.length > 0 && (
         <ApprovalModal
           approvals={approvals}
-          onApprove={(id) => api.approve(id)}
+          onApprove={(id, body) => api.approve(id, body)}
           onReject={(id, r) => api.reject(id, r)}
           onClose={() => setApprovalsOpen(false)}
         />

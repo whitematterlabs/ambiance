@@ -211,7 +211,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = actions.kill_subagent(str(body["name"]))
                 return self._json({"ok": True, **result})
             if path == "/api/approve":
-                return self._json({"ok": True, **actions.approve_action(str(body["id"]))})
+                body_override = body.get("body")
+                return self._json({
+                    "ok": True,
+                    **actions.approve_action(
+                        str(body["id"]),
+                        body_override=str(body_override) if body_override is not None else None,
+                    ),
+                })
             if path == "/api/reject":
                 return self._json(
                     {"ok": True, **actions.reject_action(str(body["id"]), str(body.get("reason", "")))}

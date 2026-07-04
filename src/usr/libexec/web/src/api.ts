@@ -86,15 +86,20 @@ export const runShell = (pid: number, cmd: string) =>
 
 // Draft & approve: the owner decides a queued send. The hub's file watcher
 // rebroadcasts the shrunken pending list — these don't mutate local state.
-export const approve = (id: string) =>
-  post("/api/approve", { id }) as Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
+export const approve = (id: string, body?: string) =>
+  post("/api/approve", { id, ...(body !== undefined ? { body } : {}) }) as Promise<{
+    ok: boolean;
+    id?: string;
+    status?: string;
+    error?: string;
+  }>;
 
 export const reject = (id: string, reason: string) =>
   post("/api/reject", { id, reason }) as Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
 
 export const setProvider = (key: string) => post("/api/provider", { key });
 
-// Set a send channel's tri-state mode (off/approve/auto). The backend rewrites
+// Set a send channel's tri-state mode (no/ask/yes). The backend rewrites
 // capabilities in config.yaml and reloads the kernel; the hub then rebroadcasts
 // send_capabilities, so callers update optimistically and let it reconcile.
 export const setSendMode = (flag: string, mode: string) =>

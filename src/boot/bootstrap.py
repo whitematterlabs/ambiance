@@ -569,13 +569,13 @@ def _resolve_listings(
     return bins, skills, system_skills
 
 
-# Per-capability prompt prose, keyed by the granted mode (off/approve/auto).
+# Per-capability prompt prose, keyed by the granted mode (no/ask/yes).
 # Stated factually so the PAI's knowledge of what it can do is generated from
 # the same mode that gates the driver — never a hand-maintained claim that can
 # fall out of sync.
 _CAPABILITY_LINES: dict[str, dict[str, str]] = {
     "email_send": {
-        "auto": (
+        "yes": (
             "Email — SEND GRANTED. You may send email on the owner's behalf, at "
             "your own discretion and per the owner's instructions. To send, add "
             "`action: send` to the draft yaml; omit it to leave a draft for the "
@@ -583,16 +583,15 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "the recipient, and never send on a guess. Never commit the owner "
             "to payments, RSVPs, or promises without explicit approval."
         ),
-        "approve": (
-            "Email — APPROVAL REQUIRED. You may *propose* an email send, but you "
-            "cannot send it yourself. Queue it with `propose-send --channel email "
-            "…`; it is delivered only after the owner approves it from their "
-            "approval queue. Never write `action: send` directly — outbound is "
-            "frozen and it is downgraded to a Mail.app draft, not sent. After "
-            "proposing, tell the owner you queued it for approval — never that it "
-            "was sent."
+        "ask": (
+            "Email — APPROVAL REQUIRED. Send normally — add `action: send` to "
+            "the draft yaml exactly as you would with send granted. Because "
+            "this capability is in ask mode, the driver won't deliver it "
+            "directly: it automatically queues your draft in the owner's "
+            "approval tray and you'll hear back once they decide. Tell the "
+            "owner you sent it for approval — never that it was sent outright."
         ),
-        "off": (
+        "no": (
             "Email — DRAFTS ONLY. You can draft email but cannot send it. Drafts "
             "land in Mail.app for the owner to review and send by hand. Do not "
             "try to send: `action: send` is ignored and the message is saved as "
@@ -600,22 +599,22 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
         ),
     },
     "imessage_send": {
-        "auto": (
+        "yes": (
             "iMessage — SEND GRANTED. You may send iMessages on the owner's "
             "behalf, at your own discretion and per the owner's instructions, by "
             "appending a bare line to a thread day-file. Sending is irreversible "
             "— be deliberate. Never commit the owner to payments, RSVPs, or "
             "promises without explicit approval."
         ),
-        "approve": (
-            "iMessage — APPROVAL REQUIRED. You may *propose* an iMessage, but you "
-            "cannot send it yourself. Queue it with `propose-send --channel "
-            "imessage …`; it is delivered only after the owner approves it. Never "
-            "append a bare line to a thread day-file — outbound is frozen and it "
-            "will not be delivered. After proposing, tell the owner you queued it "
-            "— never that it was sent."
+        "ask": (
+            "iMessage — APPROVAL REQUIRED. Send normally — append a bare line "
+            "to the thread day-file exactly as you would with send granted. "
+            "Because this capability is in ask mode, the driver won't deliver "
+            "it directly: it automatically queues your message in the owner's "
+            "approval tray and you'll hear back once they decide. Tell the "
+            "owner you sent it for approval — never that it was sent outright."
         ),
-        "off": (
+        "no": (
             "iMessage — READ ONLY. You can read threads but cannot send. Outbound "
             "is frozen: a bare line is consumed with a `kernel: send frozen` note "
             "and never delivered. Don't attempt sends or claim one happened."
@@ -642,7 +641,7 @@ def _capabilities_block(pai: int) -> str:
     for flag, spec in specs.items():
         if not (spec.get("mounts") or set()) & mounted:
             continue
-        line = _CAPABILITY_LINES.get(flag, {}).get(modes.get(flag, "off"))
+        line = _CAPABILITY_LINES.get(flag, {}).get(modes.get(flag, "no"))
         if line:
             lines.append(f"- {line}")
     if not lines:
