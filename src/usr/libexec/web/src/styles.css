@@ -1300,6 +1300,9 @@ button {
 .thinking-group {
   width: 100%;
   max-width: 82%;
+  /* Indent to line the pill up with the chat bubbles, which start past the
+     avatar column (28px avatar + 10px .msg gap). */
+  margin-left: 38px;
   margin-bottom: 12px;
   animation: msg-in 0.42s var(--ease-out) both;
 }

@@ -1,4 +1,4 @@
-# Cowork Mode — Window Activity Tracking (v1 slice)
+# Cowork Mode — Window + Clipboard + File Activity Tracking (v1 slice)
 
 **Status:** Draft, pending user review
 **Date:** 2026-07-03
@@ -8,11 +8,12 @@
 Coworking mode is a planned upgrade where PAI observes the owner's computer
 activity — active app/window, clipboard, downloads, browser activity — to feel
 like a real ambient assistant rather than something only reachable via chat.
-That full scope spans several independent subsystems, so this spec covers only
-the first slice: **window/app-switch tracking**, plus one quick-win that rides
-on it — a **piggybacked clipboard copy-log**. Downloads and browser activity are
-explicitly out of scope here and will get their own specs later, added as
-additional processes to the same driver package (see Architecture).
+That full scope spans several independent subsystems, so this spec covers the
+first slice: **window/app-switch tracking**, a **piggybacked clipboard copy-log**
+that rides on it, and **file-activity watching** (what happens to files in the
+owner's key folders). Browser activity is explicitly out of scope here and will
+get its own spec later, added as an additional process to the same driver
+package (see Architecture).
 
 The clipboard copy-log is deliberately scoped to what stays *event-driven*: on
 each app-switch we already receive, we sample the pasteboard's `changeCount` and,
@@ -22,6 +23,14 @@ switch apps" case without a polling loop. Change-accurate clipboard tracking
 PAI's tickless dogma) and *paste* tracking (not observable from the pasteboard at
 all; a paste is a read and leaves no trace — would need a CGEvent keyboard tap and
 a new Input Monitoring TCC grant) are both explicitly deferred (see Future work).
+
+File-activity watching is deliberately scoped to *observing what happens to
+files*, **not classifying the operation**. We don't try to tell `mv` from `cp`
+from a download from an app-save — that inference is lossy and the owner doesn't
+need it. We log the raw filesystem event (path + change kind + timestamp) via
+FSEvents, which is push-based and so stays within the tickless dogma. The one
+enrichment we keep, because it's cheap and high-value, is reading a new file's
+"where from" xattr so a download's source URL lands in the log.
 
 This is a meaningful departure from precedent: the existing `ax` driver is
 deliberately scoped as "piloting, not surveillance" — no ambient firehose, no
@@ -42,7 +51,11 @@ piloting-only posture.
 - On each app-switch, sample the pasteboard's `changeCount`; if it changed
   since the last sample, log the new clipboard contents (event-driven copy-log,
   no timer).
-- Ship as one process inside a `cowork` driver package designed to grow
+- Watch a configured set of folders (default `~/Downloads`, `~/Desktop`,
+  `~/Documents`) via FSEvents and log every file create/remove/rename/modify as
+  it happens — the raw event, not a guessed operation. Enrich a newly-appeared
+  file with its `kMDItemWhereFroms` source URL when present.
+- Ship as processes inside a `cowork` driver package designed to grow
   additional trackers (downloads, browser, richer clipboard) later without
   restructuring.
 
@@ -53,7 +66,11 @@ piloting-only posture.
   Deferred.
 - Paste tracking (⌘V) — not observable from the pasteboard; needs a CGEvent
   keyboard tap + Input Monitoring TCC. Deferred, separate spec.
-- Download tracking, browser history/tabs — future specs.
+- Classifying file operations (mv vs cp vs download vs app-save) — deliberately
+  not attempted; we log raw FSEvents, not inferred intent.
+- Watching the *entire* filesystem — v1 watches a configured, bounded set of
+  folders, not `/`.
+- Browser history/tabs — future spec.
 - Any proactive "nudge" heuristics (idle detection, focus-fragmentation
   alerts, etc.) — PAI decides per-event whether to act; no driver-side trigger
   logic.
@@ -66,10 +83,11 @@ New driver at `~/Projects/pairegistry/drivers/cowork/`, following the existing
 inbound-driver pattern (same shape as `imessage`, `email`, etc.):
 
 - `package.yaml` — paiman manifest.
-- `events.yaml` — declares process `window_activity` with event kinds
-  `cowork:window_changed` and `cowork:clipboard_changed`. Future specs append
-  `downloads`, `browser` as additional process entries in this same file — same
-  driver, same capability flag, independently addable without a rewrite.
+- `events.yaml` — declares two processes: `window_activity` (event kinds
+  `cowork:window_changed`, `cowork:clipboard_changed`) and `file_activity`
+  (event kind `cowork:file_changed`). A future spec appends `browser` as another
+  process entry in this same file — same driver, same capability flag,
+  independently addable without a rewrite.
 - `window_activity.py` — pure Python via `pyobjc`: subscribes to
   `NSWorkspace.didActivateApplicationNotification`; on each activation, reads
   the frontmost app name and window title via the Accessibility API (the same
@@ -80,13 +98,23 @@ inbound-driver pattern (same shape as `imessage`, `email`, etc.):
   clipboard entry. No new TCC — pasteboard reads need no permission. This rides
   the window-focus event, so it stays a single event-driven process, not a
   second poller.
+- `file_activity.py` — pure Python via `pyobjc`: opens an `FSEventStream` over
+  the configured watch roots with `kFSEventStreamCreateFlagFileEvents`, so each
+  callback carries per-file paths and change flags (created / removed / renamed /
+  modified). It logs the raw event and emits `cowork:file_changed`; it does not
+  classify the operation. For a path flagged created/renamed it best-effort reads
+  the `com.apple.metadata:kMDItemWhereFroms` xattr and, if present, includes the
+  source URL. Watch roots come from the driver's shipped config, defaulting to
+  `~/Downloads`, `~/Desktop`, `~/Documents`. Watching those protected folders
+  trips a macOS TCC prompt on first run (distinct from the Accessibility grant) —
+  see Capability gating.
 
 No new compiled/Swift sidecar. This follows the lesson already burned into
 project history: `PAI.app` was deleted because an Xcode-only build broke setup
 on machines with only Command Line Tools, and `ax`'s sidecar now ships as a
-prebuilt binary specifically to avoid that trap. A window-focus listener is
-simple enough that pure Python avoids the problem entirely rather than working
-around it.
+prebuilt binary specifically to avoid that trap. Both a window-focus listener
+and an FSEvents watcher are simple enough that pure Python avoids the problem
+entirely rather than working around it.
 
 ## Data flow
 
@@ -112,9 +140,25 @@ On every window-focus change:
    pasteboard contents (images, files) are logged as a typed placeholder with no
    raw bytes.
 
+Independently, on every filesystem change under a watch root:
+
+1. `file_activity.py`'s FSEvents callback fires with one or more `(path, flags)`
+   pairs.
+2. For each, builds a payload `{path, change, timestamp}` where `change` is the
+   raw FSEvents flag set (created/removed/renamed/modified), not an inferred
+   operation. If the path was created/renamed and carries a `kMDItemWhereFroms`
+   xattr, adds `source_url`.
+3. Appends one line per event to `/sys/drivers/cowork/file_activity.ndjson` and
+   emits `cowork:file_changed`. Same routing as the others — every change wakes
+   PAI, PAI decides whether to react. FSEvents coalesces rapid bursts; we log
+   whatever the callback delivers without re-expanding.
+
 No cursor file (unlike `imessage`) — this isn't replaying a backlog from an
 external store, it's a live push stream starting from kernel boot. A missed
 notification (rare) is simply absent from the log; there's nothing to repair.
+(FSEvents does support a since-event-ID replay, but v1 doesn't use it — a
+missed file event is treated the same as a missed window event: gone, not
+recovered.)
 
 ## Capability gating & privacy
 
