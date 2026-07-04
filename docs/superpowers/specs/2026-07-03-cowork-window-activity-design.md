@@ -168,20 +168,27 @@ recovered.)
   capabilities (which fail closed), Cowork Mode ships on by default and is
   controlled via an explicit toggle rather than an install-time prompt.
 - One **"Cowork Mode" toggle** in the web console (`src/usr/libexec/web`)
-  gates the entire `cowork` driver package — not per-tracker switches. When
-  future processes (clipboard, downloads, browser) land, they check this same
-  flag, so the owner controls coworking mode as one unit.
+  gates the entire `cowork` driver package — not per-tracker switches. Both
+  `window_activity` and `file_activity` check this same flag, and future
+  processes (browser) will too, so the owner controls coworking mode as one unit.
 - Flipping the toggle writes `capabilities.cowork: yes|no` to `config.yaml`
   and the driver reconciles live (same `active:`-flag reconcile pattern
   `paictl start/stop` already uses) — no restart required.
 - Unlike existing capabilities (which freeze *outbound* sends), this one gates
-  whether `window_activity.py` captures at all: when the flag is `no`, the
-  process either doesn't run or immediately no-ops — no window titles and no
-  clipboard contents are ever touched while disabled.
+  whether the driver captures at all: when the flag is `no`, both processes
+  either don't run or immediately no-op — no window titles, no clipboard
+  contents, and no file events are ever touched while disabled.
+- **New TCC surface:** watching `~/Downloads`/`~/Desktop`/`~/Documents` trips
+  macOS's protected-folder prompt on first run — a *separate* grant from the
+  Accessibility permission `ax`/window-tracking already have. Because Cowork
+  Mode defaults on, the owner will hit this prompt the first time the driver
+  starts; the web toggle copy should say so. If the grant is denied,
+  `file_activity.py` logs one warning and exits cleanly (same posture as the
+  ax-TCC-missing path); the window/clipboard processes are unaffected.
 - The same flag feeds the `<capabilities>` prompt block, so PAI's own
-  self-description discloses that it's watching window activity *and clipboard
-  copies* when enabled — enforcement and disclosure stay in sync, per existing
-  convention.
+  self-description discloses that it's watching window activity, clipboard
+  copies, *and file activity in the watched folders* when enabled — enforcement
+  and disclosure stay in sync, per existing convention.
 
 ## Log format
 
@@ -198,15 +205,28 @@ recovered.)
 {"ts": "2026-07-03T14:23:10Z", "app": "Finder", "content": null, "type": "file-url"}
 ```
 
-Both append-only, never rotated/truncated by the driver itself.
+`/sys/drivers/cowork/file_activity.ndjson`, one JSON object per line (`change`
+is the raw FSEvents flag list, `source_url` present only when the xattr was):
+
+```json
+{"ts": "2026-07-03T14:25:00Z", "path": "/Users/x/Downloads/contract.pdf", "change": ["created"], "source_url": "https://example.com/contract.pdf"}
+{"ts": "2026-07-03T14:26:12Z", "path": "/Users/x/Desktop/notes.txt", "change": ["renamed"]}
+{"ts": "2026-07-03T14:27:40Z", "path": "/Users/x/Downloads/old.zip", "change": ["removed"]}
+```
+
+All three append-only, never rotated/truncated by the driver itself.
 
 ## Error handling
 
 - If Accessibility permission isn't granted, `window_activity.py` logs a
   single warning to its own process log (`/proc/<slug>/log`) and exits
   cleanly rather than crashing/retrying — same TCC-missing behavior as `ax`.
-- Dropped NSWorkspace notifications (rare) simply don't appear in the log —
-  no cursor/backlog to recover, since this is a live stream, not a replay.
+- If protected-folder access isn't granted, `file_activity.py` does the same:
+  one warning, clean exit. It fails independently of `window_activity` — one
+  process dying doesn't take the other down.
+- Dropped NSWorkspace notifications or FSEvents callbacks (rare) simply don't
+  appear in the log — no cursor/backlog to recover, since this is a live
+  stream, not a replay.
 
 ## Testing
 
@@ -218,7 +238,10 @@ Manual verification only for v1:
    receives `cowork:window_changed` events (visible in kernel/process logs).
 4. Copy some text, then switch apps; confirm `clipboard.ndjson` gets a line and
    a `cowork:clipboard_changed` event fires.
-5. Toggle Cowork Mode off; confirm no further lines are appended to either log
+5. Download a file, and mv/rm one in a watched folder; confirm
+   `file_activity.ndjson` gets lines (with `source_url` on the download) and
+   `cowork:file_changed` events fire.
+6. Toggle Cowork Mode off; confirm no further lines are appended to any log
    and no further events are emitted.
 
 No automated test suite for this slice — it's OS-level capture, not logic;
@@ -233,7 +256,11 @@ existing kernel event-routing tests (if any) already cover event delivery.
   justification) rather than a naive busy-poll.
 - Paste tracking (⌘V) — needs a global CGEvent keyboard tap + Input Monitoring
   TCC grant; paste destination is unreliable. Separate, higher-privacy spec.
-- `downloads` process — watch Downloads folder / browser download events.
+- Richer file classification (mv vs cp vs download) — only if PAI turns out to
+  need the operation, not just the fact of change; would use the inode + xattr
+  heuristics we deliberately skipped in v1.
+- Configurable / expanded watch roots via the web console (v1 ships a fixed
+  default set).
 - `browser` process — URLs/tab titles, requires browser-specific integration.
 - Proactive nudge heuristics built on top of the logged activity stream, once
   there's real data to design against.
