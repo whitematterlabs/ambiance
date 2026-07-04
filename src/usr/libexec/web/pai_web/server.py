@@ -90,6 +90,11 @@ _ASSET_TYPES = {
     ".bmp": "image/bmp",
 }
 
+# Cap on inline text attachments served by `/api/asset`. Large enough for a
+# post, a result.md, or a log tail; small enough that a runaway file can't wedge
+# the console. Files beyond this are served truncated with a marker.
+_MAX_TEXT_ASSET_BYTES = 256 * 1024
+
 HUB = Hub()
 MAX_STT_UPLOAD_BYTES = 30 * 1024 * 1024
 
@@ -418,10 +423,25 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "not found"}, status=404)
         if not target.is_relative_to(root):
             return self._json({"error": "not found"}, status=404)
-        ctype = _ASSET_TYPES.get(target.suffix.lower())
-        if ctype is None or not target.is_file():
+        if not target.is_file():
             return self._json({"error": "not found"}, status=404)
-        return self._binary(target.read_bytes(), ctype)
+        ctype = _ASSET_TYPES.get(target.suffix.lower())
+        if ctype is not None:
+            return self._binary(target.read_bytes(), ctype)
+        # Not a known image: try to serve it as inline text so the console can
+        # render attached files (posts, logs, code) the same way it renders
+        # screenshots. Read a bounded prefix and require it to be valid UTF-8;
+        # anything binary (or too large to be text) falls through to 404. Always
+        # served as text/plain so a `.html`/`.svg` attachment can't execute.
+        try:
+            raw = target.read_bytes()[: _MAX_TEXT_ASSET_BYTES + 1]
+            text = raw.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return self._json({"error": "not found"}, status=404)
+        truncated = len(raw) > _MAX_TEXT_ASSET_BYTES
+        if truncated:
+            text = text[:_MAX_TEXT_ASSET_BYTES] + "\n… (truncated)"
+        return self._binary(text.encode("utf-8"), "text/plain; charset=utf-8")
 
     # -- static (SPA) --
     def _static(self, path: str):

@@ -1555,6 +1555,83 @@ button {
   background: var(--surface-muted);
 }
 
+/* Attached files embedded via markdown (`![caption](/abs/path)`). Images
+   render inline; text/markdown files are fetched and shown in a bordered card
+   so the owner sees the content without PAI copying it into the reply. */
+.msg-attach-img {
+  max-width: 100%;
+  height: auto;
+  margin: 0.7em 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.msg-attach {
+  margin: 0.7em 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+
+.msg-attach-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.msg-attach-name {
+  font-family: var(--mono, monospace);
+  font-size: 0.82em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-attach-open {
+  flex: none;
+  font-size: 0.78em;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.msg-attach-open:hover {
+  color: var(--accent);
+}
+
+.msg-attach-body {
+  max-height: 460px;
+  overflow: auto;
+  padding: 10px 14px;
+}
+
+.msg-attach-body > :first-child {
+  margin-top: 0;
+}
+
+.msg-attach-body > :last-child {
+  margin-bottom: 0;
+}
+
+.msg-attach-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono, monospace);
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.msg-attach-note {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
 .shell-feed {
   max-width: 92%;
   margin: 6px 0 18px;

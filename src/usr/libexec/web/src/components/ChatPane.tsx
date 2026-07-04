@@ -1,22 +1,111 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { withTokenParam } from "../auth";
+import { authHeaders, withTokenParam } from "../auth";
 import type { ProcRow, ShellEntry, ThreadMessage } from "../types";
 import { WorkingIndicator } from "./WorkingIndicator";
 
-// PAI-local images (screenshots, downloads) arrive as `![](/abs/on-disk/path)`.
-// react-markdown's default sanitizer would keep the raw filesystem path, which
-// 404s — the browser can only reach a file the SPA shipped. Rewrite any
-// absolute-path image `src` to the auth-gated `/api/asset` route (token rides
-// as a query param since <img> can't set an Authorization header). Everything
-// else — remote images, links, relative URLs — falls through to the default.
-function transformUrl(url: string, key: string): string {
-  if (key === "src" && url.startsWith("/") && !url.startsWith("/api/")) {
-    return withTokenParam(`/api/asset?abs=${encodeURIComponent(url)}`);
-  }
-  return defaultUrlTransform(url);
+// PAI attaches files by embedding an absolute on-disk path in its reply as
+// markdown: `![caption](/abs/path)`. The browser can only reach files the SPA
+// shipped, so any such path is routed through the auth-gated `/api/asset` route
+// (token rides as a query param since <img>/fetch here can't set an
+// Authorization header). Images render inline; text/markdown files are fetched
+// and rendered so the owner sees the content without PAI copying it into the
+// reply. Everything else — remote URLs, plain links — falls through untouched.
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"]);
+const MARKDOWN_EXTS = new Set([".md", ".markdown"]);
+
+function isLocalPath(url?: string): boolean {
+  return !!url && url.startsWith("/") && !url.startsWith("/api/");
 }
+
+function extOf(path: string): string {
+  const base = path.split("/").pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot).toLowerCase() : "";
+}
+
+function fileName(path: string): string {
+  return path.split("/").pop() || path;
+}
+
+function assetUrl(path: string): string {
+  return withTokenParam(`/api/asset?abs=${encodeURIComponent(path)}`);
+}
+
+// Fetch an attached text/markdown file and render it inline — the content lives
+// in the file, never copied into the thread. Markdown is rendered; anything
+// else shows as a scrollable monospace block. A header names the file and links
+// to the raw bytes.
+function FileEmbed({ path, caption }: { path: string; caption?: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setText(null);
+    setFailed(false);
+    fetch(assetUrl(path), { headers: authHeaders() })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((t) => alive && setText(t))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+
+  const name = caption?.trim() || fileName(path);
+  const isMarkdown = MARKDOWN_EXTS.has(extOf(path));
+  return (
+    <div className="msg-attach">
+      <div className="msg-attach-head">
+        <span className="msg-attach-name">{name}</span>
+        <a className="msg-attach-open" href={assetUrl(path)} target="_blank" rel="noreferrer">
+          open
+        </a>
+      </div>
+      <div className="msg-attach-body">
+        {failed ? (
+          <span className="msg-attach-note">Couldn't load {fileName(path)}</span>
+        ) : text === null ? (
+          <span className="msg-attach-note">Loading…</span>
+        ) : isMarkdown ? (
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+        ) : (
+          <pre className="msg-attach-pre">
+            <code>{text}</code>
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Custom renderers for the markdown attach convention. An `![](…)` embed to a
+// local image shows inline; to a local text file, its rendered content; a plain
+// `[…](…)` link to a local file opens the raw asset in a new tab.
+const MD_COMPONENTS: Components = {
+  img({ src, alt }) {
+    const url = typeof src === "string" ? src : "";
+    if (!isLocalPath(url)) return <img src={url} alt={alt ?? ""} />;
+    if (IMAGE_EXTS.has(extOf(url)))
+      return <img className="msg-attach-img" src={assetUrl(url)} alt={alt ?? ""} />;
+    return <FileEmbed path={url} caption={alt} />;
+  },
+  a({ href, children }) {
+    if (!isLocalPath(href))
+      return (
+        <a href={href} target="_blank" rel="noreferrer">
+          {children}
+        </a>
+      );
+    return (
+      <a className="msg-attach-link" href={assetUrl(href!)} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  },
+};
 
 const STICKY_BOTTOM_PX = 72;
 
@@ -272,7 +361,7 @@ function Message({ m, showAvatar }: { m: ThreadMessage; showAvatar: boolean }) {
       <div className="msg-col">
         {label && <span className="msg-label">{label}</span>}
         <div className="msg-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transformUrl}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
             {m.body}
           </ReactMarkdown>
         </div>
