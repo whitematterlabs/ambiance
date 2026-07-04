@@ -96,48 +96,49 @@
    pill inverted so primary buttons read white-on-dark, and the spectrum nudged
    a touch brighter so it still rings against the dark. */
 :root[data-theme="dark"] {
-  /* Near-black paper with a faint cool (cobalt) cast — no violet */
-  --paper: #0c0d10;
-  --paper-deep: #08090c;
-  --surface: #141519;
-  --surface-soft: #191a1f;
-  --surface-muted: #202128;
-  --surface-sunk: #060709;
-  --surface-raised: #16171c;
+  /* Pure-neutral dark ramp — evenly stepped, no cast. Three honest tiers:
+     canvas (paper) → panels (surface/raised) → lifted (soft/muted). */
+  --paper: #0b0b0b; /* canvas: body + header */
+  --paper-deep: #070707;
+  --surface: #161616; /* panels, cards, sidebar, chat */
+  --surface-soft: #1c1c1c;
+  --surface-muted: #232323;
+  --surface-sunk: #050505;
+  --surface-raised: #191919;
 
-  --border: #262830;
-  --border-strong: #363843;
+  --border: #2a2a2a;
+  --border-strong: #3a3a3a;
 
-  --text: #ececee;
-  --muted: #a1a1ab;
-  --dim: #6f6f78;
-  --ink-soft: #d7d7dc;
+  --text: #ededed;
+  --muted: #9e9e9e;
+  --dim: #6c6c6c;
+  --ink-soft: #d6d6d6;
 
   /* the pill inverts to light on dark, like the site's dark-hero buttons */
-  --accent: #f0f0f2;
+  --accent: #f0f0f0;
   --accent-deep: #ffffff;
-  --accent-ink: #0c0d10;
-  --accent-soft: #23242b;
-  --accent-border: #363843;
+  --accent-ink: #0b0b0b;
+  --accent-soft: #222222;
+  --accent-border: #3a3a3a;
 
-  --ok: #9a9aa2;
-  --warn: #a1a1ab;
-  --warn-soft: #202128;
+  --ok: #9a9a9a;
+  --warn: #9e9e9e;
+  --warn-soft: #232323;
   --fail: #e06a5e;
-  --fail-soft: #35201f;
-  --pai: #d7d7dc; /* PAI attribution — light ink, not a hue */
-  --teal: #aeb4bf; /* system / kernel — cool neutral, not azure */
+  --fail-soft: #331f1e;
+  --pai: #d6d6d6; /* PAI attribution — light ink, not a hue */
+  --teal: #adadad; /* system / kernel — neutral gray, not azure */
 
   /* Monochrome spectrum flips light on dark */
-  --flare: #b8b8c0;
-  --amber: #aaaab2;
-  --rose: #c8c8ce;
-  --magenta: #d7d7dc;
-  --violet: #b8b8c0;
-  --purple: #d7d7dc;
-  --indigo: #aaaab2;
-  --azure: #aeb4bf;
-  --spectrum: linear-gradient(120deg, #f0f0f2 0%, #9a9aa2 100%);
+  --flare: #b8b8b8;
+  --amber: #aaaaaa;
+  --rose: #c8c8c8;
+  --magenta: #d6d6d6;
+  --violet: #b8b8b8;
+  --purple: #d6d6d6;
+  --indigo: #aaaaaa;
+  --azure: #adadad;
+  --spectrum: linear-gradient(120deg, #f0f0f0 0%, #9a9a9a 100%);
   --spectrum-glow: 0 8px 24px -8px rgba(0, 0, 0, 0.7),
     0 0 0 1px rgba(255, 255, 255, 0.04);
 
@@ -145,9 +146,9 @@
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -14px rgba(0, 0, 0, 0.5);
   --shadow-lift: 0 18px 40px -22px rgba(0, 0, 0, 0.75);
 
-  --header-bg: rgba(12, 13, 16, 0.8);
-  --bubble-me: #ececee; /* on dark the user pill inverts to light too */
-  --bubble-me-ink: #0c0d10;
+  --header-bg: rgba(11, 11, 11, 0.85);
+  --bubble-me: #ededed; /* on dark the user pill inverts to light too */
+  --bubble-me-ink: #0b0b0b;
 
   color-scheme: dark;
 }
