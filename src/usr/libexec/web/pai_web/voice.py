@@ -35,11 +35,14 @@ from boot.config import CONFIG_PATH
 
 _CAPABILITIES = ("stt", "tts")
 
-# Discovery + import results are cached for the process lifetime. The installed
-# driver set only changes via `paiman`, which restarts/reloads the kernel; the
-# web server is short-lived relative to that, so a process-lifetime cache is safe.
+# Discovery + import results are cached, but keyed on the drivers-dir mtime so a
+# `paiman install <voice pkg>` against a *running* web server is picked up without
+# a restart. (The web server is a long-lived process independent of paiman — a
+# kernel reload does not cycle it — so a process-lifetime cache would pin the
+# driver set as it was when the first STT/TTS request landed.)
 _lock = threading.Lock()
 _packages_cache: list[dict] | None = None
+_packages_cache_mtime: int | None = None
 _module_cache: dict[str, object | None] = {}
 
 
@@ -47,11 +50,23 @@ def _drivers_dir():
     return PAI_ROOT / "usr" / "lib" / "drivers"
 
 
+def _drivers_dir_mtime() -> int:
+    """mtime (ns) of the drivers dir; changes when a driver is installed/removed."""
+    try:
+        return _drivers_dir().stat().st_mtime_ns
+    except OSError:
+        return -1
+
+
 def _discover_packages() -> list[dict]:
     """Scan installed drivers for `provides`; return [{name, provides, voice_mode}]."""
-    global _packages_cache
-    if _packages_cache is not None:
+    global _packages_cache, _packages_cache_mtime
+    mtime = _drivers_dir_mtime()
+    if _packages_cache is not None and _packages_cache_mtime == mtime:
         return _packages_cache
+    # Driver set changed since the last scan: also drop negatively-cached provider
+    # imports so a just-installed (or just-provisioned) package is retried.
+    _module_cache.clear()
     found: list[dict] = []
     drivers_dir = _drivers_dir()
     if drivers_dir.is_dir():
@@ -71,6 +86,7 @@ def _discover_packages() -> list[dict]:
                 }
             )
     _packages_cache = found
+    _packages_cache_mtime = mtime
     return found
 
 
@@ -145,7 +161,8 @@ def active_provider_name(capability: str) -> str | None:
 
 def reset_cache() -> None:
     """Drop discovery/import caches (tests, or after a live `paiman` install)."""
-    global _packages_cache
+    global _packages_cache, _packages_cache_mtime
     with _lock:
         _packages_cache = None
+        _packages_cache_mtime = None
         _module_cache.clear()

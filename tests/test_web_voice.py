@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,34 @@ def test_dispatcher_skips_provider_whose_deps_fail_to_import(
         lambda name: None if name == "voice" else CloudProvider,
     )
     assert voice.resolve_provider("stt") is CloudProvider
+
+
+def test_discover_repicks_up_driver_installed_while_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A voice package installed while the web server is up must be discovered
+    without a restart — the discovery cache tracks the drivers-dir mtime."""
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    monkeypatch.setattr(voice, "_drivers_dir", lambda: drivers)
+    voice.reset_cache()
+
+    # Nothing installed yet → no providers.
+    assert voice._discover_packages() == []
+
+    # Owner runs `paiman install voice` against the still-running web process.
+    pkg = drivers / "voice"
+    pkg.mkdir()
+    (pkg / "package.yaml").write_text(
+        "name: voice\nprovides: [stt, tts]\nvoice_mode: local\n", encoding="utf-8"
+    )
+    # Installs mutate the drivers dir → bump its mtime deterministically.
+    st = drivers.stat()
+    os.utime(drivers, ns=(st.st_atime_ns + 10**9, st.st_mtime_ns + 10**9))
+
+    found = voice._discover_packages()
+    assert [p["name"] for p in found] == ["voice"]
+    voice.reset_cache()
 
 
 # --- actions delegation ----------------------------------------------------
