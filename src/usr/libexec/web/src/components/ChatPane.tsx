@@ -141,11 +141,6 @@ export function ChatPane({
 
   return (
     <div className="chat-pane" ref={ref} onScroll={handleScroll}>
-      {messages.length === 0 && shell.length === 0 && !busy && !clearMarker && (
-        <div className="chat-empty">
-          <span>Say hello to start this conversation.</span>
-        </div>
-      )}
       {clearMarker && (
         <div className="clear-divider" role="separator" aria-label="context cleared">
           <span>context cleared · {clearMarker}</span>

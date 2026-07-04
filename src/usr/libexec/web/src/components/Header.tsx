@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HelpCircle, Moon, Smartphone, Sun } from "lucide-react";
+import { HelpCircle, Loader, Moon, Pause, Play, Smartphone, Sun } from "lucide-react";
 import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
 
@@ -8,6 +8,8 @@ export function Header({
   kernelRunning,
   kernelBusy,
   onToggleKernel,
+  sidebarOpen,
+  onToggleSidebar,
   theme,
   onToggleTheme,
   voiceEnabled,
@@ -30,6 +32,8 @@ export function Header({
   kernelRunning: boolean;
   kernelBusy: boolean;
   onToggleKernel: () => void;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   voiceEnabled: boolean;
@@ -76,15 +80,38 @@ export function Header({
   return (
     <header className="header">
       <div className="brand">
-        <Logo className="brand-logo" />
         <button
-          className="kernel-toggle"
+          className="brand-logo-btn"
+          type="button"
+          onClick={onToggleSidebar}
+          aria-pressed={sidebarOpen}
+          title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+        >
+          <Logo className="brand-logo" />
+        </button>
+        <button
+          className={`kernel-toggle${kernelRunning ? " running" : ""}`}
           type="button"
           disabled={!connected || kernelBusy}
           onClick={onToggleKernel}
-          title={kernelRunning ? "Stop kernel" : "Start kernel"}
+          aria-pressed={kernelRunning}
+          title={
+            kernelBusy
+              ? "Working…"
+              : kernelRunning
+                ? "Stop kernel"
+                : "Start kernel"
+          }
+          aria-label={kernelRunning ? "Stop kernel" : "Start kernel"}
         >
-          {kernelBusy ? "Kernel..." : kernelRunning ? "Stop kernel" : "Start kernel"}
+          {kernelBusy ? (
+            <Loader className="spin" size={15} aria-hidden="true" />
+          ) : kernelRunning ? (
+            <Pause size={15} aria-hidden="true" />
+          ) : (
+            <Play size={15} aria-hidden="true" />
+          )}
         </button>
       </div>
       <span className="spacer" />

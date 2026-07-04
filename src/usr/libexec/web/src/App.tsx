@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PanelLeft } from "lucide-react";
 import type {
   EventSighting,
   FleetMember,
@@ -722,6 +721,8 @@ export function App() {
         kernelRunning={kernel.running}
         kernelBusy={kernelBusy}
         onToggleKernel={handleToggleKernel}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         voiceEnabled={voiceEnabled}
@@ -740,17 +741,6 @@ export function App() {
         onShowWelcome={() => setWelcomeOpen(true)}
         onSetupRemote={handleSetupRemote}
       />
-      <button
-        className="sidebar-fab"
-        type="button"
-        onClick={() => setSidebarOpen((v) => !v)}
-        aria-pressed={sidebarOpen}
-        data-sidebar={sidebarOpen ? "open" : "closed"}
-        title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-        aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-      >
-        <PanelLeft size={16} aria-hidden="true" />
-      </button>
       <MobileMenu
         connected={connected}
         fleet={fleet}

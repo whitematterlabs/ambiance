@@ -6,67 +6,58 @@
    face (chat title, fleet tabs, status); Geist Sans carries prose and chrome. */
 
 :root {
-  /* Bright paper surfaces */
+  /* Bright paper surfaces — neutral, no violet cast */
   --paper: #ffffff;
-  --paper-deep: #f6f5f9;
+  --paper-deep: #f6f6f7;
   --surface: #ffffff;
-  --surface-soft: #f6f5f9;
-  --surface-muted: #eeedf3;
-  --surface-sunk: #14121c;
+  --surface-soft: #f5f5f6;
+  --surface-muted: #ededee;
+  --surface-sunk: #131316;
   --surface-raised: #ffffff;
 
-  --border: #ececf1;
-  --border-strong: #dcdae4;
+  --border: #eaeaec;
+  --border-strong: #d9d9dc;
 
   /* Ink */
-  --text: #0a0910;
-  --muted: #6b6878;
-  --dim: #9c99a8;
-  --ink-soft: #2a2733; /* softened ink for PAI reply bubbles (matches site) */
+  --text: #0b0b0d;
+  --muted: #6a6a70;
+  --dim: #9a9aa0;
+  --ink-soft: #29292d; /* softened ink for PAI reply bubbles */
 
-  /* Interactive voice is ink — a flat fill, backlit by spectrum where it counts */
-  --accent: #0a0910;
-  --accent-deep: #2a2733;
+  /* Interactive chrome is ink — a flat fill */
+  --accent: #0b0b0d;
+  --accent-deep: #29292d;
   --accent-ink: #ffffff;
-  --accent-soft: #efeef4;
-  --accent-border: #d7d5e0;
+  --accent-soft: #efeff0;
+  --accent-border: #d6d6d9;
 
-  --ok: #4b8a5e;
-  --warn: #b07d1e;
-  --warn-soft: #f7efd9;
-  --fail: #c33a30;
-  --fail-soft: #f8e3e0;
-  --pai: #6600c6; /* PAI-attribution note — brand purple */
+  /* Status: grayscale, with a single restrained red kept for hard failures */
+  --ok: #52525a;
+  --warn: #6a6a70;
+  --warn-soft: #ededee;
+  --fail: #c0392e;
+  --fail-soft: #f7e5e3;
+  --pai: #2a2a30; /* PAI attribution — ink, not a hue */
   --pai-color: var(--pai);
-  --teal: #2f6fd0; /* system / kernel — azure */
+  --teal: #5b5b63; /* system / kernel — neutral slate, not azure */
 
   /* Surfaces that can't be expressed as a single palette token */
   --header-bg: rgba(255, 255, 255, 0.8);
-  --bubble-me: #0a0910; /* the user's message stands out as a solid ink pill */
+  --bubble-me: #0b0b0d; /* the user's message stands out as a solid ink pill */
   --bubble-me-ink: #ffffff;
 
-  /* Brand spectrum, warm → cool (sampled from the WML mark) */
-  --flare: #e0531b;
-  --amber: #f4a93c;
-  --rose: #e11d74;
-  --magenta: #c01fae;
-  --violet: #8730ce;
-  --purple: #6600c6;
-  --indigo: #2f39a9;
-  --azure: #0f5bcd;
-  --spectrum: linear-gradient(
-    100deg,
-    #e0531b 0%,
-    #f4a93c 14%,
-    #e11d74 34%,
-    #c01fae 50%,
-    #8730ce 64%,
-    #6600c6 76%,
-    #2f39a9 88%,
-    #0f5bcd 100%
-  );
-  --spectrum-glow: 0 6px 22px -6px rgba(134, 48, 206, 0.5),
-    0 2px 10px -2px rgba(224, 83, 27, 0.32);
+  /* Monochrome "spectrum" — an ink→gray sheen kept only for signature marks */
+  --flare: #45454d;
+  --amber: #55555d;
+  --rose: #35353b;
+  --magenta: #2a2a30;
+  --violet: #45454d;
+  --purple: #2a2a30;
+  --indigo: #55555d;
+  --azure: #5b5b63;
+  --spectrum: linear-gradient(120deg, #0b0b0d 0%, #4a4a52 100%);
+  --spectrum-glow: 0 8px 22px -10px rgba(10, 10, 14, 0.28),
+    0 2px 8px -4px rgba(10, 10, 14, 0.18);
 
   --radius: 10px;
   --radius-sm: 6px;
@@ -105,39 +96,50 @@
    pill inverted so primary buttons read white-on-dark, and the spectrum nudged
    a touch brighter so it still rings against the dark. */
 :root[data-theme="dark"] {
-  --paper: #0f0a1a;
-  --paper-deep: #0a0713;
-  --surface: #17122a;
-  --surface-soft: #1e1836;
-  --surface-muted: #261f40;
-  --surface-sunk: #08050f;
-  --surface-raised: #1b1531;
+  /* Near-black paper with a faint cool (cobalt) cast — no violet */
+  --paper: #0c0d10;
+  --paper-deep: #08090c;
+  --surface: #141519;
+  --surface-soft: #191a1f;
+  --surface-muted: #202128;
+  --surface-sunk: #060709;
+  --surface-raised: #16171c;
 
-  --border: #2b2444;
-  --border-strong: #3c3358;
+  --border: #262830;
+  --border-strong: #363843;
 
-  --text: #ece9f6;
-  --muted: #a9a3c0;
-  --dim: #78728f;
-  --ink-soft: #d9d4ec;
+  --text: #ececee;
+  --muted: #a1a1ab;
+  --dim: #6f6f78;
+  --ink-soft: #d7d7dc;
 
   /* the pill inverts to light on dark, like the site's dark-hero buttons */
-  --accent: #f2f0f8;
+  --accent: #f0f0f2;
   --accent-deep: #ffffff;
-  --accent-ink: #0f0a1a;
-  --accent-soft: #262039;
-  --accent-border: #3d3559;
+  --accent-ink: #0c0d10;
+  --accent-soft: #23242b;
+  --accent-border: #363843;
 
-  --ok: #6fbf88;
-  --warn: #e6b653;
-  --warn-soft: #2e2717;
-  --fail: #e5695c;
-  --fail-soft: #38201f;
-  --pai: #b98bff; /* brighter violet so it rings on the dark */
-  --teal: #6ea8ff;
+  --ok: #9a9aa2;
+  --warn: #a1a1ab;
+  --warn-soft: #202128;
+  --fail: #e06a5e;
+  --fail-soft: #35201f;
+  --pai: #d7d7dc; /* PAI attribution — light ink, not a hue */
+  --teal: #aeb4bf; /* system / kernel — cool neutral, not azure */
 
-  --spectrum-glow: 0 6px 24px -4px rgba(135, 48, 206, 0.6),
-    0 2px 12px -2px rgba(224, 83, 27, 0.4);
+  /* Monochrome spectrum flips light on dark */
+  --flare: #b8b8c0;
+  --amber: #aaaab2;
+  --rose: #c8c8ce;
+  --magenta: #d7d7dc;
+  --violet: #b8b8c0;
+  --purple: #d7d7dc;
+  --indigo: #aaaab2;
+  --azure: #aeb4bf;
+  --spectrum: linear-gradient(120deg, #f0f0f2 0%, #9a9aa2 100%);
+  --spectrum-glow: 0 8px 24px -8px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
 
   --shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -14px rgba(0, 0, 0, 0.5);
@@ -163,12 +165,8 @@ body,
 
 body {
   color: var(--text);
-  /* a whisper of the spectrum bled into two far corners — azure top-right,
-     violet bottom-left — so the paper never reads as a flat, cold slab. */
-  background:
-    radial-gradient(120% 80% at 100% -10%, rgba(15, 91, 205, 0.06), transparent 55%),
-    radial-gradient(110% 90% at -10% 110%, rgba(134, 48, 206, 0.06), transparent 55%),
-    var(--paper);
+  /* flat neutral paper — no colored corner bleed */
+  background: var(--paper);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -196,8 +194,8 @@ button {
 }
 
 ::selection {
-  background: #6600c6;
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .app {
@@ -232,6 +230,33 @@ button {
 
 /* Owner-supplied PAI wordmark. Fills with the header ink (currentColor) so it
    adapts to light/dark; height-locked to the header line. */
+/* The wordmark doubles as the sidebar toggle — a bare, chromeless click target
+   (no border, no fill); only the cursor and a faint press/opacity signal it. */
+.brand-logo-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.15s var(--ease);
+}
+
+.brand-logo-btn:hover {
+  opacity: 0.7;
+}
+
+.brand-logo-btn:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 3px;
+}
+
+.brand-logo-btn:active {
+  opacity: 0.55;
+}
+
 .brand-logo {
   display: block;
   height: 24px;
@@ -242,16 +267,17 @@ button {
 
 .kernel-toggle {
   flex: 0 0 auto;
-  min-height: 30px;
-  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: var(--surface);
   color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 500;
   cursor: pointer;
-  white-space: nowrap;
   transition: border-color 0.2s var(--ease), color 0.2s var(--ease),
     background 0.2s var(--ease), transform 0.2s var(--ease);
 }
@@ -265,6 +291,20 @@ button {
   transform: translateY(-1px);
 }
 
+/* Running: a live, filled state so the pause glyph reads as "stop the kernel". */
+.kernel-toggle.running {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.kernel-toggle.running:hover:not(:disabled),
+.kernel-toggle.running:focus-visible:not(:disabled) {
+  color: var(--accent-ink);
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+}
+
 .kernel-toggle:active:not(:disabled) {
   transform: translateY(0);
 }
@@ -272,6 +312,10 @@ button {
 .kernel-toggle:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.kernel-toggle .spin {
+  animation: spin 0.8s linear infinite;
 }
 
 .spacer {
@@ -310,10 +354,9 @@ button {
   box-shadow: var(--spectrum-glow);
 }
 
-/* Voice toggle "on" glow is cool-only — no warm/orange lobe. */
+/* Voice toggle "on" glow is a neutral ink elevation — no hue. */
 .voice-toggle[aria-pressed="true"] {
-  box-shadow: 0 6px 22px -6px rgba(47, 57, 169, 0.5),
-    0 2px 10px -2px rgba(15, 91, 205, 0.32);
+  box-shadow: var(--spectrum-glow);
 }
 
 .ghost-label {
@@ -342,49 +385,6 @@ button {
 .theme-toggle:focus-visible {
   color: var(--accent);
   border-color: var(--accent-border);
-}
-
-/* Floating sidebar toggle — a round button that hovers over the bottom-left of
-   the canvas instead of riding in the navbar. Collapses the left rail. */
-.sidebar-fab {
-  position: fixed;
-  left: 18px;
-  bottom: 20px;
-  z-index: 60;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  background: var(--surface-raised);
-  color: var(--muted);
-  cursor: pointer;
-  box-shadow: var(--shadow-soft);
-  transition: color 0.2s var(--ease), border-color 0.2s var(--ease),
-    background 0.2s var(--ease), transform 0.2s var(--ease),
-    box-shadow 0.2s var(--ease);
-}
-
-.sidebar-fab:hover,
-.sidebar-fab:focus-visible {
-  color: var(--accent);
-  border-color: var(--accent-border);
-  outline: none;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow);
-}
-
-.sidebar-fab:active {
-  transform: translateY(0);
-}
-
-.sidebar-fab[data-sidebar="closed"] {
-  color: var(--accent-ink);
-  border-color: var(--accent);
-  background: var(--accent);
-  box-shadow: var(--spectrum-glow);
 }
 
 /* ---------- Voice split button + picker popover ---------- */
@@ -3332,7 +3332,6 @@ button {
   .header,
   .fleet-strip,
   .workspace-sidebar,
-  .sidebar-fab,
   .mobile-view-switch,
   .chat-head,
   .status-bar,

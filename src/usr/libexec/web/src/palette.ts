@@ -1,20 +1,19 @@
-// Per-PAI accent colors, sampled across the White Matter Labs spectrum (warm
-// orange → cool azure) but held a step back from full saturation so they read
-// as "ink with a hue," never candy-bright status dots. Used only as thin edge
-// accents (a left rule on tabs/rows), never as filled circles.
+// Per-PAI accent shades — a mid-gray ramp, no hue. Kept around 50% luminance so
+// each thin edge rule (a left rule on tabs/rows) stays legible on both light
+// paper and dark, while still giving fleet members a subtly distinct shade.
 const PAI_COLORS = [
-  "#d2571e", // flare
-  "#e08a2c", // amber
-  "#d81f6a", // rose
-  "#b5279f", // magenta
-  "#8a3bc4", // violet
-  "#6a1fc0", // purple
-  "#3a44b0", // indigo
-  "#1f63c9", // azure
-  "#c0397a", // pink
-  "#7d5bd0", // lilac
-  "#2f6fd0", // blue
-  "#a34bb8", // orchid
+  "#8a8a90",
+  "#75757b",
+  "#9a9aa0",
+  "#6f6f75",
+  "#a0a0a6",
+  "#808086",
+  "#95959b",
+  "#6a6a70",
+  "#8f8f95",
+  "#7a7a80",
+  "#a5a5ab",
+  "#858589",
 ];
 
 export function paiColor(seed: string | number | null | undefined): string {
