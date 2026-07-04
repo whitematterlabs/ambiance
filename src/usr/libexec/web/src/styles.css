@@ -1,6 +1,6 @@
 /* PAI web — the White Matter Labs console. Bright paper, ink type, and the
    brand spectrum (warm orange → cool azure) reserved for signature moments:
-   the wordmark, the PAI avatar, the send button's backlight, entry surfaces.
+   the wordmark, the send button's backlight, entry surfaces.
    Interactive chrome is solid ink (light) / solid light (dark) — buttons are
    flat fills, lit from behind by a spectrum glow. Geist Mono is the process
    face (chat title, fleet tabs, status); Geist Sans carries prose and chrome. */
@@ -58,6 +58,10 @@
   --spectrum: linear-gradient(120deg, #0b0b0d 0%, #4a4a52 100%);
   --spectrum-glow: 0 8px 22px -10px rgba(10, 10, 14, 0.28),
     0 2px 8px -4px rgba(10, 10, 14, 0.18);
+
+  /* PAI's chat avatar glyph — a simple friendly smiley (eyes + mouth), taken
+     from the launch site. Alpha-masked so currentColor tints it per theme. */
+  --smiley-glyph: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2'%20stroke-linecap='round'%3E%3Ccircle%20cx='8.75'%20cy='9.75'%20r='1.1'%20fill='%23000'%20stroke='none'/%3E%3Ccircle%20cx='15.25'%20cy='9.75'%20r='1.1'%20fill='%23000'%20stroke='none'/%3E%3Cpath%20d='M8%2014.25%20Q12%2018.5%2016%2014.25'/%3E%3C/svg%3E");
 
   --radius: 10px;
   --radius-sm: 6px;
@@ -1175,15 +1179,28 @@ button {
   justify-content: flex-end;
 }
 
-/* Gradient avatar — the spectrum dot the launch site puts beside PAI's replies,
+/* Smiley avatar — the friendly face the launch site puts beside PAI's replies,
    shown once at the start of a PAI run; continued turns get a matching spacer so
-   their bubbles stay aligned. */
+   their bubbles stay aligned. The ring is the face outline; a masked glyph draws
+   the eyes and mouth in ink so it adapts to light/dark. */
 .msg-avatar {
+  position: relative;
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--spectrum);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.msg-avatar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  -webkit-mask: var(--smiley-glyph) center / 22px 22px no-repeat;
+  mask: var(--smiley-glyph) center / 22px 22px no-repeat;
 }
 
 .msg-avatar-spacer {
@@ -1321,10 +1338,17 @@ button {
   transform: rotate(90deg);
 }
 
+/* Too small for a face — the thinking header keeps a plain ink dot. */
 .thinking-toggle .msg-avatar {
   width: 13px;
   height: 13px;
   box-shadow: none;
+  border: none;
+  background: var(--dim);
+}
+
+.thinking-toggle .msg-avatar::before {
+  display: none;
 }
 
 .thinking-label {
