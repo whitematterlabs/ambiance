@@ -54,6 +54,10 @@ def live_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     proc.mkdir(parents=True)
     events.mkdir(parents=True)
     monkeypatch.setattr(P, "HOME_DIR", live, raising=True)
+    # paths.HOME_DIR is a separate binding from processes.HOME_DIR; helpers that
+    # derive from it (paths.me_thread_dir) must see the tmp home too, else they
+    # write to the developer's real ~/.pai during the suite.
+    monkeypatch.setattr(PA, "HOME_DIR", live, raising=True)
     monkeypatch.setattr(P, "PROC_DIR", proc, raising=True)
     monkeypatch.setattr(P, "EVENTS_DIR", events, raising=True)
     # Keep the FHS invariant: HOME_DIR lives under PAI_ROOT. Code that maps a

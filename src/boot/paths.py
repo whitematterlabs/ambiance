@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import pwd
 import shutil
+from datetime import date
 from pathlib import Path
 
 
@@ -178,6 +179,26 @@ def var_spool_communication() -> Path:
 
 def var_spool_messages() -> Path:
     return PAI_ROOT / "var" / "spool" / "communication" / "messages"
+
+
+def me_thread_dir(slug: str) -> Path:
+    """The owner-facing display transcript for one PAI, keyed by its unique
+    instance slug — NOT its pid.
+
+    Pids are small integers reused across reboots and subagents. Keying this
+    on-disk transcript by pid meant a freshly-started PAI (or a browse subagent)
+    that landed on a recycled pid replayed the prior process's day-file, even
+    though its real LLM context (proc/<slug>/messages.jsonl, itself slug-keyed)
+    was empty. Keying by slug ties the transcript to identity, so a new clone
+    starts clean. `home/<pai>/communication` is a symlink into the shared
+    var/spool/communication tree, so this is a single fleet-wide store sliced by
+    slug + day."""
+    return HOME_DIR / "communication" / "messages" / "me" / slug
+
+
+def me_thread_today(slug: str) -> Path:
+    """Today's day-file within a PAI's me/ transcript (see `me_thread_dir`)."""
+    return me_thread_dir(slug) / f"{date.today().isoformat()}.md"
 
 
 def var_spool_email() -> Path:

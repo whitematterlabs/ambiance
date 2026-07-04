@@ -1,14 +1,12 @@
 """Phase 4: reconcile — apply /etc/config.yaml against the fleet."""
 from __future__ import annotations
 
-from datetime import date
-
 from .. import config, paths, processes, stitch
 
 
-def _touch_me_thread(pid: int) -> None:
-    day = date.today().isoformat()
-    p = paths.var_spool_messages() / "me" / str(pid) / f"{day}.md"
+def _touch_me_thread(slug: str) -> None:
+    # Keyed by slug, not pid — see paths.me_thread_dir.
+    p = paths.me_thread_today(slug)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.touch(exist_ok=True)
 
@@ -27,17 +25,13 @@ def run() -> None:
             stitch.stitch_home(slug)
     print("[boot] reconcile: homes stitched", flush=True)
     # Ensure today's me-thread day-file exists for every fleet PAI so
-    # `cat communication/messages/me/<pid>/<today>.md` never has to fall
+    # `cat communication/messages/me/<slug>/<today>.md` never has to fall
     # through to a "no file yet" branch.
     for slug in config.load_config():
-        pid = processes.read_pai_pid(slug)
-        if pid is not None:
-            _touch_me_thread(pid)
+        _touch_me_thread(slug)
     # Persubs are owner-addressable too (TUI opens a tab per persub) —
     # ensure their day-file exists so the TUI watcher's first read
     # doesn't fall through to the no-file branch.
     for slug, spec in processes._iter_pai_specs():
         if spec.get("persub"):
-            pid = spec.get("pid")
-            if isinstance(pid, int):
-                _touch_me_thread(pid)
+            _touch_me_thread(slug)

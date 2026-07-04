@@ -339,17 +339,17 @@ def transcribe_speech(
 
 
 def _slug_for_pid(pid: int) -> str:
-    from boot.processes import _iter_pai_specs
+    from boot.processes import slug_for_pid
 
-    for slug, spec in _iter_pai_specs():
-        if spec.get("pid") == pid:
-            return slug
-    return str(pid)
+    return slug_for_pid(pid)
 
 
 def send_message(pid: int, text: str, *, overclock: bool = False) -> None:
-    """Append `[HH:MM] me: text` to today's day-file, then wake the kernel."""
-    path = today_file(pid)
+    """Append `[HH:MM] me: text` to today's day-file, then wake the kernel.
+
+    The transcript is keyed by the PAI's slug, not its pid (pids are reused —
+    see paths.me_thread_dir), so resolve pid -> slug at the disk boundary."""
+    path = today_file(_slug_for_pid(pid))
     path.parent.mkdir(parents=True, exist_ok=True)
     line = f"[{datetime.now().strftime('%H:%M')}] me: {text}\n"
     with path.open("a", encoding="utf-8") as f:

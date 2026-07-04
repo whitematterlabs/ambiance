@@ -293,6 +293,26 @@ def _iter_pai_specs():
             yield child.name, spec
 
 
+def slug_for_pid(pid: int) -> str:
+    """Resolve a running proc's pid to its unique slug (its /proc/<slug>/ dir
+    name). Used to key the owner-facing me/ display thread by identity rather
+    than by pid — see `paths.me_thread_dir`. Covers both fleet PAIs and
+    subagents (both are kind:pai specs carrying a `pid`). Falls back to the
+    reserved-pid name (root=1, pai=2) before any spec is on disk, and finally to
+    str(pid) when nothing matches."""
+    for slug, spec in _iter_pai_specs():
+        if spec.get("pid") == pid:
+            return slug
+        # Legacy specs predate the explicit `pid` field: the slug was the pid.
+        if "pid" not in spec and slug.isdigit() and int(slug) == pid:
+            return slug
+    from boot.config import RESERVED_PIDS
+
+    if pid in RESERVED_PIDS:
+        return RESERVED_PIDS[pid]
+    return str(pid)
+
+
 def _config_declared_pids() -> list[int]:
     """Pids declared in /etc/config.yaml. The reconcile may not have written
     /proc/<slug>/spec.yaml yet (first boot, or new entry not yet spawned),

@@ -239,7 +239,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             "thread": "me",
             "sender": "me",
             "text": text,
-            "day_file": f"communication/messages/me/{pid}/{day}.md",
+            "day_file": f"communication/messages/me/{P.slug_for_pid(pid)}/{day}.md",
         }
         if event.get("overclock") is True:
             ctx["overclock"] = True
@@ -270,7 +270,7 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
                     "thread": "me",
                     "sender": "me",
                     "text": text,
-                    "day_file": f"communication/messages/me/{pid}/{day}.md",
+                    "day_file": f"communication/messages/me/{P.slug_for_pid(pid)}/{day}.md",
                 }
                 if event.get("overclock") is True:
                     ctx["overclock"] = True

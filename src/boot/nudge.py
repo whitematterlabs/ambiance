@@ -255,15 +255,15 @@ def _load_history(path: Path) -> list[dict]:
     return out
 
 
-def _append_to_me_thread(pai_pid: int, text: str) -> None:
-    """Post PAI's reply to today's me/<pid>/<date>.md.
+def _append_to_me_thread(pai_slug: str, text: str) -> None:
+    """Post PAI's reply to today's me/<slug>/<date>.md.
 
-    Format: `[HH:MM] pai: <body>\\n` where body may span multiple lines
-    (markdown survives intact). Readers anchor message boundaries on the
-    `[HH:MM] sender:` line prefix, not on blank lines, so paragraph
-    separators inside the body don't fragment the message."""
-    day = date.today().isoformat()
-    path = HOME_DIR / "communication" / "messages" / "me" / str(pai_pid) / f"{day}.md"
+    Keyed by slug, not pid — see `paths.me_thread_dir`. Format:
+    `[HH:MM] pai: <body>\\n` where body may span multiple lines (markdown
+    survives intact). Readers anchor message boundaries on the `[HH:MM]
+    sender:` line prefix, not on blank lines, so paragraph separators inside
+    the body don't fragment the message."""
+    path = paths_mod.me_thread_today(pai_slug)
     path.parent.mkdir(parents=True, exist_ok=True)
     hm = datetime.now().strftime("%H:%M")
     body = text.strip()
@@ -731,7 +731,7 @@ async def _overclock_locked(
                 "Overclock stopped after 60 minutes without a completion signal. "
                 "Send a new Overclock goal to continue."
             )
-            _append_to_me_thread(pai_pid, note)
+            _append_to_me_thread(pai_slug, note)
             try:
                 append_log(pai_slug, "overclock stopped at wall-clock limit")
             except ProcessNotFound:
@@ -742,7 +742,7 @@ async def _overclock_locked(
         f"Overclock stopped after {OVERCLOCK_MAX_TURNS} turns without a "
         "completion signal. Send a new Overclock goal to continue."
     )
-    _append_to_me_thread(pai_pid, note)
+    _append_to_me_thread(pai_slug, note)
     try:
         append_log(pai_slug, "overclock stopped at turn limit")
     except ProcessNotFound:
@@ -1183,7 +1183,7 @@ async def _nudge_body(
         # Plain ephemeral subagents talk to their parent via
         # subagent:response, not the me-thread, so they're excluded.
         elif visible_reply and (not parent_str or pai_spec.get("persub")):
-            _append_to_me_thread(pai_pid, visible_reply)
+            _append_to_me_thread(pai_slug, visible_reply)
     print("[kernel] nudge complete", flush=True)
     try:
         append_log(pai_slug, "nudge complete")

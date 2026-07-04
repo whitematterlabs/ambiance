@@ -25,7 +25,8 @@ import yaml
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from boot.processes import EVENTS_DIR, HOME_DIR, PAI_ROOT, PROC_DIR, list_active_procs, list_procs, read_busy, read_spec, read_status
+from boot import paths as paths_mod
+from boot.processes import EVENTS_DIR, HOME_DIR, PAI_ROOT, PROC_DIR, list_active_procs, list_procs, read_busy, read_spec, read_status, slug_for_pid
 from boot.proctree import order_as_tree
 from boot.tokens import read_last_window
 
@@ -33,12 +34,15 @@ ME_ROOT = HOME_DIR / "communication" / "messages" / "me"
 KERNEL_LOG = PAI_ROOT / "var" / "log" / "kernel" / "kernel.log"
 
 
-def me_thread_dir(pid: int) -> Path:
-    return ME_ROOT / str(pid)
+# me/ threads are keyed by a PAI's unique slug, not its pid — see
+# `paths.me_thread_dir`. These thin wrappers keep the historical names; callers
+# that only hold a pid resolve it first via `slug_for_pid`.
+def me_thread_dir(slug: str) -> Path:
+    return paths_mod.me_thread_dir(slug)
 
 
-def today_file(pid: int) -> Path:
-    return me_thread_dir(pid) / f"{date.today().isoformat()}.md"
+def today_file(slug: str) -> Path:
+    return paths_mod.me_thread_today(slug)
 
 
 # --- helpers ---------------------------------------------------------------
@@ -82,7 +86,8 @@ class MeThreadWatcher:
     def __init__(self, loop: asyncio.AbstractEventLoop, pid: int):
         self.loop = loop
         self.pid = pid
-        self.dir = me_thread_dir(pid)
+        self.slug = slug_for_pid(pid)
+        self.dir = me_thread_dir(self.slug)
         self.queue: asyncio.Queue[bool] = asyncio.Queue()
         self._observer: Optional[Observer] = None
 
@@ -112,7 +117,7 @@ class MeThreadWatcher:
 
     async def next(self) -> MeSnapshot:
         await self.queue.get()
-        path = today_file(self.pid)
+        path = today_file(self.slug)
         if not path.exists():
             return MeSnapshot(day_file=path)
         text = path.read_text(encoding="utf-8", errors="replace")

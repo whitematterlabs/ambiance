@@ -149,7 +149,7 @@ def test_running_outbound_driver_still_blocks_backfill(
 
 
 def test_seed_outbound_cursors_uses_fhs_relative_keys(
-    imessage_backfill_module, tmp_path
+    imessage_backfill_module, tmp_path, monkeypatch
 ) -> None:
     module, _saved_cursor = imessage_backfill_module
     pai_root = tmp_path / "pai_root"
@@ -165,8 +165,11 @@ def test_seed_outbound_cursors_uses_fhs_relative_keys(
     day_file.parent.mkdir(parents=True)
     day_file.write_text("[12:00] me: historical\n")
 
-    module.paths.PAI_ROOT = pai_root
-    module.OUT_CURSORS = tmp_path / "cursors.yaml"
+    # monkeypatch (not direct assignment) so PAI_ROOT is restored — a bare
+    # `module.paths.PAI_ROOT = ...` leaks the tmp root into later tests that
+    # read paths.PAI_ROOT at module scope (e.g. test_skill_candidate).
+    monkeypatch.setattr(module.paths, "PAI_ROOT", pai_root, raising=True)
+    monkeypatch.setattr(module, "OUT_CURSORS", tmp_path / "cursors.yaml", raising=True)
 
     assert module._seed_outbound_cursors({day_file}) == 1
     with module.OUT_CURSORS.open() as f:

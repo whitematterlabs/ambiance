@@ -25,13 +25,13 @@ def _spawn(slug: str, *, pid: int, **extra) -> None:
     P.spawn_pai(pid=pid, slug=slug, description=f"{slug} test", extra=extra or None)
 
 
-def _me_thread(pid: int) -> str:
+def _me_thread(slug: str) -> str:
     path = (
         P.HOME_DIR
         / "communication"
         / "messages"
         / "me"
-        / str(pid)
+        / slug
         / f"{date.today().isoformat()}.md"
     )
     return path.read_text() if path.exists() else ""
@@ -82,7 +82,7 @@ def test_overclock_repeats_until_sentinel_and_strips_visible_reply() -> None:
     assert "overclock continue" in users[1]
     assert busy_reasons[0].startswith("overclock: turn 1/10")
     assert busy_reasons[1].startswith("overclock: turn 2/10")
-    thread = _me_thread(50)
+    thread = _me_thread("clock")
     assert "still checking" in thread
     assert "found it" in thread
     assert N.OVERCLOCK_SENTINEL not in thread
@@ -115,7 +115,7 @@ def test_overclock_turn_limit_posts_stop_note(monkeypatch: pytest.MonkeyPatch) -
         L.run_turn = orig  # type: ignore[assignment]
 
     assert calls == 2
-    thread = _me_thread(51)
+    thread = _me_thread("limit")
     assert "Overclock stopped after 2 turns" in thread
 
 
@@ -144,7 +144,7 @@ def test_overclock_cancellation_does_not_continue() -> None:
         L.run_turn = orig  # type: ignore[assignment]
 
     assert calls == 1
-    assert _me_thread(52) == ""
+    assert _me_thread("cancel") == ""
 
 
 def test_owner_message_event_routes_overclock_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

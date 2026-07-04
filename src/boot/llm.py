@@ -25,6 +25,7 @@ from . import tokens
 
 from . import bash_tool, noop_tool, shell_tool, stitch
 from .image_refs import expand_image_refs
+from . import paths as paths_mod
 from .paths import HOME_DIR
 from .processes import ProcessNotFound, append_log
 
@@ -59,12 +60,12 @@ def _cap_tool_result(text: str) -> str:
     return text[:half] + marker + text[-half:]
 
 
-def _append_narration_to_me_thread(pai_pid: str, line: str) -> None:
+def _append_narration_to_me_thread(pai_slug: str, line: str) -> None:
     """Mirror interim text-block narration into the owner-facing me/ thread
-    so the TUI ChatPane shows it inline. Body is prefixed with `» ` to
-    distinguish it from a final reply."""
-    day = date.today().isoformat()
-    path = HOME_DIR / "communication" / "messages" / "me" / str(pai_pid) / f"{day}.md"
+    so the web console / ChatPane shows it inline. Body is prefixed with `» `
+    to distinguish it from a final reply. Keyed by slug, not pid — see
+    `paths.me_thread_dir`."""
+    path = paths_mod.me_thread_today(pai_slug)
     path.parent.mkdir(parents=True, exist_ok=True)
     hm = datetime.now().strftime("%H:%M")
     with path.open("a", encoding="utf-8") as f:
@@ -379,7 +380,6 @@ async def _loop(
                 text = (block.text or "").strip()
                 if not text:
                     continue
-                pai_pid = (env or {}).get("PAI_PID")
                 for line in text.splitlines():
                     line = line.strip()
                     if not line:
@@ -389,8 +389,7 @@ async def _loop(
                         append_log(pai_slug, f"» {line}")
                     except ProcessNotFound:
                         pass
-                    if pai_pid:
-                        _append_narration_to_me_thread(pai_pid, line)
+                    _append_narration_to_me_thread(pai_slug, line)
 
         tool_results = []
         for use in tool_uses:

@@ -44,6 +44,7 @@ from sbin.tui.state import (
     _read_ctx_tokens,
     _read_sighting,
     me_thread_dir,
+    slug_for_pid,
     today_file,
 )
 
@@ -128,7 +129,11 @@ def _split_message(msg: str) -> dict:
 
 
 def read_thread(pid: int) -> list[dict]:
-    path = today_file(pid)
+    # The on-disk transcript is keyed by the PAI's unique slug (pids are reused
+    # across reboots/subagents — see paths.me_thread_dir). The hub still keys
+    # its in-memory map and the SSE protocol by pid, which is unambiguous within
+    # a single running fleet, so resolve pid -> slug only at the disk boundary.
+    path = today_file(slug_for_pid(pid))
     if not path.exists():
         return []
     return parse_thread(path.read_text(encoding="utf-8", errors="replace"))

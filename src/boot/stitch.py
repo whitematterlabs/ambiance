@@ -52,7 +52,7 @@ def _merge_real_dir_into(src: Path, dst: Path) -> bool:
     (`communication/email`) can materialize `communication` as a real dir
     before the universal `communication → var/spool/communication` seed is
     laid, after which the kernel's own owner-thread writes
-    (`communication/messages/me/<pid>/…`) accumulate in the unwatched real dir
+    (`communication/messages/me/<slug>/…`) accumulate in the unwatched real dir
     instead of the spool the message drivers tail.
     """
     clean = True
