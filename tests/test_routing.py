@@ -102,6 +102,48 @@ def test_build_system_prompt_custom_block_from_prompt_dir(
     assert out.index("intro body") < out.index("rules body")
 
 
+def test_build_system_prompt_identity_overlay_appends_after_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Base persona ships in the bundle prompt_dir; the writable identity
+    # overlay concatenates AFTER it inside the same <custom> block, so
+    # later prose (the librarian's) can override the base.
+    base = tmp_path / "myrole"
+    base.mkdir()
+    (base / "00-role.md").write_text("base persona\n")
+    overlay = tmp_path / "prompt"
+    overlay.mkdir()
+    (overlay / "50-identity.md").write_text("evolved identity\n")
+    (overlay / "90-override.md").write_text("override line\n")
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    out = bootstrap.build_system_prompt(
+        pai=2, prompt_dir="myrole", identity_dir=str(overlay), boilerplate=[]
+    )
+    assert "<custom>" in out and "</custom>" in out
+    # Base first, then overlay files in sorted order — overrides land last.
+    assert out.index("base persona") < out.index("evolved identity")
+    assert out.index("evolved identity") < out.index("override line")
+
+
+def test_build_system_prompt_identity_overlay_absent_is_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A missing overlay dir contributes nothing (subagents, un-seeded roots).
+    base = tmp_path / "myrole"
+    base.mkdir()
+    (base / "00-role.md").write_text("base persona\n")
+    monkeypatch.setattr(bootstrap, "REPO_ROOT", tmp_path, raising=True)
+    monkeypatch.setattr(bootstrap, "PAI_ROOT", tmp_path, raising=True)
+    out = bootstrap.build_system_prompt(
+        pai=2,
+        prompt_dir="myrole",
+        identity_dir=str(tmp_path / "does-not-exist"),
+        boilerplate=[],
+    )
+    assert "base persona" in out
+
+
 def test_build_user_turn_renders_sender_verbatim() -> None:
     # build_user_turn no longer adds its own "pai:" prefix — callers pass
     # the fully-formatted handle. This lets nudge.py distinguish subagent

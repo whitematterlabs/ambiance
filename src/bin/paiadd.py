@@ -117,6 +117,10 @@ def materialize(entry: dict[str, Any]) -> tuple[Path, Path]:
     name = entry["name"]
     instance = paths.var_lib_instance(name)
     instance.mkdir(parents=True)
+    # Writable identity overlay: the librarian drops `*.md` here to evolve
+    # (or override) this PAI's persona. Concatenated after the code-owned
+    # base prompt by bootstrap; empty until something is written.
+    (instance / "prompt").mkdir()
     home = stitch.stitch_home(name)
     _append_entry(C.CONFIG_PATH, entry)
     P.emit_event({"kind": "kernel:reload_config", "source": "paiadd", "added": name})

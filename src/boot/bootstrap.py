@@ -390,13 +390,22 @@ def _resolve_prompt_path(p: str) -> Path:
 
 
 def _custom_block(
-    prompt_dir: Optional[str], prompt_path: Optional[str]
+    prompt_dir: Optional[str],
+    prompt_path: Optional[str],
+    identity_dir: Optional[str] = None,
 ) -> str:
     """Render the per-PAI custom prose as a single `<custom>` block.
 
     `prompt_dir` is the preferred input: every `*.md` file in the directory
     is concatenated in sorted order. `prompt_path` is the legacy single-file
-    fallback used when an entry still has the old `prompt:` field."""
+    fallback used when an entry still has the old `prompt:` field.
+
+    `identity_dir` is the writable per-instance identity overlay (sacred
+    state at `/var/lib/instances/<name>/prompt/`). Its `*.md` files are
+    concatenated *after* the code-owned base persona, so the librarian can
+    accrete an evolving identity — and, because later prose wins, override
+    the shipped role — without ever touching the bundle template. Empty or
+    absent → contributes nothing."""
     bodies: list[str] = []
     if prompt_dir:
         d = _resolve_prompt_path(prompt_dir)
@@ -407,6 +416,11 @@ def _custom_block(
         f = _resolve_prompt_path(prompt_path)
         if f.exists():
             bodies.append(f.read_text())
+    if identity_dir:
+        overlay = _resolve_prompt_path(identity_dir)
+        if overlay.is_dir():
+            for f in sorted(overlay.glob("*.md")):
+                bodies.append(f.read_text())
     if not bodies:
         return ""
     body = "\n".join(b.rstrip() for b in bodies)
@@ -737,16 +751,18 @@ def build_system_prompt(
     boilerplate: Optional[list[str]] = None,
     home_dir: Optional[str] = None,
     persub: bool = False,
+    identity_dir: Optional[str] = None,
 ) -> str:
     """Assemble the system prompt from three layers: custom prose (from
-    the PAI's `prompt_dir`/legacy `prompt_path`), boilerplate selected by
-    the PAI's config, and kernel-computed runtime blocks. The only
-    role-shape branch left is fleet-vs-subagent for runtime info."""
+    the PAI's `prompt_dir`/legacy `prompt_path`, plus the writable
+    `identity_dir` overlay), boilerplate selected by the PAI's config, and
+    kernel-computed runtime blocks. The only role-shape branch left is
+    fleet-vs-subagent for runtime info."""
     home = _resolve_home(home_dir)
     if boilerplate is None:
         boilerplate = _default_boilerplate(pai, parent)
     return (
-        _custom_block(prompt_dir, prompt_path)
+        _custom_block(prompt_dir, prompt_path, identity_dir)
         + _boilerplate_blocks(boilerplate)
         + _capabilities_block(pai)
         + _memory_index_block(home)
