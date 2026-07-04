@@ -64,8 +64,10 @@ def _discover_packages() -> list[dict]:
     mtime = _drivers_dir_mtime()
     if _packages_cache is not None and _packages_cache_mtime == mtime:
         return _packages_cache
-    # Driver set changed since the last scan: also drop negatively-cached provider
-    # imports so a just-installed (or just-provisioned) package is retried.
+    # Driver set changed since the last scan: drop cached provider imports so a
+    # removed driver's stale module can't be served. (Import failures aren't
+    # cached — see _import_provider — so newly installed packages need no help
+    # here; this only evicts successes of drivers that went away.)
     _module_cache.clear()
     found: list[dict] = []
     drivers_dir = _drivers_dir()
@@ -101,14 +103,23 @@ def _voice_config() -> dict:
 
 
 def _import_provider(name: str):
-    """Import `drivers.<name>.provider`, caching success and failure. None on miss."""
+    """Import `drivers.<name>.provider`, caching successes only. None on miss.
+
+    Import *failures* are deliberately not cached: a package whose native deps
+    aren't yet provisioned (ImportError) should be retried on the next request,
+    so it goes live the moment `paiman install` finishes wiring the venv — even
+    when that didn't change the drivers-dir mtime (e.g. a re-run of install.sh
+    that only touches the venv). importlib caches the successful import in
+    sys.modules, so the retry cost on the failure path is just a fast re-raise.
+    """
     if name in _module_cache:
         return _module_cache[name]
     try:
         mod = importlib.import_module(f"drivers.{name}.provider")
     except Exception:
-        # ImportError (deps not provisioned) or anything else → treat as absent.
-        mod = None
+        # ImportError (deps not provisioned) or anything else → treat as absent,
+        # but do NOT cache — retry next time in case deps get provisioned.
+        return None
     _module_cache[name] = mod
     return mod
 

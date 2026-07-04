@@ -97,6 +97,35 @@ def test_discover_repicks_up_driver_installed_while_running(
     voice.reset_cache()
 
 
+def test_import_provider_retries_after_deps_provisioned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider whose native deps aren't yet provisioned must be retried on the
+    next request — import *failures* are not cached (only successes are), so it
+    goes live the moment `paiman install` finishes wiring the venv, even when the
+    drivers-dir mtime never changed."""
+    sentinel = object()
+    calls = {"n": 0}
+
+    def fake_import(name: str) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ImportError("native deps not provisioned yet")
+        return sentinel
+
+    monkeypatch.setattr(voice.importlib, "import_module", fake_import)
+    voice.reset_cache()
+
+    # First attempt: deps missing → absent, and NOT cached.
+    assert voice._import_provider("voice") is None
+    # Deps provisioned in the background → next attempt retries and succeeds.
+    assert voice._import_provider("voice") is sentinel
+    # Success is cached: no further import machinery is invoked.
+    assert voice._import_provider("voice") is sentinel
+    assert calls["n"] == 2
+    voice.reset_cache()
+
+
 # --- actions delegation ----------------------------------------------------
 
 
