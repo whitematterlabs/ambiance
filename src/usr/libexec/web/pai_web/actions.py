@@ -568,6 +568,9 @@ def list_pending() -> list[dict]:
             recipient = first or action.get("in_reply_to") or ""
             subject = action.get("subject") or ""
             body = action.get("content") or ""
+        elif rec.get("channel") == "imessage":
+            recipient = action.get("thread") or ""
+            body = action.get("text") or ""
         out.append(
             {
                 "id": rec.get("id") or path.stem,

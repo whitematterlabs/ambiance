@@ -2809,7 +2809,6 @@ button {
   gap: 7px;
   padding: 14px 14px 13px;
   border: 1px solid var(--border);
-  border-left: 2px solid var(--warn);
   border-radius: var(--radius-sm);
   background: var(--surface-soft);
 }
