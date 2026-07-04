@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import pwd
 import re
 import sqlite3
 import sys
@@ -41,8 +42,12 @@ from boot.paths import PAI_ROOT
 from drivers.messages import MESSAGES_DIR, ingest
 
 # ── constants ────────────────────────────────────────────────────────────
+# The real macOS user's home, not $HOME — the kernel overrides $HOME per-PAI
+# for sandboxing (see boot/nudge.py), so Path.home() would resolve into the
+# PAI-local sandbox instead of ~/Library/Group Containers.
+REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
 CHATSTORAGE_DB = (
-    Path.home()
+    REAL_HOME
     / "Library"
     / "Group Containers"
     / "group.net.whatsapp.WhatsApp.shared"
