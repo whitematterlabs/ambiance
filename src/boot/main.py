@@ -512,7 +512,13 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             context={"slug": slug, "text": event.get("text") or ""},
         )
 
-    elif kind == "send_failed":
+    elif kind == "send_failed" and event_source in (None, "imessage", "imessage-out"):
+        # This hardcoded branch is imessage-specific: it maps the driver's
+        # bare `send_failed` onto the public `imessage:send_failed` kind PAIs
+        # wake on. Gate it on the imessage source so other channels that emit
+        # a bare `send_failed` (e.g. whatsapp-out) fall through to the generic
+        # `<source>:<kind>` router below and route as `whatsapp-out:send_failed`
+        # rather than being misdelivered to imessage listeners.
         thread = event.get("thread")
         text = event.get("text") or ""
         reason = event.get("reason") or ""

@@ -64,6 +64,9 @@ CAPABILITY_SPECS: dict[str, dict] = {
     "imessage_send": {
         "driver": "imessage", "freeze": "outbound.freeze", "mounts": {"imessage"},
     },
+    "whatsapp_send": {
+        "driver": "whatsapp", "freeze": "outbound.freeze", "mounts": {"whatsapp"},
+    },
 }
 
 # Fields a `dependencies:` entry can carry (each entry materializes a persub

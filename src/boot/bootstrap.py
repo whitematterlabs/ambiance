@@ -620,6 +620,28 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "and never delivered. Don't attempt sends or claim one happened."
         ),
     },
+    "whatsapp_send": {
+        "yes": (
+            "WhatsApp — SEND GRANTED. You may send WhatsApp messages on the "
+            "owner's behalf, at your own discretion and per the owner's "
+            "instructions, by appending a bare line to a thread day-file. "
+            "Sending is irreversible — be deliberate. Never commit the owner to "
+            "payments, RSVPs, or promises without explicit approval."
+        ),
+        "ask": (
+            "WhatsApp — APPROVAL REQUIRED. Send normally — append a bare line "
+            "to the thread day-file exactly as you would with send granted. "
+            "Because this capability is in ask mode, the driver won't deliver "
+            "it directly: it automatically queues your message in the owner's "
+            "approval tray and you'll hear back once they decide. Tell the "
+            "owner you sent it for approval — never that it was sent outright."
+        ),
+        "no": (
+            "WhatsApp — READ ONLY. You can read threads but cannot send. Outbound "
+            "is frozen: a bare line is consumed with a `kernel: send frozen` note "
+            "and never delivered. Don't attempt sends or claim one happened."
+        ),
+    },
 }
 
 

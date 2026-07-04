@@ -662,12 +662,14 @@ pais:
 """,
     )
     flags = C.capability_flags()
-    assert flags == {"email_send": False, "imessage_send": False}
+    assert flags == {"email_send": False, "imessage_send": False, "whatsapp_send": False}
 
 
 def test_capability_flags_missing_file_is_deny(repo_root):
     # No config written at all → deny, never raises.
-    assert C.capability_flags() == {"email_send": False, "imessage_send": False}
+    assert C.capability_flags() == {
+        "email_send": False, "imessage_send": False, "whatsapp_send": False,
+    }
 
 
 def test_capability_flags_reads_grants(repo_root):
@@ -777,7 +779,7 @@ pais:
 """,
     )
     modes = C.capability_modes()
-    assert modes == {"email_send": "ask", "imessage_send": "yes"}
+    assert modes == {"email_send": "ask", "imessage_send": "yes", "whatsapp_send": "no"}
 
 
 def test_capability_modes_legacy_bools_map(repo_root):
@@ -794,7 +796,9 @@ pais:
     description: km
 """,
     )
-    assert C.capability_modes() == {"email_send": "yes", "imessage_send": "no"}
+    assert C.capability_modes() == {
+        "email_send": "yes", "imessage_send": "no", "whatsapp_send": "no",
+    }
 
 
 def test_capability_modes_unknown_value_fails_closed(repo_root):
@@ -810,7 +814,9 @@ pais:
     description: km
 """,
     )
-    assert C.capability_modes() == {"email_send": "no", "imessage_send": "no"}
+    assert C.capability_modes() == {
+        "email_send": "no", "imessage_send": "no", "whatsapp_send": "no",
+    }
 
 
 def test_capability_flags_ask_is_not_direct_send(repo_root):
@@ -828,7 +834,7 @@ pais:
 """,
     )
     flags = C.capability_flags()
-    assert flags == {"email_send": False, "imessage_send": False}
+    assert flags == {"email_send": False, "imessage_send": False, "whatsapp_send": False}
 
 
 def test_project_capabilities_ask_keeps_freeze(repo_root, tmp_path, monkeypatch):
@@ -852,6 +858,59 @@ pais:
     assert "email_send=ask" in email_freeze.read_text()
     # yes → cleared.
     assert not (PA.sys_drivers("imessage") / "outbound.freeze").exists()
+
+
+def test_project_capabilities_whatsapp_freeze(repo_root, tmp_path, monkeypatch):
+    # whatsapp_send projects onto sys/drivers/whatsapp/outbound.freeze exactly
+    # like email/imessage: no/ask keep the freeze (DENY), yes clears it. Absent
+    # from config → frozen (fail-closed).
+    monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
+    wa_freeze = PA.sys_drivers("whatsapp") / "outbound.freeze"
+
+    # Absent → frozen by default.
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert wa_freeze.exists()
+    assert "whatsapp_send=no" in wa_freeze.read_text()
+
+    # ask → still frozen (no direct PAI send), reason records the mode.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  whatsapp_send: ask
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert wa_freeze.exists()
+    assert "whatsapp_send=ask" in wa_freeze.read_text()
+
+    # yes → freeze cleared (direct sends enabled).
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  whatsapp_send: yes
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert not wa_freeze.exists()
 
 
 # ----- set_capability_mode (sidebar toggle writer) -----
