@@ -196,25 +196,46 @@ def stop_kernel() -> dict:
 # package is installed.
 
 
+# The web voice picker exposes two named engines; map each to the provider
+# package that implements it. Anything else (or None) falls through to the
+# default local-before-cloud resolution.
+_ENGINE_TO_PACKAGE = {
+    "siri": "voice",           # macOS `say` — the local package
+    "elevenlabs": "voice_cloud",  # ElevenLabs cloud TTS
+}
+
+
 def synthesize_speech(
     text: str,
     *,
     voice_id: str | None = None,
     speed: float | None = None,
+    engine: str | None = None,
 ) -> SpeechAudio:
     """Turn text into playable audio bytes via the resolved TTS provider.
 
     Dispatches to the installed/configured voice package (local `voice` →
-    whisper/`say`, or `voice_cloud` → ElevenLabs). When no package provides TTS,
-    falls back to the built-in macOS `say` last-resort so voice never hard-fails.
+    whisper/`say`, or `voice_cloud` → ElevenLabs). ``engine`` is the browser's
+    Siri/ElevenLabs toggle ("siri" → local `say`, "elevenlabs" → cloud); it
+    steers which package is tried first. When no package provides TTS — or the
+    chosen one can't run (e.g. "elevenlabs" with no ELEVENLABS_API_KEY) — this
+    falls back to the built-in macOS `say` (Siri) so voice never hard-fails.
+    That fallback is exactly the "skip the key → Siri is used instead" contract.
 
     Per-call ``voice_id`` / ``speed`` come from the browser; providers that
     ignore them (the local/`say` path) simply use the system voice.
     """
-    provider = voice.resolve_provider("tts")
+    prefer = _ENGINE_TO_PACKAGE.get((engine or "").lower())
+    provider = voice.resolve_provider("tts", prefer=prefer)
     if provider is not None:
-        data, mime = provider.synthesize(text, voice_id=voice_id, speed=speed)
-        return SpeechAudio(data, mime)
+        try:
+            data, mime = provider.synthesize(text, voice_id=voice_id, speed=speed)
+            return SpeechAudio(data, mime)
+        except RuntimeError:
+            # Preferred engine isn't usable (missing key / unavailable binary).
+            # Degrade to macOS `say` (Siri) rather than hard-failing the reply.
+            # Network / HTTP errors are NOT RuntimeError, so they still surface.
+            pass
     return _synthesize_speech_macos_say(text)
 
 
@@ -575,7 +596,7 @@ def list_pending() -> list[dict]:
             recipient = first or action.get("in_reply_to") or ""
             subject = action.get("subject") or ""
             body = action.get("content") or ""
-        elif rec.get("channel") == "imessage":
+        elif rec.get("channel") in ("imessage", "whatsapp"):
             recipient = action.get("thread") or ""
             body = action.get("text") or ""
         out.append(
@@ -599,7 +620,7 @@ def _decide(ident: str, status: str, *, error: str | None = None, body_override:
     Terminal-guard: a record already decided (a double-click, or the driver
     having moved it on) is left untouched so we can't approve something twice.
     `body_override` merges an owner-edited body into the record's action
-    before dispatch (`content` for email, `text` for imessage).
+    before dispatch (`content` for email, `text` for imessage/whatsapp).
     """
     path = _approval_path(ident)
     try:
@@ -612,7 +633,7 @@ def _decide(ident: str, status: str, *, error: str | None = None, body_override:
         return {"id": ident, "status": rec.get("status"), "error": "not pending"}
     if body_override is not None:
         action = rec.get("action") or {}
-        key = "text" if rec.get("channel") == "imessage" else "content"
+        key = "text" if rec.get("channel") in ("imessage", "whatsapp") else "content"
         action[key] = body_override
         rec["action"] = action
     rec["status"] = status
@@ -645,7 +666,11 @@ def reject_action(ident: str, reason: str = "") -> dict:
 # so the sidebar and the file can never mean different things.
 
 # Human labels for the send capabilities, keyed by their config flag.
-SEND_CHANNEL_LABELS = {"email_send": "Email", "imessage_send": "iMessage"}
+SEND_CHANNEL_LABELS = {
+    "email_send": "Email",
+    "imessage_send": "iMessage",
+    "whatsapp_send": "WhatsApp",
+}
 
 
 def _mounted_driver_union() -> set[str]:

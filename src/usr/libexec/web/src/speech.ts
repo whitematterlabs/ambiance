@@ -15,6 +15,10 @@ export interface VoiceOption {
   blurb: string;
 }
 
+// The read-aloud engine. "elevenlabs" is the premium default; "siri" is macOS
+// `say`, used automatically when no ElevenLabs key is configured.
+export type VoiceEngine = "elevenlabs" | "siri";
+
 export const VOICE_OPTIONS: VoiceOption[] = [
   { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", blurb: "Calm, warm narrator" },
   { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", blurb: "Soft, friendly" },
@@ -48,6 +52,10 @@ export class ServerSpeechBackend implements SpeechBackend {
   // `null` voiceId means "let the server pick" (env / built-in default).
   voiceId: string | null = null;
   speed: number = 1.1;
+  // Read-aloud engine: "elevenlabs" (cloud) or "siri" (macOS `say`). The server
+  // maps this to a provider package and, when ElevenLabs has no key, falls back
+  // to Siri on its own — so this is a preference, not a hard requirement.
+  engine: VoiceEngine = "elevenlabs";
 
   constructor() {
     this.audio = new Audio();
@@ -68,6 +76,7 @@ export class ServerSpeechBackend implements SpeechBackend {
           text,
           ...(this.voiceId ? { voice_id: this.voiceId } : {}),
           speed: this.speed,
+          engine: this.engine,
         }),
       });
       if (!res.ok) {

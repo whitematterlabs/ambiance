@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HelpCircle, Loader, Moon, Pause, Play, Smartphone, Sun } from "lucide-react";
 import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
+import type { VoiceEngine } from "../speech";
 
 export function Header({
   connected,
@@ -18,6 +19,8 @@ export function Header({
   voiceSpeed,
   onVoiceIdChange,
   onVoiceSpeedChange,
+  voiceEngine,
+  onVoiceEngineChange,
   pushToTalk,
   onTogglePushToTalk,
   phraseActivation,
@@ -42,6 +45,8 @@ export function Header({
   voiceSpeed: number;
   onVoiceIdChange: (id: string | null) => void;
   onVoiceSpeedChange: (speed: number) => void;
+  voiceEngine: VoiceEngine;
+  onVoiceEngineChange: (engine: VoiceEngine) => void;
   pushToTalk: boolean;
   onTogglePushToTalk: () => void;
   phraseActivation: boolean;
@@ -189,6 +194,8 @@ export function Header({
               voiceSpeed={voiceSpeed}
               onVoiceIdChange={onVoiceIdChange}
               onVoiceSpeedChange={onVoiceSpeedChange}
+              voiceEngine={voiceEngine}
+              onVoiceEngineChange={onVoiceEngineChange}
               pushToTalk={pushToTalk}
               onTogglePushToTalk={onTogglePushToTalk}
               phraseActivation={phraseActivation}

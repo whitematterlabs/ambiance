@@ -1,4 +1,4 @@
-import { VOICE_OPTIONS } from "../speech";
+import { VOICE_OPTIONS, type VoiceEngine } from "../speech";
 
 // The body of the voice configuration panel — activation switches, the
 // read-aloud voice list, and the speed slider. Shared by the desktop Header
@@ -8,6 +8,8 @@ export function VoiceSettings({
   voiceSpeed,
   onVoiceIdChange,
   onVoiceSpeedChange,
+  voiceEngine,
+  onVoiceEngineChange,
   pushToTalk,
   onTogglePushToTalk,
   phraseActivation,
@@ -21,6 +23,8 @@ export function VoiceSettings({
   voiceSpeed: number;
   onVoiceIdChange: (id: string | null) => void;
   onVoiceSpeedChange: (speed: number) => void;
+  voiceEngine: VoiceEngine;
+  onVoiceEngineChange: (engine: VoiceEngine) => void;
   pushToTalk: boolean;
   onTogglePushToTalk: () => void;
   phraseActivation: boolean;
@@ -33,9 +37,11 @@ export function VoiceSettings({
   showHead?: boolean;
 }) {
   const selectedName =
-    voiceId === null
-      ? "Server default"
-      : VOICE_OPTIONS.find((v) => v.id === voiceId)?.name ?? "Custom";
+    voiceEngine === "siri"
+      ? "Siri"
+      : voiceId === null
+        ? "Server default"
+        : VOICE_OPTIONS.find((v) => v.id === voiceId)?.name ?? "Custom";
 
   return (
     <>
@@ -97,30 +103,59 @@ export function VoiceSettings({
         </button>
       </div>
       <span className="voice-section-title voice-section-title--list">Read aloud</span>
-      <ul className="voice-list">
-        <li>
-          <button
-            type="button"
-            className={`voice-item ${voiceId === null ? "selected" : ""}`}
-            onClick={() => onVoiceIdChange(null)}
-          >
-            <span className="voice-name">Server default</span>
-            <span className="voice-blurb">Whatever .env / Rachel</span>
-          </button>
-        </li>
-        {VOICE_OPTIONS.map((v) => (
-          <li key={v.id}>
+      <div className="voice-engine" role="radiogroup" aria-label="Read-aloud engine">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={voiceEngine === "elevenlabs"}
+          className={`voice-engine-option ${voiceEngine === "elevenlabs" ? "selected" : ""}`}
+          onClick={() => onVoiceEngineChange("elevenlabs")}
+        >
+          <span className="voice-engine-name">ElevenLabs</span>
+          <span className="voice-engine-blurb">Cloud voices</span>
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={voiceEngine === "siri"}
+          className={`voice-engine-option ${voiceEngine === "siri" ? "selected" : ""}`}
+          onClick={() => onVoiceEngineChange("siri")}
+        >
+          <span className="voice-engine-name">Siri</span>
+          <span className="voice-engine-blurb">macOS, on-device</span>
+        </button>
+      </div>
+      {voiceEngine === "elevenlabs" ? (
+        <ul className="voice-list">
+          <li>
             <button
               type="button"
-              className={`voice-item ${voiceId === v.id ? "selected" : ""}`}
-              onClick={() => onVoiceIdChange(v.id)}
+              className={`voice-item ${voiceId === null ? "selected" : ""}`}
+              onClick={() => onVoiceIdChange(null)}
             >
-              <span className="voice-name">{v.name}</span>
-              <span className="voice-blurb">{v.blurb}</span>
+              <span className="voice-name">Server default</span>
+              <span className="voice-blurb">Whatever .env / Rachel</span>
             </button>
           </li>
-        ))}
-      </ul>
+          {VOICE_OPTIONS.map((v) => (
+            <li key={v.id}>
+              <button
+                type="button"
+                className={`voice-item ${voiceId === v.id ? "selected" : ""}`}
+                onClick={() => onVoiceIdChange(v.id)}
+              >
+                <span className="voice-name">{v.name}</span>
+                <span className="voice-blurb">{v.blurb}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="voice-engine-note">
+          Siri reads with your macOS system voice — change it in System Settings
+          → Accessibility → Spoken Content.
+        </p>
+      )}
       <div className="voice-speed">
         <label htmlFor="voice-speed-input" className="voice-speed-label">
           Speed

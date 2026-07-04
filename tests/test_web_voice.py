@@ -139,12 +139,68 @@ def test_synthesize_speech_delegates_to_resolved_provider(monkeypatch: pytest.Mo
             return b"prov-bytes", "audio/mpeg"
 
     monkeypatch.setattr(
-        actions.voice, "resolve_provider", lambda cap: Provider if cap == "tts" else None
+        actions.voice,
+        "resolve_provider",
+        lambda cap, prefer=None: Provider if cap == "tts" else None,
     )
     audio = actions.synthesize_speech("hello", voice_id="voice-test", speed=1.1)
 
     assert audio == actions.SpeechAudio(b"prov-bytes", "audio/mpeg")
     assert captured == {"text": "hello", "voice_id": "voice-test", "speed": 1.1}
+
+
+def test_synthesize_speech_engine_steers_provider_preference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The browser's engine toggle becomes resolve_provider's `prefer`."""
+    seen: dict = {}
+
+    class Provider:
+        @staticmethod
+        def synthesize(text, *, voice_id, speed):  # noqa: ANN001, ANN205
+            return b"x", "audio/mpeg"
+
+    def fake_resolve(cap, prefer=None):  # noqa: ANN001, ANN202
+        seen[cap] = prefer
+        return Provider
+
+    monkeypatch.setattr(actions.voice, "resolve_provider", fake_resolve)
+
+    actions.synthesize_speech("hi", engine="siri")
+    assert seen["tts"] == "voice"
+    actions.synthesize_speech("hi", engine="elevenlabs")
+    assert seen["tts"] == "voice_cloud"
+    actions.synthesize_speech("hi", engine=None)
+    assert seen["tts"] is None
+
+
+def test_synthesize_speech_falls_back_to_say_when_preferred_engine_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ElevenLabs selected but no key (RuntimeError) → degrade to macOS `say`."""
+
+    class DeadCloud:
+        @staticmethod
+        def synthesize(text, *, voice_id, speed):  # noqa: ANN001, ANN205
+            raise RuntimeError("ELEVENLABS_API_KEY is not set")
+
+    def fake_run(args, input, text, capture_output, check, timeout):  # noqa: A002
+        if args[0] == "/usr/bin/say":
+            Path(args[2]).write_bytes(b"aiff")
+        elif args[0] == "/usr/bin/afconvert":
+            Path(args[-1]).write_bytes(b"m4a-bytes")
+        return actions.subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(actions.voice, "resolve_provider", lambda cap, prefer=None: DeadCloud)
+    monkeypatch.setattr(
+        actions.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"say", "afconvert"} else None,
+    )
+    monkeypatch.setattr(actions.subprocess, "run", fake_run)
+
+    audio = actions.synthesize_speech("hello", engine="elevenlabs")
+    assert audio == actions.SpeechAudio(b"m4a-bytes", "audio/mp4")
 
 
 def test_synthesize_speech_falls_back_to_macos_say_without_provider(
@@ -161,7 +217,7 @@ def test_synthesize_speech_falls_back_to_macos_say_without_provider(
         return actions.subprocess.CompletedProcess(args, 0)
 
     # No installed provider → last-resort macOS `say`.
-    monkeypatch.setattr(actions.voice, "resolve_provider", lambda cap: None)
+    monkeypatch.setattr(actions.voice, "resolve_provider", lambda cap, prefer=None: None)
     monkeypatch.setattr(
         actions.shutil,
         "which",
@@ -195,7 +251,9 @@ def test_transcribe_speech_delegates_to_resolved_provider(monkeypatch: pytest.Mo
             return "hello from provider"
 
     monkeypatch.setattr(
-        actions.voice, "resolve_provider", lambda cap: Provider if cap == "stt" else None
+        actions.voice,
+        "resolve_provider",
+        lambda cap, prefer=None: Provider if cap == "stt" else None,
     )
     text = actions.transcribe_speech(
         b"audio-bytes", filename="clip.webm", content_type="audio/webm", language="en"
@@ -209,7 +267,7 @@ def test_transcribe_speech_delegates_to_resolved_provider(monkeypatch: pytest.Mo
 
 
 def test_transcribe_speech_requires_a_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(actions.voice, "resolve_provider", lambda cap: None)
+    monkeypatch.setattr(actions.voice, "resolve_provider", lambda cap, prefer=None: None)
     with pytest.raises(RuntimeError, match="no speech-to-text provider"):
         actions.transcribe_speech(
             b"audio", filename="clip.webm", content_type="audio/webm"
@@ -222,10 +280,17 @@ def test_transcribe_speech_requires_a_provider(monkeypatch: pytest.MonkeyPatch) 
 def test_tts_route_uses_synthesized_content_type(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict = {}
 
-    def fake_synthesize(text: str, *, voice_id: str | None, speed: float | None) -> actions.SpeechAudio:
+    def fake_synthesize(
+        text: str,
+        *,
+        voice_id: str | None,
+        speed: float | None,
+        engine: str | None,
+    ) -> actions.SpeechAudio:
         captured["text"] = text
         captured["voice_id"] = voice_id
         captured["speed"] = speed
+        captured["engine"] = engine
         return actions.SpeechAudio(b"m4a-route-bytes", "audio/mp4")
 
     handler = Handler.__new__(Handler)
@@ -236,12 +301,13 @@ def test_tts_route_uses_synthesized_content_type(monkeypatch: pytest.MonkeyPatch
     )
     monkeypatch.setattr(actions, "synthesize_speech", fake_synthesize)
 
-    handler._tts(" hello route ", voice_id="voice-route", speed=1.1)
+    handler._tts(" hello route ", voice_id="voice-route", speed=1.1, engine="siri")
 
     assert captured == {
         "text": "hello route",
         "voice_id": "voice-route",
         "speed": 1.1,
+        "engine": "siri",
         "data": b"m4a-route-bytes",
         "content_type": "audio/mp4",
         "status": 200,

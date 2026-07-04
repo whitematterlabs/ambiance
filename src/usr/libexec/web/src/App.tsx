@@ -12,7 +12,7 @@ import type {
   ThreadMessage,
 } from "./types";
 import { ActivityEntry, ActivityState, ingest, initialActivity } from "./activity";
-import { ServerSpeechBackend, SpeechQueue } from "./speech";
+import { ServerSpeechBackend, SpeechQueue, type VoiceEngine } from "./speech";
 import { DEFAULT_WAKE_PHRASE, speechRecognitionSupported, usePhraseActivation } from "./voiceActivation";
 import { deriveStatus } from "./status";
 import * as api from "./api";
@@ -93,6 +93,11 @@ export function App() {
     const n = raw ? parseFloat(raw) : NaN;
     return Number.isFinite(n) ? n : 1.1;
   });
+  // Read-aloud engine: ElevenLabs (premium default) or Siri (macOS `say`). The
+  // server falls back to Siri on its own when ElevenLabs has no key.
+  const [voiceEngine, setVoiceEngine] = useState<VoiceEngine>(
+    () => (localStorage.getItem("voiceEngine") === "siri" ? "siri" : "elevenlabs"),
+  );
   // Voice *input* activation modes (independent of the read-aloud toggle above).
   const [pushToTalk, setPushToTalk] = useState(
     () => localStorage.getItem("voicePushToTalk") === "true",
@@ -132,6 +137,7 @@ export function App() {
   // next utterance honest after the user tweaks the dialog mid-session.
   voiceBackend.current.voiceId = voiceId;
   voiceBackend.current.speed = voiceSpeed;
+  voiceBackend.current.engine = voiceEngine;
   // Route TTS failures (unavailable backend, upstream 4xx/5xx, playback blocked) to
   // the status bar — otherwise voice mode looks like a no-op when it errors.
   voiceQueue.current.setErrorReporter((msg) => setStatus(msg));
@@ -202,6 +208,9 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("voiceSpeed", String(voiceSpeed));
   }, [voiceSpeed]);
+  useEffect(() => {
+    localStorage.setItem("voiceEngine", voiceEngine);
+  }, [voiceEngine]);
   useEffect(() => {
     localStorage.setItem("voicePushToTalk", String(pushToTalk));
   }, [pushToTalk]);
@@ -731,6 +740,8 @@ export function App() {
         voiceSpeed={voiceSpeed}
         onVoiceIdChange={setVoiceId}
         onVoiceSpeedChange={setVoiceSpeed}
+        voiceEngine={voiceEngine}
+        onVoiceEngineChange={setVoiceEngine}
         pushToTalk={pushToTalk}
         onTogglePushToTalk={() => setPushToTalk((v) => !v)}
         phraseActivation={phraseActivation}
@@ -762,6 +773,8 @@ export function App() {
         voiceSpeed={voiceSpeed}
         onVoiceIdChange={setVoiceId}
         onVoiceSpeedChange={setVoiceSpeed}
+        voiceEngine={voiceEngine}
+        onVoiceEngineChange={setVoiceEngine}
         pushToTalk={pushToTalk}
         onTogglePushToTalk={() => setPushToTalk((v) => !v)}
         phraseActivation={phraseActivation}

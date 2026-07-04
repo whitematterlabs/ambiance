@@ -129,13 +129,21 @@ def _mode_rank(voice_mode: str) -> int:
     return {"local": 0, "cloud": 1}.get(voice_mode, 2)
 
 
-def _candidates(capability: str) -> list[str]:
-    """Ordered package names to try for `capability`: configured pin first, then
-    installed providers (local before cloud)."""
+def _candidates(capability: str, prefer: str | None = None) -> list[str]:
+    """Ordered package names to try for `capability`: caller preference first,
+    then the configured pin, then installed providers (local before cloud).
+
+    `prefer` is a per-request engine choice from the web surface (the Siri /
+    ElevenLabs toggle) — it wins over the config pin so the owner can flip
+    engines without editing config.yaml. An unknown/uninstalled `prefer` just
+    falls through to the normal order.
+    """
     cfg = _voice_config()
     pinned = cfg.get(capability) or cfg.get("provider")
     ordered: list[str] = []
-    if isinstance(pinned, str) and pinned:
+    if isinstance(prefer, str) and prefer:
+        ordered.append(prefer)
+    if isinstance(pinned, str) and pinned and pinned not in ordered:
         ordered.append(pinned)
     for pkg in sorted(_discover_packages(), key=lambda p: _mode_rank(p["voice_mode"])):
         if capability in pkg["provides"] and pkg["name"] not in ordered:
@@ -143,18 +151,19 @@ def _candidates(capability: str) -> list[str]:
     return ordered
 
 
-def resolve_provider(capability: str):
+def resolve_provider(capability: str, prefer: str | None = None):
     """Return an imported provider module exposing `capability`, or None.
 
-    `capability` is "stt" or "tts". None means no installed/importable package
-    offers it — callers decide the fallback (macOS `say` for tts; an error for
-    stt).
+    `capability` is "stt" or "tts". `prefer` is an optional package name to try
+    first (the web surface passes the Siri/ElevenLabs toggle here). None means no
+    installed/importable package offers it — callers decide the fallback (macOS
+    `say` for tts; an error for stt).
     """
     if capability not in _CAPABILITIES:
         raise ValueError(f"unknown voice capability: {capability!r}")
     func = "transcribe" if capability == "stt" else "synthesize"
     with _lock:
-        for name in _candidates(capability):
+        for name in _candidates(capability, prefer):
             mod = _import_provider(name)
             if mod is not None and callable(getattr(mod, func, None)):
                 return mod

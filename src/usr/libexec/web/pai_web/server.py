@@ -260,10 +260,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/tts":
                 voice_id = body.get("voice_id")
                 speed = body.get("speed")
+                engine = body.get("engine")
                 return self._tts(
                     str(body["text"]),
                     voice_id=str(voice_id) if voice_id else None,
                     speed=float(speed) if speed is not None else None,
+                    engine=str(engine) if engine else None,
                 )
         except (KeyError, ValueError) as e:
             return self._json({"ok": False, "error": str(e)}, status=400)
@@ -327,10 +329,18 @@ class Handler(BaseHTTPRequestHandler):
         return audio, filename, audio_content_type, fields
 
     # -- text-to-speech (voice mode) --
-    def _tts(self, text: str, *, voice_id: str | None = None, speed: float | None = None):
+    def _tts(
+        self,
+        text: str,
+        *,
+        voice_id: str | None = None,
+        speed: float | None = None,
+        engine: str | None = None,
+    ):
         """Proxy text to playable audio via actions.synthesize_speech.
 
-        Keeps ElevenLabs credentials server-side. With no ElevenLabs key,
+        Keeps ElevenLabs credentials server-side. `engine` is the browser's
+        Siri/ElevenLabs toggle. With no ElevenLabs key (or engine="siri"),
         synthesize_speech falls back to macOS `say`; an unavailable local voice
         backend is a config problem (400), while upstream/network failures are
         gateway problems (502). The frontend treats both as "fail quietly" so
@@ -340,7 +350,9 @@ class Handler(BaseHTTPRequestHandler):
         if not text:
             return self._json({"ok": False, "error": "empty text"}, status=400)
         try:
-            audio = actions.synthesize_speech(text, voice_id=voice_id, speed=speed)
+            audio = actions.synthesize_speech(
+                text, voice_id=voice_id, speed=speed, engine=engine
+            )
         except RuntimeError as e:  # missing key / config
             return self._json({"ok": False, "error": str(e)}, status=400)
         except Exception as e:  # noqa: BLE001 — upstream / network

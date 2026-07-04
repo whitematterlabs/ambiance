@@ -4,6 +4,7 @@ import type { FleetMember, ProcRow } from "../types";
 import { paiColor } from "../palette";
 import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
+import type { VoiceEngine } from "../speech";
 
 // Mobile-only top bar. On the go the desktop chrome (kernel/voice/theme
 // controls, fleet strip, activity tab, status line) is too much for a phone, so
@@ -26,6 +27,8 @@ export function MobileMenu({
   voiceSpeed,
   onVoiceIdChange,
   onVoiceSpeedChange,
+  voiceEngine,
+  onVoiceEngineChange,
   pushToTalk,
   onTogglePushToTalk,
   phraseActivation,
@@ -56,6 +59,8 @@ export function MobileMenu({
   voiceSpeed: number;
   onVoiceIdChange: (id: string | null) => void;
   onVoiceSpeedChange: (speed: number) => void;
+  voiceEngine: VoiceEngine;
+  onVoiceEngineChange: (engine: VoiceEngine) => void;
   pushToTalk: boolean;
   onTogglePushToTalk: () => void;
   phraseActivation: boolean;
@@ -186,6 +191,8 @@ export function MobileMenu({
                 voiceSpeed={voiceSpeed}
                 onVoiceIdChange={onVoiceIdChange}
                 onVoiceSpeedChange={onVoiceSpeedChange}
+                voiceEngine={voiceEngine}
+                onVoiceEngineChange={onVoiceEngineChange}
                 pushToTalk={pushToTalk}
                 onTogglePushToTalk={onTogglePushToTalk}
                 phraseActivation={phraseActivation}

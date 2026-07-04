@@ -196,6 +196,45 @@ if [ -n "$PROVIDER" ]; then
   ensure_api_key "$PROVIDER"
 fi
 
+# --- ElevenLabs voice key (optional) -----------------------------------------
+# Cloud text-to-speech for reading replies aloud. Optional by design: with no
+# key PAI uses the macOS system voice ("Siri") instead, and the owner can flip
+# between the two anytime from the Voice menu in the web console. Stored in
+# $PAI_ROOT/.env alongside the provider key.
+ensure_elevenlabs_key() {
+  local var=ELEVENLABS_API_KEY
+  if [ -n "${!var:-}" ]; then
+    echo "    $var found in environment — not stored."
+    return 0
+  fi
+  for f in "$PAI_ROOT/.env.local" "$PAI_ROOT/.env"; do
+    if [ -f "$f" ] && grep -qE "^${var}=" "$f"; then
+      echo "    $var found in $f."
+      return 0
+    fi
+  done
+  if [ "$interactive" -ne 1 ]; then
+    echo "    $var not set — PAI will read replies aloud with the macOS voice (Siri)."
+    return 0
+  fi
+  echo "ElevenLabs gives PAI a natural cloud voice for reading replies aloud."
+  echo "Skip it and PAI uses the macOS system voice (Siri) instead — switch"
+  echo "anytime from the Voice menu in the web console."
+  printf "Enter %s (input hidden, leave blank to use Siri): " "$var"
+  read -rs key < /dev/tty; echo
+  if [ -z "$key" ]; then
+    echo "    skipped — PAI will read replies aloud with Siri."
+    return 0
+  fi
+  mkdir -p "$PAI_ROOT"
+  printf '%s=%s\n' "$var" "$key" >> "$ENV_FILE"
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+  echo "    saved $var to $ENV_FILE"
+}
+
+echo "==> ElevenLabs voice key (optional)"
+ensure_elevenlabs_key
+
 # --- guided first-run setup --------------------------------------------------
 # paisetup's curses picker (and its own key prompt) need the terminal on stdin,
 # which under `curl … | sh` is the pipe — so feed it /dev/tty. Skip cleanly when

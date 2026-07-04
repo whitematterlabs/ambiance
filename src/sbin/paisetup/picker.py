@@ -26,12 +26,17 @@ AUTO_INSTALL_ITEMS = frozenset({
     ("driver", "calendar"),
     ("driver", "imessage"),
     ("driver", "notification"),
+    # Voice ships as a first-class capability: both the local (whisper/`say`)
+    # and cloud (OpenAI/ElevenLabs) providers install silently so the web
+    # surface's Siri/ElevenLabs toggle always has both engines available.
+    ("driver", "voice"),
+    ("driver", "voice_cloud"),
     ("subagent", "browse"),
     ("subagent", "computer-use"),
 })
 
 # Visible drivers stay checked by default (opt-out) — the owner can uncheck the
-# ones they don't want (e.g. whatsapp, voice).
+# ones they don't want (e.g. whatsapp).
 AUTO_CHECKED_KINDS = frozenset({"driver"})
 
 # Back-compat for callers that only understand kind-level defaults.

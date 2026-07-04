@@ -117,6 +117,8 @@ def test_json_catalog_shows_only_visible_drivers(monkeypatch, capsys) -> None:
         "drivers/calendar",
         "drivers/imessage",
         "drivers/notification",
+        "drivers/voice",
+        "drivers/voice_cloud",
         "subagents/browse",
         "subagents/computer-use",
     ]
