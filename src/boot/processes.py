@@ -358,6 +358,32 @@ def read_pai_pid(slug: str) -> int | None:
     return pid if isinstance(pid, int) else None
 
 
+def ad_hoc_children(parent_pid: int) -> list[tuple[str, int]]:
+    """(slug, pid) for every active ad-hoc subagent whose parent is `parent_pid`.
+
+    Ad-hoc = kind:pai with a `parent`, no `persub`/`run`/`schedule` — a one-shot
+    child a PAI spawned for a single task. This is the work an owner interrupt
+    should reach: cancelling the parent must also stop what the parent delegated.
+    Persistent subagents (`persub`) and declared services (`run`/`schedule`) are
+    long-lived by design and are deliberately left alone."""
+    out: list[tuple[str, int]] = []
+    for slug, spec in _iter_pai_specs():
+        if spec.get("parent") != parent_pid:
+            continue
+        if spec.get("persub") or "run" in spec or "schedule" in spec:
+            continue
+        pid = spec.get("pid")
+        if not isinstance(pid, int):
+            continue
+        try:
+            if read_status(slug) not in ACTIVE_STATUSES:
+                continue
+        except ProcessNotFound:
+            continue
+        out.append((slug, pid))
+    return out
+
+
 def spawn_pai(
     pid: int = 1,
     slug: str | None = None,

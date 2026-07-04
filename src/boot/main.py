@@ -195,11 +195,17 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
     if kind == "interrupt":
         pai = int(event.get("pai", 1))
         tasks = list(_active_nudges.get(pai, ()))
-        if not tasks:
+        # An interrupt must reach the work this PAI delegated. Ad-hoc subagents
+        # run as their own procs with their own nudge tasks, so cancelling the
+        # parent alone leaves them running (the 2026-07-03 "LinkedIn kept trying
+        # after I stopped PAI" bug). Cascade first, then cancel the parent.
+        stopped = _cascade_stop_subagents(pai)
+        if not tasks and not stopped:
             print(f"[kernel] interrupt: no active nudge for pai={pai}", flush=True)
             return
+        suffix = f" + stopped {stopped} subagent(s)" if stopped else ""
         print(
-            f"[kernel] interrupt: cancelling {len(tasks)} nudge(s) for pai={pai}",
+            f"[kernel] interrupt: cancelling {len(tasks)} nudge(s) for pai={pai}{suffix}",
             flush=True,
         )
         for t in tasks:
@@ -705,6 +711,36 @@ def _is_ad_hoc_subagent_spec(spec: dict) -> bool:
         and "run" not in spec
         and "schedule" not in spec
     )
+
+
+def _cascade_stop_subagents(parent_pid: int) -> int:
+    """Stop every ad-hoc subagent under `parent_pid`, depth-first. Returns count.
+
+    Called when the owner interrupts a PAI: the interrupt cancels the parent's
+    own nudge task, and this reaches the children that PAI delegated work to.
+    For each ad-hoc child we cancel its in-flight nudge task (so it can't finish
+    the current turn) and resolve its proc to `stopped` (so it can't start
+    another). Grandchildren are stopped first so a dying child can't be seen as
+    a live parent. `notify_parent=False`: the parent is being interrupted right
+    now, so a "child stopped" nudge would be noise (and could re-wake it)."""
+    stopped = 0
+    for slug, child_pid in P.ad_hoc_children(parent_pid):
+        stopped += _cascade_stop_subagents(child_pid)
+        for t in list(_active_nudges.get(child_pid, ())):
+            t.cancel()
+        try:
+            P.append_log(slug, "kernel: stopped by owner interrupt of parent")
+            P.resolve(slug, "stopped", notify_parent=False)
+        except P.ProcessNotFound:
+            continue
+        except Exception as e:
+            print(
+                f"[kernel] interrupt: failed to stop subagent {slug}: {e!r}",
+                flush=True,
+            )
+            continue
+        stopped += 1
+    return stopped
 
 
 async def _drain_pai_locks() -> None:

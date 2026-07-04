@@ -623,6 +623,83 @@ def test_persub_reply_done_is_rejected_without_event(
     assert not list(P.EVENTS_DIR.iterdir())
 
 
+def test_owner_interrupt_cascades_to_ad_hoc_subagents(
+    live_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Interrupting a PAI stops the ad-hoc subagents it spawned.
+
+    Regression for 2026-07-03: a `browse` subagent kept hammering LinkedIn
+    after the owner tried to stop PAI, because `interrupt` cancelled only the
+    parent's own nudge task and never reached the child proc. The owner's stop
+    button must reach delegated work — recursively — while leaving long-lived
+    `persub` singletons alone.
+    """
+    import contextlib
+    from collections import defaultdict
+
+    # Isolate the module-global nudge registry from other tests.
+    monkeypatch.setattr(main_mod, "_active_nudges", defaultdict(set))
+
+    P.spawn_pai(pid=1, slug="root", description="parent")
+    P.spawn_pai(pid=7, slug="scout-x", description="child", parent=1,
+                extra={"persistent": True})
+    P.spawn_pai(pid=9, slug="scout-x.deep", description="grandchild", parent=7,
+                extra={"persistent": True})
+    # A persub sibling that is long-lived by design and must survive.
+    P.spawn_pai(pid=5, slug="root.computer-use", description="persub", parent=1,
+                extra={"persistent": True, "persub": True})
+
+    for e in P.EVENTS_DIR.iterdir():
+        e.unlink()
+    event_path = tmp_path / "interrupt.yaml"
+    event_path.write_text(yaml.safe_dump({"kind": "interrupt", "pai": 1}))
+
+    async def _drive():
+        async def _forever():
+            await asyncio.sleep(3600)
+
+        parent_task = asyncio.ensure_future(_forever())
+        child_task = asyncio.ensure_future(_forever())
+        grand_task = asyncio.ensure_future(_forever())
+        tasks = (parent_task, child_task, grand_task)
+        main_mod._active_nudges[1].add(parent_task)
+        main_mod._active_nudges[7].add(child_task)
+        main_mod._active_nudges[9].add(grand_task)
+
+        try:
+            await main_mod._handle_event_file(event_path, [])
+            # Let the handler's own cancellations settle. A few loop turns is
+            # enough for a cancelled sleep() to finish; a task the cascade
+            # missed simply stays pending, so its `.cancelled()` reads False and
+            # the assertion fails fast instead of hanging on sleep(3600).
+            for _ in range(5):
+                await asyncio.sleep(0)
+            return tuple(t.cancelled() for t in tasks)
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            for t in tasks:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await t
+
+    parent_cancelled, child_cancelled, grand_cancelled = asyncio.run(_drive())
+
+    # Parent's own turn and both descendants' turns are cancelled.
+    assert parent_cancelled
+    assert child_cancelled
+    assert grand_cancelled
+
+    # Ad-hoc child + grandchild are reaped so they can't start another turn.
+    procs = P.list_procs()
+    assert "scout-x" not in procs
+    assert "scout-x.deep" not in procs
+
+    # The persub singleton is untouched.
+    assert "root.computer-use" in procs
+    assert P.read_status("root.computer-use") == "running"
+
+
 def test_spawn_package_resolves_bundle_prompt(
     live_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
