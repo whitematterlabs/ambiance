@@ -23,11 +23,16 @@ from __future__ import annotations
 
 import argparse
 import os
+import pwd
 import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+
+
+def _real_home() -> Path:
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
 def _ensure_uv() -> None:
@@ -777,10 +782,10 @@ def expose_pai_command(root: Path) -> None:
     candidates = [
         Path("/usr/local/bin"),
         Path("/opt/homebrew/bin"),
-        Path.home() / ".local" / "bin",
+        _real_home() / ".local" / "bin",
     ]
     for parent in candidates:
-        if parent == Path.home() / ".local" / "bin":
+        if parent == _real_home() / ".local" / "bin":
             parent.mkdir(parents=True, exist_ok=True)
         if not parent.exists() or not os.access(parent, os.W_OK):
             continue
@@ -834,7 +839,7 @@ def main() -> int:
     ap.add_argument(
         "--root",
         type=Path,
-        default=Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai"))),
+        default=Path(os.environ.get("PAI_ROOT", str(_real_home() / ".pai"))),
         help="FHS root (default: $PAI_ROOT or ~/.pai)",
     )
     ap.add_argument(

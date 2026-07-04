@@ -9,11 +9,13 @@
 # dotenv's override=False means the first file to set a var wins, so load the
 # higher-precedence location first. Within a base, .env.local beats .env.
 import os as _os
+import pwd as _pwd
 from pathlib import Path as _Path
 
 from dotenv import load_dotenv as _load_dotenv
 
-_pai_root = _Path(_os.environ.get("PAI_ROOT", str(_Path.home() / ".pai")))
+_real_home = _Path(_pwd.getpwuid(_os.getuid()).pw_dir)
+_pai_root = _Path(_os.environ.get("PAI_ROOT", str(_real_home / ".pai")))
 _code_root = _Path(__file__).resolve().parent.parent.parent
 for _base in (_pai_root, _code_root):
     _load_dotenv(_base / ".env.local")

@@ -20,6 +20,7 @@ import os
 import sys
 from pathlib import Path
 
+from boot import paths
 from bin import paiman
 
 from . import picker
@@ -29,7 +30,7 @@ from .inventory import Item, discover
 
 
 def _pai_root() -> Path:
-    return Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai")))
+    return paths.PAI_ROOT
 
 
 def _tty_available() -> bool:

@@ -17,12 +17,14 @@ needs a terminal restart to take effect, which the message makes explicit.
 from __future__ import annotations
 
 import os
+import pwd
 import subprocess
 import sys
 from pathlib import Path
 
 # Drivers whose on-disk stores macOS gates behind Full Disk Access.
 FDA_DRIVERS = ("imessage", "email")
+REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 # Files readable only with Full Disk Access. A plain exists() check is useless
 # here — macOS reports gated paths as absent — so we actually open them and read
@@ -30,8 +32,8 @@ FDA_DRIVERS = ("imessage", "email")
 # denied. chat.db carries the signal on essentially every Mac (anyone who has
 # opened Messages has one); TCC.db is the backstop.
 _FDA_PROBES = (
-    Path.home() / "Library" / "Messages" / "chat.db",
-    Path.home() / "Library" / "Application Support" / "com.apple.TCC" / "TCC.db",
+    REAL_HOME / "Library" / "Messages" / "chat.db",
+    REAL_HOME / "Library" / "Application Support" / "com.apple.TCC" / "TCC.db",
 )
 
 # $TERM_PROGRAM value -> human name of the app that owns the TCC grant.

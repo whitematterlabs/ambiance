@@ -1,9 +1,8 @@
 """Single source of truth for filesystem paths.
 
 `PAI_ROOT` is the FHS root. Override with the `PAI_ROOT` env var; otherwise
-defaults to the repo root, which preserves the v0 flat-layout behavior
-(`home/` directly under repo root) until the v3 migration moves files
-into FHS slots.
+defaults to the real OS account's `~/.pai`, ignoring any per-PAI `$HOME`
+sandbox override.
 
 Forward-looking v3 helpers (`home_pai`, `var_lib_memory`, etc.) live here
 too; they begin to take effect as later phases lay out and populate the
@@ -13,12 +12,18 @@ quasi-Linux tree at `$PAI_ROOT`.
 from __future__ import annotations
 
 import os
+import pwd
 import shutil
 from pathlib import Path
 
 
+def real_home() -> Path:
+    """The OS account home, ignoring PAI's per-process $HOME override."""
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
 def _default_root() -> Path:
-    return Path.home() / ".pai"
+    return real_home() / ".pai"
 
 
 PAI_ROOT: Path = Path(os.environ.get("PAI_ROOT", str(_default_root())))

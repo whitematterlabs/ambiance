@@ -5,8 +5,9 @@ message body) is scanned for `![alt](path)`. Matched paths are read,
 base64-encoded, and spliced in as image blocks alongside the surrounding
 text. No marker → original string returned untouched (fast path).
 
-Path resolution: tilde-expanded, relative paths resolved against the
-caller-supplied `base_dir`. Resolved paths must stay inside `PAI_ROOT`;
+Path resolution: `~/` resolves against the caller-supplied `base_dir`, or
+the default PAI home when no base is supplied. Relative paths resolve against
+the caller-supplied `base_dir`. Resolved paths must stay inside `PAI_ROOT`;
 escapes are left as literal text so the model sees what was attempted.
 Missing files, unreadable bytes, and unsupported media types also pass
 through as literal text — image expansion never fails the turn.
@@ -20,7 +21,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Union
 
-from .paths import PAI_ROOT
+from .paths import HOME_DIR, PAI_ROOT
 
 try:
     from PIL import Image as _PILImage  # type: ignore
@@ -50,7 +51,12 @@ def _resolve_path(ref: str, base_dir: Path | None) -> Path | None:
     Returns None if the path escapes PAI_ROOT (caller leaves the ref as
     literal text).
     """
-    p = Path(ref).expanduser()
+    if ref == "~":
+        p = base_dir or HOME_DIR
+    elif ref.startswith("~/"):
+        p = (base_dir or HOME_DIR) / ref[2:]
+    else:
+        p = Path(ref)
     if not p.is_absolute() and base_dir is not None:
         p = base_dir / p
     try:

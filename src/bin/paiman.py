@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
+import pwd
 import re
 import shutil
 import subprocess
@@ -150,6 +151,19 @@ DEFAULT_REGISTRY = "https://github.com/whitematterlabs/pairegistry"
 _TOPIC_RANK = {t: i for i, t in enumerate(
     ("pais", "drivers", "subagents", "skills", "prompts", "lib", "bin", "sbin")
 )}
+
+
+def _real_home() -> Path:
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def _expand_owner_user(value: str) -> Path:
+    """Expand CLI-local `~/` paths against the owner account, not PAI $HOME."""
+    if value == "~":
+        return _real_home()
+    if value.startswith("~/"):
+        return _real_home() / value[2:]
+    return Path(value)
 
 
 def _validate_name(name: str) -> None:
@@ -351,7 +365,7 @@ class _Registry:
             else:
                 self._path = _clone(loc, dest)
         else:
-            p = Path(loc).expanduser()
+            p = _expand_owner_user(loc)
             if not p.is_dir():
                 raise SystemExit(f"paiman: registry {loc!r} is not a directory or URL")
             self._path = p.resolve()
@@ -405,7 +419,7 @@ def _resolve_source(arg: str, registry: _Registry, work: Path) -> Path:
     """Map a CLI source argument to an on-disk source tree with package.yaml."""
     if _is_url(arg):
         return _clone(arg, work / "url-src")
-    p = Path(arg).expanduser()
+    p = _expand_owner_user(arg)
     if p.is_dir():
         return p.resolve()
     # Bare name → registry lookup.

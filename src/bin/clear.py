@@ -22,6 +22,8 @@ from pathlib import Path
 
 import yaml
 
+from boot import paths
+
 _TERMINAL = {"completed", "expired", "cancelled", "failed", "stopped"}
 
 
@@ -35,7 +37,7 @@ def _is_live(proc_dir: Path) -> bool:
 
 
 def main() -> int:
-    pai_root = Path(os.environ.get("PAI_ROOT", Path.home() / ".pai"))
+    pai_root = paths.PAI_ROOT
     proc_root = pai_root / "proc"
 
     if len(sys.argv) > 1 and sys.argv[1] == "all":

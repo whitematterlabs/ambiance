@@ -15,6 +15,7 @@ Explodes the graph into:
 
 import json
 import os
+import pwd
 import re
 import sys
 from collections import defaultdict
@@ -23,7 +24,8 @@ from pathlib import Path
 
 from boot.paths import HOME_DIR
 
-ANIMUS_GRAPH = Path.home() / "Projects" / "animus" / "memory" / "twin.json"
+REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
+ANIMUS_GRAPH = REAL_HOME / "Projects" / "animus" / "memory" / "twin.json"
 YEAR = "2026"
 
 

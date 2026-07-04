@@ -29,6 +29,25 @@ def fhs_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+def test_local_tilde_paths_use_owner_home_not_env_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner_home = tmp_path / "owner"
+    sandbox_home = tmp_path / "sandbox"
+    registry = owner_home / "Projects" / "pairegistry"
+    pkg = owner_home / "pkg"
+    registry.mkdir(parents=True)
+    pkg.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(sandbox_home))
+    monkeypatch.setenv("PAIMAN_REGISTRY", "~/Projects/pairegistry")
+    monkeypatch.setattr(paiman, "_real_home", lambda: owner_home, raising=True)
+
+    reg = paiman._Registry(tmp_path / "work")
+
+    assert reg.root() == registry
+    assert paiman._resolve_source("~/pkg", reg, tmp_path / "work") == pkg
+
+
 # ---------- legacy scaffold (init) ----------
 
 def test_init_creates_loadable_bundle(fhs_root: Path) -> None:

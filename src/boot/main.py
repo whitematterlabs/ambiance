@@ -1155,7 +1155,7 @@ async def run() -> None:
         except Exception as e:
             print(f"[kernel] shell_tool shutdown failed: {e!r}", flush=True)
         try:
-            run_dir = Path(os.environ.get("PAI_ROOT", str(Path.home() / ".pai"))) / "run"
+            run_dir = paths.PAI_ROOT / "run"
             socks = sorted(run_dir.glob("tmux-*.sock"))
             if socks:
                 print(f"[kernel] shutdown: killing {len(socks)} tmux servers", flush=True)

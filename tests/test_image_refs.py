@@ -20,6 +20,7 @@ _PNG_BYTES = base64.b64decode(
 @pytest.fixture
 def root(tmp_path, monkeypatch):
     monkeypatch.setattr(image_refs, "PAI_ROOT", tmp_path)
+    monkeypatch.setattr(image_refs, "HOME_DIR", tmp_path / "home" / "pai")
     return tmp_path
 
 
@@ -87,6 +88,35 @@ def test_unsupported_media_type_literal(root):
 def test_relative_path_resolves_against_base_dir(root):
     img = _make_png(root, "rel.png")
     out = expand_image_refs("![](rel.png)", base_dir=root)
+    assert isinstance(out, list)
+    assert out[0]["type"] == "image"
+
+
+def test_tilde_path_resolves_against_base_dir(root, monkeypatch):
+    sandbox_home = root / "sandbox-home"
+    sandbox_home.mkdir()
+    monkeypatch.setenv("HOME", str(sandbox_home))
+    pai_home = root / "home" / "worker"
+    img = pai_home / "shots" / "tilde.png"
+    img.parent.mkdir(parents=True)
+    img.write_bytes(_PNG_BYTES)
+
+    out = expand_image_refs("![](~/shots/tilde.png)", base_dir=pai_home)
+
+    assert isinstance(out, list)
+    assert out[0]["type"] == "image"
+
+
+def test_tilde_path_uses_default_pai_home_without_base_dir(root, monkeypatch):
+    sandbox_home = root / "sandbox-home"
+    sandbox_home.mkdir()
+    monkeypatch.setenv("HOME", str(sandbox_home))
+    img = image_refs.HOME_DIR / "shots" / "default.png"
+    img.parent.mkdir(parents=True)
+    img.write_bytes(_PNG_BYTES)
+
+    out = expand_image_refs("![](~/shots/default.png)")
+
     assert isinstance(out, list)
     assert out[0]["type"] == "image"
 
