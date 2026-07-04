@@ -334,11 +334,9 @@ existing kernel event-routing tests (if any) already cover event delivery.
   off-by-default layer, not part of v1. Tiers A+B (artifact enrichment + idle)
   already cover the common "PDF / VSCode / lecture" cases without it.
 - **Video-call notetaker** — local system-audio capture (mic + system output) →
-  transcript → summary/action items, reusing PAI's existing STT dispatch. Under
-  active design exploration; not yet specced. Open questions: capture mechanism
-  (ScreenCaptureKit vs Core Audio process taps, both needing Screen Recording
-  TCC; possible prebuilt sidecar vs the no-Swift lesson), diarization, and — the
-  big one — third-party recording **consent/legality**, which is why it will be
-  its own driver with its own opt-in flag, never on-by-default.
+  transcript → summary/action items, reusing PAI's existing STT dispatch. Now has
+  its own spec: `2026-07-04-notetaker-driver-design.md` (own driver, own opt-in
+  flag, never on-by-default; manual trigger; Core Audio process taps; local-
+  default/cloud-opt-in STT).
 - Proactive nudge heuristics built on top of the logged activity stream, once
   there's real data to design against.
