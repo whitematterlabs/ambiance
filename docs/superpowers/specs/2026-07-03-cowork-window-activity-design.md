@@ -55,6 +55,14 @@ piloting-only posture.
 
 - Capture every macOS app/window focus change (app name + window title) as it
   happens.
+- **Enrich** each window event with the underlying *artifact* so PAI can read
+  the content itself, not the screen: the browser's real URL, or the file path
+  open in an editor/viewer (Preview, VSCode, etc.). PAI already has filesystem
+  and web access — the window says *what*, PAI reads the *what* from disk/URL.
+- **Attention:** attach an idle-time reading (seconds since last human input, via
+  IOKit `HIDIdleTime` — not keylogging) to each event, and let dwell duration be
+  derived retroactively from the switch log (time-to-next-switch). Together these
+  distinguish "staring at a PDF for 20 min" from "PDF open in the background."
 - Emit each change as a kernel event so PAI's normal reasoning loop can react
   per-event (no separate "nudge" logic — this rides the same event routing as
   every other driver).
@@ -111,6 +119,15 @@ inbound-driver pattern (same shape as `imessage`, `email`, etc.):
   clipboard entry. No new TCC — pasteboard reads need no permission. This rides
   the window-focus event, so it stays a single event-driven process, not a
   second poller.
+- On the same callback it also **enriches** the event: for a browser, it reads
+  the frontmost tab's URL (via AX, falling back to AppleScript/Automation);
+  for an editor/viewer, it pulls the open file path from the AX document
+  attribute or the window title. And it reads the current idle-seconds from
+  IOKit `HIDIdleTime`. Enrichment is best-effort per app — an app we don't have a
+  reader for just logs app + title with no `url`/`file_path`. The browser-URL
+  path may prompt a one-time **Automation/AppleScript TCC** grant (light,
+  per-target-app — not Full Disk Access). No screen capture, no vision model:
+  content understanding is PAI reading the artifact PAI was pointed at.
 - `file_activity.py` — pure Python via `pyobjc`: opens a single `FSEventStream`
   rooted at `~/` with `kFSEventStreamCreateFlagFileEvents`, so each callback
   carries per-file paths and change flags (created / removed / renamed /
@@ -138,7 +155,10 @@ entirely rather than working around it.
 On every window-focus change:
 
 1. `window_activity.py` builds a payload: `{app_name, window_title, pid,
-   timestamp}`.
+   timestamp, idle_seconds}`, plus best-effort `url` (browsers) or `file_path`
+   (editors/viewers) from the enrichment step. Dwell isn't stored on the event —
+   it's derivable from the gap to the next line, so the log stays append-only and
+   nothing is rewritten.
 2. Appends it as one line to `/sys/drivers/cowork/window_activity.ndjson`
    (runtime state per `FILESYSTEM_v3.md` convention — plain text, greppable,
    tailable). One file per tracker so each stays independently inspectable as
@@ -212,18 +232,29 @@ recovered.)
   file-activity coverage is partial (macOS redacts protected paths) and
   `file_activity.py` logs one warning. Denial doesn't crash the driver — it
   exits cleanly and the window/clipboard processes are unaffected.
+- **Browser-URL enrichment** may trigger a light, per-app **Automation
+  ("controlling <browser>")** TCC prompt the first time it reads a tab URL via
+  AppleScript. This is much lighter than FDA and is not required for the core
+  window/idle capture — if denied, events simply lack `url`. Idle-seconds
+  (`HIDIdleTime`) and file-path-from-title need no permission at all.
 - The same flag feeds the `<capabilities>` prompt block, so PAI's own
-  self-description discloses that it's watching window activity, clipboard
-  copies, *and file activity in the watched folders* when enabled — enforcement
-  and disclosure stay in sync, per existing convention.
+  self-description discloses that it's watching window activity (including the
+  open URL/file and whether the owner is active), clipboard copies, *and file
+  activity across `~/`* when enabled — enforcement and disclosure stay in sync,
+  per existing convention.
 
 ## Log format
 
 `/sys/drivers/cowork/window_activity.ndjson`, one JSON object per line:
 
 ```json
-{"ts": "2026-07-03T14:22:01Z", "app": "Google Chrome", "window": "Gmail: Re: contract terms", "pid": 1234}
+{"ts": "2026-07-03T14:22:01Z", "app": "Google Chrome", "window": "Lecture 5: Dynamic Programming - YouTube", "pid": 1234, "idle_seconds": 3, "url": "https://youtube.com/watch?v=..."}
+{"ts": "2026-07-03T14:41:12Z", "app": "Preview", "window": "contract.pdf", "pid": 1290, "idle_seconds": 640, "file_path": "/Users/x/Downloads/contract.pdf"}
 ```
+
+`url`/`file_path` present only when enrichment resolved them; `idle_seconds` is
+seconds since last human input at capture time. Dwell is not stored — derive it
+from the timestamp gap to the next line.
 
 `/sys/drivers/cowork/clipboard.ndjson`, one JSON object per line:
 
@@ -265,6 +296,8 @@ Manual verification only for v1:
 2. Switch focus between a few apps/windows.
 3. Confirm `window_activity.ndjson` gets new lines and the PAI process
    receives `cowork:window_changed` events (visible in kernel/process logs).
+   Check enrichment: a browser line carries `url`, a Preview/VSCode line carries
+   `file_path`, and `idle_seconds` climbs when you stop touching the machine.
 4. Copy some text, then switch apps; confirm `clipboard.ndjson` gets a line and
    a `cowork:clipboard_changed` event fires.
 5. Download a file, and mv/rm one somewhere in `~/` *outside* the old three
@@ -292,6 +325,20 @@ existing kernel event-routing tests (if any) already cover event delivery.
   heuristics we deliberately skipped in v1.
 - Owner-tunable denylist via the web console (v1 ships a fixed default denylist;
   the watch root is always `~/`).
-- `browser` process — URLs/tab titles, requires browser-specific integration.
+- **Screen capture + vision understanding (Tier C)** — periodic screenshots of
+  the active window run through a vision model, for content that isn't a readable
+  artifact (a design tool, a game, a native app with no file/URL). Its own spec
+  and its own capability: it needs Screen Recording TCC, real storage/compute per
+  frame, captures everything on screen (passwords, DMs), and screenshot-on-a-timer
+  is polling — all reasons it must be a deliberate, separately-consented,
+  off-by-default layer, not part of v1. Tiers A+B (artifact enrichment + idle)
+  already cover the common "PDF / VSCode / lecture" cases without it.
+- **Video-call notetaker** — local system-audio capture (mic + system output) →
+  transcript → summary/action items, reusing PAI's existing STT dispatch. Under
+  active design exploration; not yet specced. Open questions: capture mechanism
+  (ScreenCaptureKit vs Core Audio process taps, both needing Screen Recording
+  TCC; possible prebuilt sidecar vs the no-Swift lesson), diarization, and — the
+  big one — third-party recording **consent/legality**, which is why it will be
+  its own driver with its own opt-in flag, never on-by-default.
 - Proactive nudge heuristics built on top of the logged activity stream, once
   there's real data to design against.
