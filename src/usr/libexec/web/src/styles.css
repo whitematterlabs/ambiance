@@ -72,6 +72,7 @@
 
   --sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -1529,6 +1530,11 @@ button {
   font-size: 0.88em;
 }
 
+.msg-body pre,
+.msg-body pre code {
+  font-family: var(--mono);
+}
+
 .msg-body pre code {
   background: none;
   padding: 0;
@@ -1955,6 +1961,7 @@ button {
   width: 100%;
   flex: 0 1 auto;
   min-width: 0;
+  font-family: var(--sans);
   min-height: 36px;
   max-height: 140px;
   padding: 7px 0;
