@@ -137,6 +137,9 @@ def _auto_finish_subagent_plain_reply(
         parent_slug = P.find_pai_slug(parent_pid)
         result_dir = HOME_DIR / parent_slug / "workspace" / pai_slug
         result_dir.mkdir(parents=True, exist_ok=True)
+        # Same seam as `subagent done`: absolutize any relative attachment paths
+        # against the result dir (the child's cwd) before the parent copies them.
+        text = image_refs.absolutize_local_refs(text, result_dir)
         (result_dir / "result.md").write_text(f"{text}\n")
         result_ref = f"workspace/{pai_slug}/result.md"
         P.emit_event(
@@ -269,6 +272,14 @@ def _append_to_me_thread(pai_slug: str, text: str) -> None:
     body = text.strip()
     if not body:
         return
+    # Attachments (`![cap](path)`) are meaningful only against this PAI's cwd;
+    # the owner's browser has no such context, so a relative path renders as a
+    # broken image. Absolutize against the PAI's home before the reply leaves
+    # the kernel, so the web surface's /api/asset can serve it.
+    try:
+        body = image_refs.absolutize_local_refs(body, stitch.home_for(pai_slug))
+    except Exception:
+        pass  # never let attach-rewriting fail a reply post
     with path.open("a", encoding="utf-8") as f:
         f.write(f"[{hm}] pai: {body}\n")
 

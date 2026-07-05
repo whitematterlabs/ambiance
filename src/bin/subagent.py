@@ -40,6 +40,7 @@ import re
 import sys
 
 from boot import config as C
+from boot import image_refs
 from boot import processes as P
 from boot import stitch as S
 
@@ -504,6 +505,26 @@ def _normalize_result_path(result: str, *, parent_pid: int, child_slug: str) -> 
     return None
 
 
+def _absolutize_result_refs(result_abs: Path) -> None:
+    """Rewrite relative attachment paths inside a finished result.md to absolute.
+
+    Best-effort: a child saves screenshots/files relative to its cwd (which is
+    where result.md lives), so `![shot](workspace/x/shot.png)` only resolves
+    against that dir. Absolutize against result.md's directory so the parent —
+    and ultimately the owner's browser — can reach the file. A missing/unreadable
+    result or an unchanged body is a no-op."""
+    try:
+        text = result_abs.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return
+    rewritten = image_refs.absolutize_local_refs(text, result_abs.parent)
+    if rewritten != text:
+        try:
+            result_abs.write_text(rewritten, encoding="utf-8")
+        except OSError:
+            pass
+
+
 def cmd_reply(args: argparse.Namespace) -> int:
     env = _read_child_reply_env("reply", require_slug=True)
     if env is None:
@@ -540,6 +561,14 @@ def cmd_done(args: argparse.Namespace) -> int:
     result = _normalize_result_path(args.result, parent_pid=parent_pid, child_slug=child_slug)
     if result is None:
         return 1
+
+    # The child references files it saved relative to its own cwd (where
+    # result.md lives). Once the parent copies those refs into its owner-facing
+    # reply that cwd is gone and the path 404s in the console. Absolutize them
+    # against result.md's directory now, so the hand-off carries a real path.
+    parent_home = _parent_home(parent_pid)
+    if parent_home is not None:
+        _absolutize_result_refs((parent_home / result).resolve())
 
     _emit_parent_response(
         sender_pid=sender_pid,

@@ -30,6 +30,11 @@ except Exception:
 
 _IMAGE_REF_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
+# Both image (`![]`) and plain-link (`[]`) markdown refs, capturing the leading
+# `!` (or empty), the label, and the target. Targets can't contain `)` or
+# whitespace, which is the common case for on-disk attachment paths.
+_LOCAL_REF_RE = re.compile(r"(!?)\[([^\]]*)\]\(([^)\s]+)\)")
+
 # Anthropic-supported media types.
 _EXT_TO_MEDIA = {
     ".png": "image/png",
@@ -69,6 +74,45 @@ def _resolve_path(ref: str, base_dir: Path | None) -> Path | None:
     except ValueError:
         return None
     return resolved
+
+
+def absolutize_local_refs(text: str, base_dir: Path) -> str:
+    """Rewrite relative markdown image/link targets to absolute on-disk paths.
+
+    A PAI attaches a file by embedding its path in `![cap](path)` or
+    `[txt](path)`. A relative (or `~/`) path is only meaningful against the
+    authoring PAI's cwd; by the time the reply reaches the owner's browser that
+    context is gone and a bare `workspace/shot.png` resolves against the page
+    origin and 404s (the broken-image icon). Absolutize it here — at the seam
+    where the cwd is still known — so the path flows through `/api/asset`.
+
+    Only a ref whose target resolves to an *existing file* under `base_dir` is
+    rewritten. URLs, in-page anchors, already-absolute paths, and refs that
+    don't point at a real file pass through untouched, so ordinary prose links
+    (`[the docs](guide/intro)`) are never mangled. `base_dir` must be absolute.
+    """
+    if "](" not in text:
+        return text
+
+    def _repl(m: re.Match) -> str:
+        bang, label, ref = m.group(1), m.group(2), m.group(3)
+        if ref.startswith(("/", "#")) or "://" in ref or ref.startswith("mailto:"):
+            return m.group(0)  # absolute, anchor, URL, mail — leave as-is
+        if ref == "~":
+            target = base_dir
+        elif ref.startswith("~/"):
+            target = base_dir / ref[2:]
+        else:
+            target = base_dir / ref
+        try:
+            resolved = target.resolve()
+        except OSError:
+            return m.group(0)
+        if not resolved.is_file():
+            return m.group(0)  # prose link / missing file — don't mangle
+        return f"{bang}[{label}]({resolved})"
+
+    return _LOCAL_REF_RE.sub(_repl, text)
 
 
 def _load_and_encode(path: Path) -> tuple[str, str] | None:

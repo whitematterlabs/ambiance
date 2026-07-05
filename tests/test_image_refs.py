@@ -131,6 +131,75 @@ def test_multiple_markers(root):
     assert types == ["image", "text", "image"]
 
 
+# --- absolutize_local_refs ---
+
+from boot.image_refs import absolutize_local_refs
+
+
+def test_absolutize_relative_image_ref(root):
+    _make_png(root, "shot.png")
+    out = absolutize_local_refs("look ![cap](shot.png) here", root)
+    assert out == f"look ![cap]({(root / 'shot.png').resolve()}) here"
+
+
+def test_absolutize_relative_link_ref(root):
+    (root / "notes.md").write_text("hi")
+    out = absolutize_local_refs("[notes](notes.md)", root)
+    assert out == f"[notes]({(root / 'notes.md').resolve()})"
+
+
+def test_absolutize_nested_relative_ref(root):
+    nested = root / "workspace" / "task"
+    nested.mkdir(parents=True)
+    (nested / "screenshot.png").write_bytes(_PNG_BYTES)
+    ref = "workspace/task/screenshot.png"
+    out = absolutize_local_refs(f"![x]({ref})", root)
+    assert out == f"![x]({(root / ref).resolve()})"
+
+
+def test_absolutize_leaves_absolute_paths(root):
+    img = _make_png(root)
+    text = f"![x]({img})"
+    assert absolutize_local_refs(text, root) == text
+
+
+def test_absolutize_leaves_urls(root):
+    text = "![doodle](https://www.google.com/logo.png) and [site](http://x.io)"
+    assert absolutize_local_refs(text, root) == text
+
+
+def test_absolutize_leaves_nonexistent_paths(root):
+    # A prose link to a route, not a file — must not be mangled.
+    text = "see [the docs](guide/intro) for details"
+    assert absolutize_local_refs(text, root) == text
+
+
+def test_absolutize_leaves_anchors(root):
+    text = "[jump](#section)"
+    assert absolutize_local_refs(text, root) == text
+
+
+def test_absolutize_tilde_ref(root):
+    home = root / "home" / "pai"
+    (home / "sub").mkdir(parents=True)
+    (home / "sub" / "f.png").write_bytes(_PNG_BYTES)
+    out = absolutize_local_refs("![](~/sub/f.png)", home)
+    assert out == f"![]({(home / 'sub' / 'f.png').resolve()})"
+
+
+def test_absolutize_no_ref_passthrough(root):
+    assert absolutize_local_refs("plain text, no refs", root) == "plain text, no refs"
+
+
+def test_absolutize_multiple_mixed(root):
+    _make_png(root, "a.png")
+    text = "![a](a.png) then [x](https://y.io) then ![b](missing.png)"
+    out = absolutize_local_refs(text, root)
+    assert f"![a]({(root / 'a.png').resolve()})" in out
+    assert "[x](https://y.io)" in out
+    assert "![b](missing.png)" in out
+
+
 # --- dehydrate_image_blocks ---
 
 from boot.image_refs import dehydrate_image_blocks

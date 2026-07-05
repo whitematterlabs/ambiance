@@ -972,3 +972,26 @@ def test_reap_without_result_md_is_clean(
     assert child_slug not in P.list_procs()
     handoff_dir = P.HOME_DIR / "pai" / "workspace" / child_slug
     assert not handoff_dir.exists()
+
+
+def test_absolutize_result_refs_rewrites_relative_attachments(tmp_path: Path) -> None:
+    """A child's cwd-relative attachment path in result.md is rewritten to an
+    absolute path (against result.md's dir) so the parent's relay survives."""
+    result_dir = tmp_path / "workspace" / "scout-1"
+    (result_dir / "workspace" / "scout-1").mkdir(parents=True)
+    shot = result_dir / "workspace" / "scout-1" / "shot.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\n")  # existence is all that's checked
+    result_md = result_dir / "result.md"
+    result_md.write_text("# Report\n\n![shot](workspace/scout-1/shot.png)\n")
+
+    sub_bin._absolutize_result_refs(result_md)
+
+    assert f"![shot]({shot.resolve()})" in result_md.read_text()
+
+
+def test_absolutize_result_refs_leaves_urls_and_missing(tmp_path: Path) -> None:
+    result_md = tmp_path / "result.md"
+    body = "![web](https://x.io/a.png) and [route](docs/intro)\n"
+    result_md.write_text(body)
+    sub_bin._absolutize_result_refs(result_md)
+    assert result_md.read_text() == body
