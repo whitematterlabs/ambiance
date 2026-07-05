@@ -62,7 +62,7 @@ export function VoiceSettings({
         >
           <span className="voice-switch-copy">
             <span className="voice-switch-name">Push-to-talk</span>
-            <span className="voice-switch-blurb">Hold the mic, release to send</span>
+            <span className="voice-switch-blurb">Composer mic: hold to record, release to send</span>
           </span>
           <span className="voice-switch-track" aria-hidden="true">
             <span className="voice-switch-thumb" />
@@ -72,21 +72,29 @@ export function VoiceSettings({
           type="button"
           className="voice-switch"
           role="switch"
-          aria-checked={phraseActivation}
+          // When the host `voice` driver is up it owns wake-word activation and
+          // the browser fallback stands down — so show the switch as ON and lock
+          // it rather than letting it toggle a flag nothing reads.
+          aria-checked={localListener ? true : phraseActivation}
           onClick={onTogglePhraseActivation}
-          disabled={!phraseSupported && !localListener}
+          disabled={localListener || !phraseSupported}
           title={
-            phraseSupported || localListener
-              ? undefined
-              : "Phrase activation needs the local voice driver or the Web Speech API (try Chrome or Edge)"
+            localListener
+              ? "The local voice driver owns phrase activation — the host mic is always listening for the wake word, so there's nothing to toggle here."
+              : phraseSupported
+                ? undefined
+                : "Phrase activation needs the local voice driver or the Web Speech API (try Chrome or Edge)"
           }
         >
           <span className="voice-switch-copy">
-            <span className="voice-switch-name">Phrase activation</span>
+            <span className="voice-switch-name">
+              Phrase activation
+              {localListener && <span className="voice-switch-tag">host mic</span>}
+            </span>
             <span className="voice-switch-blurb">
               {localListener ? (
                 <>
-                  Say <em>"{wakePhrase}"</em> to talk (host mic)
+                  On — the local voice driver is listening for <em>"{wakePhrase}"</em>
                 </>
               ) : phraseSupported ? (
                 <>
