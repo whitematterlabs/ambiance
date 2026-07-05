@@ -8,21 +8,22 @@ from boot import stitch
 
 def test_memory_usage_routes_durable_writes_to_librarian() -> None:
     repo = Path(__file__).resolve().parents[1]
-    text = (repo / "src" / "etc" / "boilerplate" / "memory-usage.md").read_text()
+    raw = (repo / "src" / "etc" / "boilerplate" / "memory-usage.md").read_text()
+    text = " ".join(raw.split())  # normalize wraps so prose checks are line-agnostic
 
     # Single write path through the librarian, no direct edits.
-    assert "There is one write path: `memorize`" in text
+    assert "One write path: `memorize`" in text
     assert "librarian" in text
     assert "Never edit memory files yourself" in text
-    assert "report that memory storage failed" in text
+    assert "report that storage failed" in text
     # When to call it.
-    assert "`memorize` when you learn a durable fact" in text
-    assert "Before ending a turn, ask whether you learned something" in text
+    assert "you learn a durable fact" in text
+    assert "Before ending a turn, ask" in text
     assert "without waiting for \"remember this.\"" in text
-    assert "owner preferences or corrections" in text
+    assert "owner preferences/corrections" in text
     assert "capability/routing discoveries" in text
     # Private variant + read paths.
-    assert "`--private` is for classified or very sensitive info" in text
+    assert "`--private` = classified/sensitive info" in text
     assert "cross-contaminate PAIs" in text
     assert "`remember '<question>'`" in text
     assert "read-only lookup to `librarian`" in text
