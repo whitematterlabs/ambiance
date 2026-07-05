@@ -16,6 +16,7 @@ import subprocess
 import sys
 import traceback
 
+from . import build
 from . import paths
 from .phases import backfill, clean, hooks, probe, reconcile, sanity, start
 from . import main as supervise
@@ -207,6 +208,13 @@ def boot() -> int:
     # straggler kernel from a prior boot that predated/bypassed the lock
     # before the boot phases (and our drivers) start writing shared state.
     _reap_duplicate_kernels()
+    # Stamp which build this kernel is running so the web surface can detect
+    # (and auto-heal) skew against its own build. A `kernel:restart` re-execs
+    # through boot(), so this restamps to the new build for free.
+    try:
+        build.write_kernel_stamp(os.getpid())
+    except OSError as e:
+        print(f"[boot] warn: could not write build stamp: {e!r}", flush=True)
     try:
         sanity.run()
         clean.run()

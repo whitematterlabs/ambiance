@@ -3833,3 +3833,39 @@ button {
     max-width: 150px;
   }
 }
+
+/* Build-skew banner — spans the top of the app above the header. Info tone is a
+   quiet "auto-reboot in progress"; warn tone (amber) is an action the owner
+   must take (stuck kernel, or a stale console that can't self-heal). */
+.build-banner {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  border-bottom: 1px solid var(--accent-border);
+}
+.build-banner code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 0 3px;
+}
+.build-banner--info {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.build-banner--warn {
+  background: #f7e6c4;
+  color: #6b4a05;
+}
+:root[data-theme="dark"] .build-banner--warn,
+html[data-theme="dark"] .build-banner--warn {
+  background: #3a2e12;
+  color: #f0cf88;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .build-banner--warn {
+    background: #3a2e12;
+    color: #f0cf88;
+  }
+}

@@ -252,6 +252,51 @@ def _reprovision_after_update(repo: Path, *, no_web: bool) -> int:
     return 0
 
 
+def _kernel_is_running() -> bool:
+    """True if a kernel currently holds its pid flock. Non-blocking probe that
+    always releases — mirrors sbin/reboot so `update` can decide whether a
+    restart is even applicable."""
+    import fcntl
+
+    lock = PAI_ROOT / "run" / "kernel.pid"
+    if not lock.exists():
+        return False
+    try:
+        fd = os.open(lock, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True  # someone holds it → a kernel is up
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def _restart_kernel_after_update(new_ver: str, *, no_restart: bool) -> None:
+    """Make the update fully live: tell the running kernel to re-exec into the
+    freshly-repointed build. Without this the kernel keeps running the old build
+    until a manual `sbin/reboot`, which is exactly how new-web/old-kernel skew
+    (silent split-brain) happened. `--no-restart` opts out to stage a build."""
+    if no_restart:
+        print("pai update: staged; kernel NOT restarted (--no-restart). "
+              "run `sbin/reboot` to go live.")
+        return
+    if not _kernel_is_running():
+        return
+    try:
+        from boot.processes import emit_event
+
+        emit_event({"kind": "kernel:restart", "source": "update"})
+        print(f"pai update: restarting kernel into {new_ver}")
+    except Exception as e:  # never fail the update over the restart nudge
+        print(f"pai update: could not signal kernel restart ({e!r}); "
+              "run `sbin/reboot` to go live.", file=sys.stderr)
+
+
 # ---------- tarball (end-user) update path ----------
 
 def _release_marker() -> str | None:
@@ -439,7 +484,7 @@ def _download_and_extract(base: str, ver: str, expected_sha: str = "") -> tuple[
 
 def _cmd_update_tarball(args: argparse.Namespace, current_ver: str) -> int:
     if args.rollback:
-        return _rollback_tarball(current_ver)
+        return _rollback_tarball(current_ver, no_restart=args.no_restart)
 
     base = _release_base()
     try:
@@ -485,10 +530,11 @@ def _cmd_update_tarball(args: argparse.Namespace, current_ver: str) -> int:
     _write_sha_marker(sha)
     _gc_versions(keep=2)
     print(f"pai update: now on {latest}")
+    _restart_kernel_after_update(latest, no_restart=args.no_restart)
     return 0
 
 
-def _rollback_tarball(current_ver: str) -> int:
+def _rollback_tarball(current_ver: str, *, no_restart: bool = False) -> int:
     candidates = [v for v in _installed_versions() if v != current_ver]
     if not candidates:
         print("pai update: no prior version to roll back to", file=sys.stderr)
@@ -505,6 +551,7 @@ def _rollback_tarball(current_ver: str) -> int:
     # re-syncs rather than trusting a sha from the rolled-forward version.
     _clear_sha_marker()
     print(f"pai update: rolled back to {prior}")
+    _restart_kernel_after_update(prior, no_restart=no_restart)
     return 0
 
 
@@ -545,7 +592,12 @@ def cmd_update(args: argparse.Namespace) -> int:
     if args.no_reprovision:
         print("pai update: skipped reprovision")
         return 0
-    return _reprovision_after_update(REPO_ROOT, no_web=args.no_web)
+    rc = _reprovision_after_update(REPO_ROOT, no_web=args.no_web)
+    if rc == 0:
+        # A dev checkout runs its source in place; a git pull already swapped the
+        # files, so a re-exec is what actually adopts them.
+        _restart_kernel_after_update("dev", no_restart=args.no_restart)
+    return rc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -601,6 +653,12 @@ def main(argv: list[str] | None = None) -> int:
         "--rollback",
         action="store_true",
         help="(tarball installs) repoint to the previous installed version",
+    )
+    update.add_argument(
+        "--no-restart",
+        action="store_true",
+        help="stage the new build without rebooting the running kernel "
+        "(the kernel keeps running the old build until `sbin/reboot`)",
     )
     update.set_defaults(func=cmd_update)
 

@@ -76,8 +76,20 @@ export interface SendCapability {
   mode: SendMode;
 }
 
+// Build-skew status: which build the kernel vs this console is running, and
+// whether the kernel is old enough that the console is auto-rebooting it.
+export type BuildSkew = "unknown" | "in_sync" | "kernel_stale" | "console_stale" | "both_stale";
+export interface BuildStatus {
+  state: BuildSkew;
+  kernel: string | null;
+  console: string;
+  current: string;
+  escalated: boolean;
+}
+
 export type ServerMessage =
-  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[] }
+  | { type: "hello"; provider: string; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
+  | { type: "build"; status: BuildStatus }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
   | { type: "thread"; pid: number; messages: ThreadMessage[] }

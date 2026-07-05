@@ -115,11 +115,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _binary(self, data: bytes, content_type: str, status: int = 200) -> None:
+    def _binary(self, data: bytes, content_type: str, status: int = 200, *, cors: bool = True) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # `/api/asset` reads arbitrary on-disk paths, so it opts out of the
+        # wildcard CORS other routes send: the console is always same-origin
+        # with the server (local loopback, the ngrok host, or the Vite proxy),
+        # so it never needs cross-origin reads — and the wildcard would let any
+        # website the owner visits `fetch()` the owner's files out of the
+        # loopback server. Same-origin requests ignore this header entirely.
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
 
@@ -393,24 +400,47 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: " + json.dumps(obj).encode() + b"\n\n")
         self.wfile.flush()
 
-    # -- asset (PAI-local images: screenshots, downloads) --
+    def _asset_root(self) -> Path:
+        """Directory tree `/api/asset` is allowed to serve files from.
+
+        The fence tracks the surface's trust boundary, which is exactly what
+        `auth_token` already encodes:
+
+          - Remote tunnel (`auth_token` set) — the browser is on the public
+            internet behind only a bearer token, so it stays fenced hard to
+            PAI_ROOT. Screenshots and downloads a PAI parks under `~/.pai`
+            still render; nothing outside it is reachable.
+          - Local owner surface (`auth_token is None` — unix socket, or dev
+            `pai start --web`) — the owner is viewing their own machine in
+            their own browser, so `/api/asset` may reach anything under their
+            home dir. That's where PAIs naturally reference files to show:
+            `~/Downloads`, `~/Desktop`, screenshots outside `~/.pai`.
+        """
+        if getattr(getattr(self, "server", None), "auth_token", None):
+            return PAI_ROOT.resolve()
+        return Path.home().resolve()
+
+    # -- asset (PAI-referenced files: screenshots, downloads, attachments) --
     def _asset(self):
-        """Serve an image file addressed by absolute path via `?abs=<path>`.
+        """Serve a file addressed by absolute path via `?abs=<path>`.
 
-        The screenshot tool and downloads reference images by their absolute
-        on-disk path (e.g. `![screenshot](/Users/…/.pai/…/shot.png)`); the
-        frontend rewrites such refs to `/api/asset?abs=…&token=…`. This is the
-        only route that reaches files the SPA didn't ship, so it is fenced hard:
+        PAIs reference files by their absolute on-disk path (e.g.
+        `![logo](/Users/…/Downloads/logo.png)`); the frontend rewrites such
+        refs to `/api/asset?abs=…&token=…`. This is the only route that reaches
+        files the SPA didn't ship, so it is fenced hard:
 
-          - the path must resolve *inside* PAI_ROOT (symlinks resolved first, so
-            a symlink escape is caught),
-          - it must carry a known image extension,
-          - it must be a real file.
+          - the path must resolve *inside* the surface's asset root (see
+            `_asset_root`; symlinks are resolved first so an escape is caught),
+          - it must be a real file,
+          - a known image extension is served as an image; anything else is
+            tried as bounded UTF-8 text, always `text/plain`.
 
         Anything else is a flat 404 — no directory listing, no error detail.
-        Auth is already enforced upstream: this is an `/api/*` path, so on the
-        remote tunnel `_check_auth` requires the token (passed as `?token=`,
-        since `<img>` tags can't set an Authorization header).
+        Auth is enforced upstream: this is an `/api/*` path, so on the remote
+        tunnel `_check_auth` requires the token (passed as `?token=`, since
+        `<img>` tags can't set an Authorization header). The response omits the
+        wildcard CORS header (see `_binary`) so no cross-origin site can read a
+        file out of the loopback server.
         """
         query = self.path.partition("?")[2]
         abs_vals = urllib.parse.parse_qs(query).get("abs")
@@ -418,7 +448,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "missing abs"}, status=400)
         try:
             target = Path(abs_vals[0]).resolve()
-            root = PAI_ROOT.resolve()
+            root = self._asset_root()
         except (OSError, ValueError):
             return self._json({"error": "not found"}, status=404)
         if not target.is_relative_to(root):
@@ -427,7 +457,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "not found"}, status=404)
         ctype = _ASSET_TYPES.get(target.suffix.lower())
         if ctype is not None:
-            return self._binary(target.read_bytes(), ctype)
+            return self._binary(target.read_bytes(), ctype, cors=False)
         # Not a known image: try to serve it as inline text so the console can
         # render attached files (posts, logs, code) the same way it renders
         # screenshots. Read a bounded prefix and require it to be valid UTF-8;
@@ -441,7 +471,7 @@ class Handler(BaseHTTPRequestHandler):
         truncated = len(raw) > _MAX_TEXT_ASSET_BYTES
         if truncated:
             text = text[:_MAX_TEXT_ASSET_BYTES] + "\n… (truncated)"
-        return self._binary(text.encode("utf-8"), "text/plain; charset=utf-8")
+        return self._binary(text.encode("utf-8"), "text/plain; charset=utf-8", cors=False)
 
     # -- static (SPA) --
     def _static(self, path: str):

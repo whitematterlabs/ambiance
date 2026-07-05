@@ -2,9 +2,11 @@
 
 Mirrors the TUI's filesystem watchers (`src/sbin/tui/state.py`) but threading-
 based (no asyncio loop) so it can fan out to many SSE clients from inside a
-stdlib HTTP server. It is **read + react only**: it never mutates kernel state.
-The only writes the web surface performs live in `actions.py`, and they are the
-exact same two writes the TUI makes (a me-thread day-file line + an event file).
+stdlib HTTP server. It is almost entirely read + react: the only state it
+mutates is the deliberate build-skew auto-heal (emitting `kernel:restart` when
+it detects the kernel is running an older build than this console — see
+`_recompute_build`). All other writes the web surface performs live in
+`actions.py` and mirror the TUI (a me-thread day-file line + an event file).
 
 Pure parsing/format helpers are imported from `sbin.tui.state` so the on-disk
 message format has a single source of truth across both surfaces.
@@ -20,6 +22,7 @@ from typing import Callable, Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+from boot import build
 from boot import config
 from boot import paths
 from boot.nudge import DEFAULT_COMPACT_THRESHOLD
@@ -291,6 +294,13 @@ class Hub:
         self._pending_approvals: list[dict] = []
         self._send_caps: list[dict] = []
         self._log_offset = 0
+        # Build-skew detection: this console's build is fixed for its lifetime;
+        # the kernel's is read from its boot stamp. _heal holds the auto-reboot
+        # cooldown/escalation state (see _recompute_build).
+        self._console_build = build.running_build().version
+        self._build_status: dict = {}
+        self._heal = build.HealState()
+        self._build_recheck: Optional[threading.Timer] = None
 
     # -- subscriptions --
     def add(self, sub: "Subscriber") -> None:
@@ -317,6 +327,7 @@ class Hub:
                 "procs": list(self._procs),
                 "pending_approvals": list(self._pending_approvals),
                 "send_capabilities": list(self._send_caps),
+                "build": dict(self._build_status),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
                 # The live tail only streams *new* lines (starts at EOF), so a
                 # fresh client would see an empty feed despite a populated log.
@@ -374,6 +385,19 @@ class Hub:
         self._watch(etc_dir, lambda _p: caps_worker.poke(), recursive=False)
         self._recompute_send_caps(broadcast=False)
 
+        # Build-skew: recompute when the kernel restamps its build (reboot) or
+        # when `pai update` moves the installed release (`.release` marker).
+        build_worker = _Debounced(lambda: self._recompute_build(broadcast=True))
+        build_worker.start()
+        self._workers.append(build_worker)
+        stamp_dir = build.kernel_stamp_path().parent
+        stamp_dir.mkdir(parents=True, exist_ok=True)
+        self._watch(stamp_dir, lambda _p: build_worker.poke(), recursive=False)
+        var_lib = paths.PAI_ROOT / "var" / "lib"
+        var_lib.mkdir(parents=True, exist_ok=True)
+        self._watch(var_lib, lambda _p: build_worker.poke(), recursive=False)
+        self._recompute_build(broadcast=False)
+
     def _watch(self, path: Path, cb, recursive: bool) -> None:
         obs = Observer()
         obs.schedule(_Poke(cb), str(path), recursive=recursive)
@@ -381,6 +405,8 @@ class Hub:
         self._observers.append(obs)
 
     def stop(self) -> None:
+        if self._build_recheck is not None:
+            self._build_recheck.cancel()
         for w in self._workers:
             w.stop()
         for obs in self._observers:
@@ -429,6 +455,59 @@ class Hub:
         self._send_caps = caps
         if broadcast:
             self._broadcast({"type": "send_capabilities", "capabilities": caps})
+
+    def _recompute_build(self, broadcast: bool) -> None:
+        """Classify kernel-vs-console build skew and auto-heal a stale kernel.
+
+        Ground truth: the console's build (fixed at start) vs the kernel's boot
+        stamp vs the installed `current` release. When the kernel is behind and
+        this console is current, emit `kernel:restart` once (then a re-check
+        timer catches a reboot that didn't take and escalates to a banner). When
+        the console itself is behind, only warn — rebooting can't fix that."""
+        stamp = build.read_kernel_stamp()
+        kernel_ver = stamp.get("version") if stamp else None
+        current = build.current_release()
+        console = self._console_build
+        state = build.classify_skew(kernel_ver, console, current)
+
+        action = build.decide_heal(kernel_ver, console, current, self._heal, time.monotonic())
+        if action == "reboot":
+            self._heal.last_kernel_ver = kernel_ver
+            self._heal.last_attempt_monotonic = time.monotonic()
+            self._heal.escalated = False
+            try:
+                actions.reboot_kernel()
+            except Exception:  # never let auto-heal kill the watcher thread
+                pass
+            self._schedule_build_recheck()
+        elif action == "escalate":
+            self._heal.escalated = True
+        if state == "in_sync":
+            self._heal = build.HealState()
+
+        status = {
+            "state": state,
+            "kernel": kernel_ver,
+            "console": console,
+            "current": current,
+            "escalated": self._heal.escalated,
+        }
+        if status != self._build_status:
+            self._build_status = status
+            if broadcast:
+                self._broadcast({"type": "build", "status": status})
+
+    def _schedule_build_recheck(self) -> None:
+        """After a reboot attempt, re-evaluate once the cooldown has elapsed —
+        a successful reboot restamps kernel.json (FS event handles it), but a
+        reboot that silently didn't take produces no event, so this timer is the
+        only path to the escalation banner."""
+        if self._build_recheck is not None:
+            self._build_recheck.cancel()
+        t = threading.Timer(65.0, lambda: self._recompute_build(broadcast=True))
+        t.daemon = True
+        self._build_recheck = t
+        t.start()
 
     def _recompute_threads(self) -> None:
         for pid in list(self._fleet_pids):

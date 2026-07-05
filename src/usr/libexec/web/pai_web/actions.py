@@ -370,6 +370,17 @@ def interrupt(pid: int) -> None:
     emit_event({"source": "web", "kind": "interrupt", "pai": pid})
 
 
+def reboot_kernel() -> dict:
+    """Emit `kernel:restart` so the running kernel drains and re-execs in place
+    into the current build (same payload as `sbin/reboot`). Guarded: only fires
+    when a kernel actually holds the lock, so a spurious call can't spawn or
+    disturb anything. Returns the kernel status."""
+    status = kernel_status()
+    if status["running"]:
+        emit_event({"source": "web", "kind": "kernel:restart"})
+    return status
+
+
 # Root is the privileged system PAI (reserved pid 1; see boot.config).
 ROOT_PID = next((pid for pid, slug in config.RESERVED_PIDS.items() if slug == "root"), 1)
 

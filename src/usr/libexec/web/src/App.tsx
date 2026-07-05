@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  BuildStatus,
   EventSighting,
   FleetMember,
   KernelStatus,
@@ -27,6 +28,7 @@ import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { BuildBanner } from "./components/BuildBanner";
 import { ApprovalModal } from "./components/ApprovalModal";
 import { WelcomeDialog } from "./components/WelcomeDialog";
 
@@ -51,6 +53,7 @@ export function App() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [status, setStatus] = useState<string>("idle");
+  const [build, setBuild] = useState<BuildStatus | null>(null);
   const [kernel, setKernel] = useState<KernelStatus>({ running: false, pid: null });
   const [kernelBusy, setKernelBusy] = useState(false);
   const [cloningSlugs, setCloningSlugs] = useState<Set<string>>(() => new Set());
@@ -287,6 +290,7 @@ export function App() {
             approvalsCountRef.current = pending.length;
           }
           setSendCaps(msg.send_capabilities ?? []);
+          setBuild(msg.build ?? null);
           // Seed the log + activity panes with the kernel.log backlog so a
           // fresh connection isn't a blank "waiting for kernel.log…".
           if (msg.log_backlog?.length) {
@@ -344,6 +348,9 @@ export function App() {
           if (r.entries.length) setActivity((prev) => cap(prev, r.entries));
           break;
         }
+        case "build":
+          setBuild(msg.status);
+          break;
         case "provider":
           setProvider(msg.provider);
           break;
@@ -725,6 +732,7 @@ export function App() {
 
   return (
     <div className="app">
+      <BuildBanner build={build} />
       <Header
         connected={connected}
         kernelRunning={kernel.running}
