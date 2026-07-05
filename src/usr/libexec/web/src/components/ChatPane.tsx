@@ -3,7 +3,9 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authHeaders, withTokenParam } from "../auth";
 import type { ProcRow, ShellEntry, ThreadMessage } from "../types";
+import type { CommandGroup } from "../commands";
 import { WorkingIndicator } from "./WorkingIndicator";
+import { elapsedSecs } from "../status";
 
 // PAI attaches files by embedding an absolute on-disk path in its reply as
 // markdown: `![caption](/abs/path)`. The browser can only reach files the SPA
@@ -132,12 +134,14 @@ function stripMarker(body: string): string {
 export function ChatPane({
   messages,
   shell,
+  commands,
   threadKey,
   busy,
   clearMarker,
 }: {
   messages: ThreadMessage[];
   shell: ShellEntry[];
+  commands: CommandGroup[];
   threadKey: number | null;
   busy: ProcRow["busy"];
   clearMarker: string | null;
@@ -148,10 +152,14 @@ export function ChatPane({
   // Per-group override of the collapsed default, keyed by the group's first
   // message index (stable: the thread is append-only). Reset on thread switch.
   const [openGroups, setOpenGroups] = useState<Record<number, boolean>>({});
+  // Per-command override of the collapsed default (default: open while running,
+  // collapsed once finished), keyed by the group's stable id.
+  const [openCmds, setOpenCmds] = useState<Record<number, boolean>>({});
   const previousOpenThreadKey = useRef(threadKey);
   if (previousOpenThreadKey.current !== threadKey) {
     previousOpenThreadKey.current = threadKey;
     if (Object.keys(openGroups).length) setOpenGroups({});
+    if (Object.keys(openCmds).length) setOpenCmds({});
   }
   const shellSlots = Array.from({ length: messages.length + 1 }, () => [] as ShellSlot[]);
   shell.forEach((entry, index) => {
@@ -159,12 +167,18 @@ export function ChatPane({
     const slot = Math.min(Math.max(rawSlot, 0), messages.length);
     shellSlots[slot].push({ entry, index });
   });
+  const commandSlots = Array.from({ length: messages.length + 1 }, () => [] as CommandGroup[]);
+  commands.forEach((g) => {
+    const slot = Math.min(Math.max(g.afterMessageIndex, 0), messages.length);
+    commandSlots[slot].push(g);
+  });
 
   // Flatten messages + shell into ordered render blocks, folding runs of
   // consecutive thinking narration into one collapsible group. A shell feed
   // between narration lines closes the current group so ordering is preserved.
   type Block =
     | { kind: "shell"; key: string; items: ShellSlot[] }
+    | { kind: "command"; key: string; group: CommandGroup }
     | { kind: "msg"; key: string; m: ThreadMessage }
     | { kind: "think"; key: string; start: number; items: ThinkItem[] };
   const blocks: Block[] = [];
@@ -175,7 +189,18 @@ export function ChatPane({
       pending = [];
     }
   };
-  if (shellSlots[0].length > 0) blocks.push({ kind: "shell", key: "s0", items: shellSlots[0] });
+  // Emit the shell feed then any PAI command cards anchored after message `slot`.
+  const emitSlot = (slot: number) => {
+    if (shellSlots[slot].length > 0) {
+      flush();
+      blocks.push({ kind: "shell", key: `s${slot}`, items: shellSlots[slot] });
+    }
+    for (const g of commandSlots[slot]) {
+      flush();
+      blocks.push({ kind: "command", key: `c${g.id}`, group: g });
+    }
+  };
+  emitSlot(0);
   messages.forEach((m, i) => {
     if (isThinking(m)) {
       pending.push({ m, i });
@@ -183,10 +208,7 @@ export function ChatPane({
       flush();
       blocks.push({ kind: "msg", key: `m${i}`, m });
     }
-    if (shellSlots[i + 1].length > 0) {
-      flush();
-      blocks.push({ kind: "shell", key: `s${i + 1}`, items: shellSlots[i + 1] });
-    }
+    emitSlot(i + 1);
   });
   flush();
 
@@ -221,6 +243,19 @@ export function ChatPane({
   const toggleGroup = (start: number) =>
     setOpenGroups((prev) => ({ ...prev, [start]: !(start in prev ? prev[start] : start === autoOpenStart) }));
 
+  // A command defaults to open while it runs (output streams in) and collapses
+  // itself once it finishes; a manual toggle overrides that default thereafter.
+  const cmdDefaultOpen = (g: CommandGroup) => g.exit === null;
+  const isCmdOpen = (g: CommandGroup) =>
+    g.id in openCmds ? openCmds[g.id] : cmdDefaultOpen(g);
+  const toggleCmd = (g: CommandGroup) =>
+    setOpenCmds((prev) => ({ ...prev, [g.id]: !(g.id in prev ? prev[g.id] : cmdDefaultOpen(g)) }));
+
+  // The running command's own card carries the spinner + streaming output, so
+  // the bottom WorkingIndicator would be a redundant second "doing X" for it.
+  // Keep the indicator only for non-command steps (thinking / waiting on model).
+  const hasLiveCommand = !!busy && commands.some((g) => g.exit === null);
+
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -233,7 +268,7 @@ export function ChatPane({
     if (stickToBottom.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, shell, threadKey, busy?.reason, busy?.started_at]);
+  }, [messages, shell, commands, threadKey, busy?.reason, busy?.started_at]);
 
   function handleScroll() {
     const el = ref.current;
@@ -251,6 +286,16 @@ export function ChatPane({
       )}
       {blocks.map((b) => {
         if (b.kind === "shell") return <ShellFeed key={b.key} items={b.items} />;
+        if (b.kind === "command")
+          return (
+            <CommandCard
+              key={b.key}
+              group={b.group}
+              live={!!busy}
+              open={isCmdOpen(b.group)}
+              onToggle={() => toggleCmd(b.group)}
+            />
+          );
         if (b.kind === "msg")
           return <Message key={b.key} m={b.m} showAvatar={!!avatarFor[b.key]} />;
         return (
@@ -262,7 +307,7 @@ export function ChatPane({
           />
         );
       })}
-      {busy && <WorkingIndicator busy={busy} />}
+      {busy && !hasLiveCommand && <WorkingIndicator busy={busy} />}
     </div>
   );
 }
@@ -320,6 +365,70 @@ function ShellFeed({ items }: { items: ShellSlot[] }) {
           {entry.text}
         </div>
       ))}
+    </div>
+  );
+}
+
+// One PAI shell command, inline in the transcript: live spinner + streaming
+// output while it runs, collapsing to a single "✓ <cmd> · N lines" (or
+// "✗ <cmd> · exit N") line when it finishes. Click to expand the full output.
+function CommandCard({
+  group,
+  live,
+  open,
+  onToggle,
+}: {
+  group: CommandGroup;
+  live: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const running = group.exit === null && live;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [running]);
+
+  const ok = group.exit === "0";
+  // Idle with no exit code recorded (kernel closed the command on a boundary):
+  // neither a live spinner nor a pass/fail — a neutral "done".
+  const state = running ? "running" : group.exit === null ? "done" : ok ? "ok" : "fail";
+  const lineCount = group.out.length + (group.truncated ? 1 : 0);
+  const summary =
+    state === "running"
+      ? "running…"
+      : state === "done"
+        ? "done"
+        : ok
+          ? lineCount === 0
+            ? "no output"
+            : `${lineCount} line${lineCount === 1 ? "" : "s"}`
+          : `exit ${group.exit}`;
+  const secs = running ? elapsedSecs(Math.floor(group.startedAt / 1000)) : 0;
+
+  return (
+    <div className={`command-card is-${state}${open ? " is-open" : ""}`}>
+      <button className="command-card-toggle" onClick={onToggle} aria-expanded={open}>
+        {running ? (
+          <span className="command-card-spinner" aria-hidden="true" />
+        ) : (
+          <span className="command-card-icon" aria-hidden="true">
+            {state === "ok" ? "✓" : state === "fail" ? "✗" : "•"}
+          </span>
+        )}
+        <code className="command-card-cmd">{group.cmd}</code>
+        <span className="command-card-summary">{summary}</span>
+        {running && <span className="command-card-elapsed">({secs}s)</span>}
+        <span className="command-card-chevron" aria-hidden="true">▸</span>
+      </button>
+      {open && group.out.length > 0 && (
+        <pre className="command-card-out">
+          {group.out.join("\n")}
+          {group.truncated ? "\n…" : ""}
+        </pre>
+      )}
     </div>
   );
 }

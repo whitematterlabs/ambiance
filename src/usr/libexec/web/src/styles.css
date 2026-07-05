@@ -1752,6 +1752,114 @@ button {
   50%      { opacity: 1;    transform: scale(1.1); }
 }
 
+/* PAI command cards — a shell command folded inline in the transcript: a live
+   spinner + streaming output while it runs, collapsing to one "✓ cmd · N lines"
+   line when it finishes. Click the header to expand the full output. */
+.command-card {
+  max-width: 92%;
+  margin: 6px 0 14px;
+  animation: msg-in 0.4s var(--ease-out) both;
+}
+
+.command-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 13px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.16s var(--ease-out), border-color 0.16s var(--ease-out);
+}
+
+.command-card-toggle:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.command-card.is-running .command-card-toggle { border-left-color: var(--pai); }
+.command-card.is-ok .command-card-toggle { border-left-color: var(--ok); }
+.command-card.is-fail .command-card-toggle { border-left-color: var(--fail); }
+
+.command-card-icon {
+  flex-shrink: 0;
+  width: 13px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--dim);
+}
+
+.command-card.is-ok .command-card-icon { color: var(--ok); }
+.command-card.is-fail .command-card-icon { color: var(--fail); }
+
+.command-card-spinner {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: var(--pai);
+  animation: working-pulse 1.2s ease-in-out infinite;
+}
+
+.command-card-cmd {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-card-summary {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.command-card-elapsed {
+  flex-shrink: 0;
+  color: var(--muted);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.command-card-chevron {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--dim);
+  transition: transform 0.18s var(--ease-out);
+}
+
+.command-card.is-open .command-card-chevron { transform: rotate(90deg); }
+
+.command-card-out {
+  margin: 4px 0 0;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  animation: think-open 0.2s var(--ease-out) both;
+}
+
 /* ---------- Status line and composer ---------- */
 .status-bar {
   display: flex;

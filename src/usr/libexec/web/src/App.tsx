@@ -13,6 +13,13 @@ import type {
   ThreadMessage,
 } from "./types";
 import { ActivityEntry, ActivityState, ingest, initialActivity } from "./activity";
+import {
+  CommandGroup,
+  CommandState,
+  ingestCommand,
+  initialCommands,
+  promoteOpenGroup,
+} from "./commands";
 import { ServerSpeechBackend, SpeechQueue, type VoiceEngine } from "./speech";
 import { DEFAULT_WAKE_PHRASE, speechRecognitionSupported, usePhraseActivation } from "./voiceActivation";
 import { deriveStatus } from "./status";
@@ -52,6 +59,8 @@ export function App() {
   const [events, setEvents] = useState<EventSighting[]>([]);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  // PAI shell commands folded into inline foldable cards (from the log stream).
+  const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [status, setStatus] = useState<string>("idle");
   const [build, setBuild] = useState<BuildStatus | null>(null);
   const [kernel, setKernel] = useState<KernelStatus>({ running: false, pid: null });
@@ -121,6 +130,7 @@ export function App() {
   });
 
   const activityState = useRef<ActivityState>(initialActivity());
+  const commandState = useRef<CommandState>(initialCommands());
   const activePidRef = useRef<number | null>(null);
   const fleetRef = useRef<FleetMember[]>([]);
   const procsRef = useRef<ProcRow[]>([]);
@@ -266,6 +276,16 @@ export function App() {
     [ensureActive],
   );
 
+  // Anchor a PAI command to the tail of its thread the moment it first appears,
+  // so its inline card slots into the transcript where it ran (same trick the
+  // owner `!cmd` feed uses). Reads live refs — valid for post-hello log lines.
+  const anchorFor = useCallback((slug: string): number => {
+    const member = slug ? fleetRef.current.find((f) => f.slug === slug) : null;
+    const pid = member ? member.pid : activePidRef.current;
+    if (pid === null) return 0;
+    return (threadsRef.current[pid] ?? []).length;
+  }, []);
+
   // --- SSE stream (kernel → browser) ---
   useEffect(() => {
     const es = new EventSource(withTokenParam("/api/stream"));
@@ -291,6 +311,10 @@ export function App() {
           }
           setSendCaps(msg.send_capabilities ?? []);
           setBuild(msg.build ?? null);
+          // A hello is a fresh snapshot: drop any command groups from a prior
+          // connection before (re)seeding from this backlog.
+          commandState.current = initialCommands();
+          setCommands([]);
           // Seed the log + activity panes with the kernel.log backlog so a
           // fresh connection isn't a blank "waiting for kernel.log…".
           if (msg.log_backlog?.length) {
@@ -304,6 +328,23 @@ export function App() {
             }
             activityState.current = st;
             if (entries.length) setActivity((prev) => cap(prev, entries));
+            // Seed inline command groups from the same backlog. Anchor to the
+            // snapshot thread tails; completed groups stay historical
+            // (sidebar-only), and the last still-running one is promoted live so
+            // an in-flight command survives the reconnect.
+            const slugPid = new Map(msg.fleet.map((f) => [f.slug, f.pid]));
+            const seedAnchor = (slug: string): number => {
+              const pid = slug ? slugPid.get(slug) : undefined;
+              return pid === undefined ? 0 : (t[pid] ?? []).length;
+            };
+            let cs = initialCommands();
+            const seededAt = Date.now();
+            for (const line of msg.log_backlog) {
+              cs = ingestCommand(cs, line, seededAt, seedAnchor, true);
+            }
+            cs = promoteOpenGroup(cs);
+            commandState.current = cs;
+            setCommands(cs.groups);
           }
           break;
         }
@@ -346,6 +387,11 @@ export function App() {
           const r = ingest(activityState.current, msg.line);
           activityState.current = r.state;
           if (r.entries.length) setActivity((prev) => cap(prev, r.entries));
+          const cs = ingestCommand(commandState.current, msg.line, Date.now(), anchorFor);
+          if (cs !== commandState.current) {
+            commandState.current = cs;
+            setCommands(cs.groups);
+          }
           break;
         }
         case "build":
@@ -390,7 +436,7 @@ export function App() {
       }
     };
     return () => es.close();
-  }, [applyFleet]);
+  }, [applyFleet, anchorFor]);
 
   // Clear the listening timer if the component unmounts mid-utterance.
   useEffect(
@@ -719,6 +765,17 @@ export function App() {
   const activeMember = activePid !== null ? fleet.find((m) => m.pid === activePid) ?? null : null;
   const activeProc =
     activePid !== null ? procs.find((r) => r.pid === String(activePid)) ?? null : null;
+  // Inline command cards for the active PAI only. Completed backlog groups are
+  // historical (sidebar owns full history); the clear marker rebases anchors
+  // just like the shell feed above.
+  const activeSlug = activeMember?.slug ?? null;
+  const activeCommands =
+    activeSlug !== null ? commands.filter((g) => !g.historical && g.slug === activeSlug) : [];
+  const visibleCommands = clearScreen
+    ? activeCommands
+        .filter((g) => g.afterMessageIndex >= clearOffset)
+        .map((g) => ({ ...g, afterMessageIndex: Math.max(g.afterMessageIndex - clearOffset, 0) }))
+    : activeCommands;
   const activeOverclockRunning = Boolean(
     activeProc?.busy?.reason.trim().startsWith("overclock:"),
   );
@@ -895,6 +952,7 @@ export function App() {
             <ChatPane
               messages={visibleMessages}
               shell={visibleShellEntries}
+              commands={visibleCommands}
               threadKey={activePid}
               busy={activeProc?.busy ?? null}
               clearMarker={clearScreen?.label ?? null}
