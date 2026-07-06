@@ -1812,12 +1812,6 @@ button {
   color: var(--text);
 }
 
-.command-run-failed {
-  flex-shrink: 0;
-  color: var(--fail);
-  font-variant-numeric: tabular-nums;
-}
-
 .command-run-chevron {
   flex-shrink: 0;
   font-size: 10px;
@@ -1873,7 +1867,6 @@ button {
 }
 
 .command-card.is-ok .command-card-icon { color: var(--ok); }
-.command-card.is-fail .command-card-icon { color: var(--fail); }
 
 .command-card-spinner {
   flex-shrink: 0;

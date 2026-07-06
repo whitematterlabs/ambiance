@@ -10,7 +10,6 @@ const META: Record<string, { icon: string; tone: string; mono?: boolean }> = {
   "act-cmd": { icon: "❯", tone: "cmd", mono: true },
   "act-out": { icon: "·", tone: "muted", mono: true },
   "act-ok": { icon: "✓", tone: "ok" },
-  "act-fail": { icon: "✕", tone: "fail" },
   "act-pai": { icon: "✦", tone: "pai" },
   "act-nudge": { icon: "→", tone: "nudge" },
   "act-done": { icon: "✓", tone: "ok" },

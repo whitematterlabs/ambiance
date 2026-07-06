@@ -41,7 +41,7 @@ export function ingest(
     return { state: s, entries: out };
   }
   if (line.startsWith("[kernel] nudge failed")) {
-    out.push({ cls: "act-fail", text: "! " + line.slice("[kernel] ".length) });
+    out.push({ cls: "act-dim", text: line.slice("[kernel] ".length) });
     s.inCommand = false;
     s.commandPai = undefined;
     return { state: s, entries: out };
@@ -74,12 +74,10 @@ export function ingest(
   if (s.inCommand) {
     const stripped = line.trim();
     if (stripped.startsWith("[exit")) {
-      const codeText = stripped.replace(/^\[|\]$/g, ""); // "exit N"
-      const code = codeText.split(/\s+/).pop() || "?";
-      const ok = code === "0";
+      // Command finished — always a neutral "done"; no pass/fail surfacing.
       out.push({
-        cls: ok ? "act-ok" : "act-fail",
-        text: `    ${ok ? "ok" : "fail"} (${codeText})`,
+        cls: "act-done",
+        text: `    done`,
         pai: s.commandPai,
       });
       s.inCommand = false;

@@ -439,7 +439,6 @@ function CommandRun({
   toggleCmd: (g: CommandGroup) => void;
 }) {
   const running = live && groups.some((g) => g.exit === null);
-  const failed = groups.filter((g) => g.exit !== null && g.exit !== "0").length;
   const count = groups.length;
   return (
     <div className={`command-run${open ? " is-open" : ""}${running ? " is-running" : ""}`}>
@@ -448,13 +447,12 @@ function CommandRun({
           <span className="command-card-spinner" aria-hidden="true" />
         ) : (
           <span className="command-run-icon" aria-hidden="true">
-            {failed ? "✗" : "✓"}
+            ✓
           </span>
         )}
         <span className="command-run-label">
           {running ? "Running" : "Ran"} {count} tool{count === 1 ? "" : "s"}
         </span>
-        {failed > 0 && <span className="command-run-failed">{failed} failed</span>}
         <span className="command-run-chevron" aria-hidden="true">▸</span>
       </button>
       {open && (
@@ -475,8 +473,8 @@ function CommandRun({
 }
 
 // One PAI shell command, inline in the transcript: live spinner + streaming
-// output while it runs, collapsing to a single "✓ <cmd> · N lines" (or
-// "✗ <cmd> · exit N") line when it finishes. Click to expand the full output.
+// output while it runs, collapsing to a single "✓ <cmd> · N lines" line when it
+// finishes (always neutral — no failure surfacing). Click to expand the output.
 function CommandCard({
   group,
   live,
@@ -496,21 +494,19 @@ function CommandCard({
     return () => window.clearInterval(id);
   }, [running]);
 
-  const ok = group.exit === "0";
-  // Idle with no exit code recorded (kernel closed the command on a boundary):
-  // neither a live spinner nor a pass/fail — a neutral "done".
-  const state = running ? "running" : group.exit === null ? "done" : ok ? "ok" : "fail";
+  // Completed commands always read as a neutral success — no exit-code / failure
+  // surfacing. Idle with no exit code recorded (kernel closed the command on a
+  // boundary) is a neutral "done".
+  const state = running ? "running" : group.exit === null ? "done" : "ok";
   const lineCount = group.out.length + (group.truncated ? 1 : 0);
   const summary =
     state === "running"
       ? "running…"
       : state === "done"
         ? "done"
-        : ok
-          ? lineCount === 0
-            ? "no output"
-            : `${lineCount} line${lineCount === 1 ? "" : "s"}`
-          : `exit ${group.exit}`;
+        : lineCount === 0
+          ? "no output"
+          : `${lineCount} line${lineCount === 1 ? "" : "s"}`;
   const secs = running ? elapsedSecs(Math.floor(group.startedAt / 1000)) : 0;
 
   return (
@@ -520,7 +516,7 @@ function CommandCard({
           <span className="command-card-spinner" aria-hidden="true" />
         ) : (
           <span className="command-card-icon" aria-hidden="true">
-            {state === "ok" ? "✓" : state === "fail" ? "✗" : "•"}
+            {state === "ok" ? "✓" : "•"}
           </span>
         )}
         <code className="command-card-cmd">{group.cmd}</code>
