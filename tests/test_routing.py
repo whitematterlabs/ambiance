@@ -159,7 +159,7 @@ def test_boilerplate_default_picks_per_role(
 ) -> None:
     # Stage all three default boilerplate files and verify the kernel-level
     # defaults: root → owner only; fleet pai → owner + memory-usage +
-    # capability-escalation; subagent → owner only.
+    # capability-escalation; subagent → owner + capability-escalation.
     bp = tmp_path / "etc" / "boilerplate"
     bp.mkdir(parents=True)
     (bp / "owner.md").write_text("OWNER BODY\n")
@@ -179,7 +179,7 @@ def test_boilerplate_default_picks_per_role(
     assert "<memory-usage>" not in out_root
 
     out_subagent = bootstrap.build_system_prompt(pai=7, parent=2, prompt_path=None)
-    assert "<capability-escalation>" not in out_subagent
+    assert "<capability-escalation>" in out_subagent
     assert "<memory-usage>" not in out_subagent
 
 

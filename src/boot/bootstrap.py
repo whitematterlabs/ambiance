@@ -679,12 +679,16 @@ def _resolve_home(home_dir: Optional[str]) -> Path:
 
 def _default_boilerplate(pai: int, parent: Optional[int]) -> list[str]:
     """Defaults applied when config didn't declare a `boilerplate:` list:
-    root → just owner; subagents → just owner; everyone else → owner +
-    memory-usage + capability-escalation. Matches the config-level defaults
-    in `etc/config.yaml` but keeps direct callers (tests, ad-hoc nudges)
-    working without a fleet spec."""
-    if pai == 1 or parent is not None:
+    root → just owner; subagents → owner + capability-escalation (they hit
+    the same silent failures and out-of-scope asks as fleet PAIs, and
+    without the block they hand-patch instead of escalating); everyone
+    else → owner + memory-usage + capability-escalation. Matches the
+    config-level defaults in `etc/config.yaml` but keeps direct callers
+    (tests, ad-hoc nudges) working without a fleet spec."""
+    if pai == 1:
         return ["owner"]
+    if parent is not None:
+        return ["owner", "capability-escalation"]
     return ["owner", "memory-usage", "capability-escalation"]
 
 
