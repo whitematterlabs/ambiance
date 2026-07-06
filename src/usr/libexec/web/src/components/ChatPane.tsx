@@ -155,11 +155,15 @@ export function ChatPane({
   // Per-command override of the collapsed default (default: open while running,
   // collapsed once finished), keyed by the group's stable id.
   const [openCmds, setOpenCmds] = useState<Record<number, boolean>>({});
+  // Per-run override for a coalesced group of consecutive commands ("Ran N
+  // tools"), keyed by the run's first command id (stable).
+  const [openRuns, setOpenRuns] = useState<Record<number, boolean>>({});
   const previousOpenThreadKey = useRef(threadKey);
   if (previousOpenThreadKey.current !== threadKey) {
     previousOpenThreadKey.current = threadKey;
     if (Object.keys(openGroups).length) setOpenGroups({});
     if (Object.keys(openCmds).length) setOpenCmds({});
+    if (Object.keys(openRuns).length) setOpenRuns({});
   }
   const shellSlots = Array.from({ length: messages.length + 1 }, () => [] as ShellSlot[]);
   shell.forEach((entry, index) => {
@@ -179,6 +183,7 @@ export function ChatPane({
   type Block =
     | { kind: "shell"; key: string; items: ShellSlot[] }
     | { kind: "command"; key: string; group: CommandGroup }
+    | { kind: "commandrun"; key: string; groups: CommandGroup[] }
     | { kind: "msg"; key: string; m: ThreadMessage }
     | { kind: "think"; key: string; start: number; items: ThinkItem[] };
   const blocks: Block[] = [];
@@ -211,6 +216,21 @@ export function ChatPane({
     emitSlot(i + 1);
   });
   flush();
+
+  // Fold runs of consecutive command cards into one collapsible "Ran N tools"
+  // group so a busy turn doesn't stack a wall of one-liners in the transcript.
+  // A single command stays a bare card (no point wrapping one).
+  const renderBlocks: Block[] = [];
+  for (const b of blocks) {
+    const last = renderBlocks[renderBlocks.length - 1];
+    if (b.kind === "command" && last && last.kind === "commandrun") {
+      last.groups.push(b.group);
+    } else if (b.kind === "command") {
+      renderBlocks.push({ kind: "commandrun", key: `cr${b.group.id}`, groups: [b.group] });
+    } else {
+      renderBlocks.push(b);
+    }
+  }
 
   // The gradient avatar shows once at the start of each PAI run; continued PAI
   // turns (and anything after a break — you, kernel, thinking, shell) get a
@@ -251,6 +271,19 @@ export function ChatPane({
   const toggleCmd = (g: CommandGroup) =>
     setOpenCmds((prev) => ({ ...prev, [g.id]: !(g.id in prev ? prev[g.id] : cmdDefaultOpen(g)) }));
 
+  // A coalesced run stays open while any of its commands is still running (so
+  // streaming output is visible), and collapses to "Ran N tools" once the turn
+  // finishes; a manual toggle overrides thereafter. Keyed by the first cmd id.
+  const runDefaultOpen = (groups: CommandGroup[]) =>
+    !!busy && groups.some((g) => g.exit === null);
+  const isRunOpen = (groups: CommandGroup[]) =>
+    groups[0].id in openRuns ? openRuns[groups[0].id] : runDefaultOpen(groups);
+  const toggleRun = (groups: CommandGroup[]) =>
+    setOpenRuns((prev) => ({
+      ...prev,
+      [groups[0].id]: !(groups[0].id in prev ? prev[groups[0].id] : runDefaultOpen(groups)),
+    }));
+
   // The running command's own card carries the spinner + streaming output, so
   // the bottom WorkingIndicator would be a redundant second "doing X" for it.
   // Keep the indicator only for non-command steps (thinking / waiting on model).
@@ -284,20 +317,36 @@ export function ChatPane({
           <span>context cleared · {clearMarker}</span>
         </div>
       )}
-      {blocks.map((b) => {
+      {renderBlocks.map((b) => {
         if (b.kind === "shell") return <ShellFeed key={b.key} items={b.items} />;
-        if (b.kind === "command")
+        if (b.kind === "commandrun") {
+          if (b.groups.length === 1) {
+            const g = b.groups[0];
+            return (
+              <CommandCard
+                key={b.key}
+                group={g}
+                live={!!busy}
+                open={isCmdOpen(g)}
+                onToggle={() => toggleCmd(g)}
+              />
+            );
+          }
           return (
-            <CommandCard
+            <CommandRun
               key={b.key}
-              group={b.group}
+              groups={b.groups}
               live={!!busy}
-              open={isCmdOpen(b.group)}
-              onToggle={() => toggleCmd(b.group)}
+              open={isRunOpen(b.groups)}
+              onToggle={() => toggleRun(b.groups)}
+              isCmdOpen={isCmdOpen}
+              toggleCmd={toggleCmd}
             />
           );
+        }
         if (b.kind === "msg")
           return <Message key={b.key} m={b.m} showAvatar={!!avatarFor[b.key]} />;
+        if (b.kind !== "think") return null; // `command` is folded into `commandrun`
         return (
           <ThinkingGroup
             key={b.key}
@@ -365,6 +414,62 @@ function ShellFeed({ items }: { items: ShellSlot[] }) {
           {entry.text}
         </div>
       ))}
+    </div>
+  );
+}
+
+// A run of consecutive PAI shell commands folded into one collapsible group so
+// a busy turn reads as "Ran N tools" instead of a stack of one-liners. Open
+// while any command is still running (streaming output stays visible), then
+// collapses. Expanded, it holds the individual command cards (each still
+// independently foldable to its output).
+function CommandRun({
+  groups,
+  live,
+  open,
+  onToggle,
+  isCmdOpen,
+  toggleCmd,
+}: {
+  groups: CommandGroup[];
+  live: boolean;
+  open: boolean;
+  onToggle: () => void;
+  isCmdOpen: (g: CommandGroup) => boolean;
+  toggleCmd: (g: CommandGroup) => void;
+}) {
+  const running = live && groups.some((g) => g.exit === null);
+  const failed = groups.filter((g) => g.exit !== null && g.exit !== "0").length;
+  const count = groups.length;
+  return (
+    <div className={`command-run${open ? " is-open" : ""}${running ? " is-running" : ""}`}>
+      <button className="command-run-toggle" onClick={onToggle} aria-expanded={open}>
+        {running ? (
+          <span className="command-card-spinner" aria-hidden="true" />
+        ) : (
+          <span className="command-run-icon" aria-hidden="true">
+            {failed ? "✗" : "✓"}
+          </span>
+        )}
+        <span className="command-run-label">
+          {running ? "Running" : "Ran"} {count} tool{count === 1 ? "" : "s"}
+        </span>
+        {failed > 0 && <span className="command-run-failed">{failed} failed</span>}
+        <span className="command-run-chevron" aria-hidden="true">▸</span>
+      </button>
+      {open && (
+        <div className="command-run-body">
+          {groups.map((g) => (
+            <CommandCard
+              key={g.id}
+              group={g}
+              live={live}
+              open={isCmdOpen(g)}
+              onToggle={() => toggleCmd(g)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

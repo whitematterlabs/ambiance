@@ -1767,6 +1767,80 @@ button {
   animation: msg-in 0.4s var(--ease-out) both;
 }
 
+/* Coalesced run of consecutive commands: one "Ran N tools" header that expands
+   to the individual command cards below it. */
+.command-run {
+  max-width: 92%;
+  margin: 6px 0 14px;
+  animation: msg-in 0.4s var(--ease-out) both;
+}
+
+.command-run-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.16s var(--ease-out), border-color 0.16s var(--ease-out);
+}
+
+.command-run-toggle:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.command-run-icon {
+  flex-shrink: 0;
+  width: 13px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--dim);
+}
+
+.command-run-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.command-run-failed {
+  flex-shrink: 0;
+  color: var(--fail);
+  font-variant-numeric: tabular-nums;
+}
+
+.command-run-chevron {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--dim);
+  transition: transform 0.18s var(--ease-out);
+}
+
+.command-run.is-open .command-run-chevron { transform: rotate(90deg); }
+
+.command-run-body {
+  margin-top: 6px;
+  padding-left: 14px;
+  animation: think-open 0.2s var(--ease-out) both;
+}
+
+.command-run-body .command-card {
+  max-width: 100%;
+  margin: 0 0 6px;
+}
+
+.command-run-body .command-card:last-child { margin-bottom: 0; }
+
 .command-card-toggle {
   display: flex;
   align-items: center;
@@ -1774,7 +1848,6 @@ button {
   width: 100%;
   padding: 8px 13px;
   border: 1px solid var(--border);
-  border-left: 2px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface-soft);
   color: var(--muted);
@@ -1789,10 +1862,6 @@ button {
   color: var(--text);
   border-color: var(--border-strong);
 }
-
-.command-card.is-running .command-card-toggle { border-left-color: var(--pai); }
-.command-card.is-ok .command-card-toggle { border-left-color: var(--ok); }
-.command-card.is-fail .command-card-toggle { border-left-color: var(--fail); }
 
 .command-card-icon {
   flex-shrink: 0;
