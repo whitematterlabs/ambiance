@@ -995,3 +995,34 @@ def test_absolutize_result_refs_leaves_urls_and_missing(tmp_path: Path) -> None:
     result_md.write_text(body)
     sub_bin._absolutize_result_refs(result_md)
     assert result_md.read_text() == body
+
+
+def test_list_enumerates_installed_packages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # `subagent list` is the only in-tool way to discover spawnable packages;
+    # without it a PAI has to guess (the computer-use-not-found failure).
+    import argparse
+
+    sd = tmp_path / "subagents"
+    for name, desc in [("browse", "Drive Chrome"), ("computer-use", "Drive macOS apps")]:
+        d = sd / name
+        d.mkdir(parents=True)
+        (d / "package.yaml").write_text(
+            f"name: {name}\nkind: subagent\nversion: 0.1.0\ndescription: {desc}\n"
+        )
+    monkeypatch.setattr(C, "SUBAGENTS_DIR", sd, raising=True)
+    assert sub_bin.cmd_list(argparse.Namespace()) == 0
+    out = capsys.readouterr().out
+    assert "browse" in out and "Drive Chrome" in out
+    assert "computer-use" in out and "Drive macOS apps" in out
+
+
+def test_list_empty_is_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import argparse
+
+    monkeypatch.setattr(C, "SUBAGENTS_DIR", tmp_path / "none", raising=True)
+    assert sub_bin.cmd_list(argparse.Namespace()) == 0
+    assert "no subagent packages" in capsys.readouterr().out

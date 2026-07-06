@@ -2,6 +2,7 @@
 """subagent — spawn and manage subordinate PAI instances.
 
 Usage:
+    subagent list                                         # installed packages you can spawn with --package
     subagent spawn --slug NAME --prompt '...'             # fork a subagent, return its pid
     subagent reply --content "..."                        # (child only) intermediate update to parent
     subagent reply --done --content "..."                 # (child only) final reply; kernel reaps the child
@@ -695,6 +696,30 @@ def cmd_kill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_list(args: argparse.Namespace) -> int:
+    """Enumerate installed subagent packages so a PAI can discover what it can
+    spawn with `--package` — the only way to see them short of `ls
+    /usr/lib/subagents/`."""
+    root = C.SUBAGENTS_DIR
+    rows: list[tuple[str, str]] = []
+    if root.is_dir():
+        for entry in sorted(root.iterdir()):
+            if entry.name.startswith(".") or not (entry / "package.yaml").is_file():
+                continue
+            try:
+                desc = (C.resolve_subagent_package(entry.name).get("description") or "").strip()
+            except Exception:
+                desc = ""
+            rows.append((entry.name, desc))
+    if not rows:
+        print("no subagent packages installed (looked in /usr/lib/subagents/)")
+        return 0
+    width = max(len(name) for name, _ in rows)
+    for name, desc in rows:
+        print(f"{name.ljust(width)}  {desc}".rstrip())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="subagent",
@@ -708,6 +733,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    ls = sub.add_parser(
+        "list",
+        help="list installed subagent packages you can spawn with --package",
+        description=(
+            "Print the installed subagent bundles at /usr/lib/subagents/<name>/ "
+            "with their descriptions. Use a name here as `spawn --package <name>`."
+        ),
+    )
+    ls.set_defaults(func=cmd_list)
 
     sp = sub.add_parser(
         "spawn",
