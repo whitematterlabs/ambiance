@@ -1833,7 +1833,17 @@ button {
   margin: 0 0 6px;
 }
 
-.command-run-body .command-card:last-child { margin-bottom: 0; }
+.command-run-body .msg-tool {
+  margin: 0 0 6px;
+}
+
+.command-run-body .command-card:last-child,
+.command-run-body .msg-tool:last-child { margin-bottom: 0; }
+
+.command-run-thoughts {
+  color: var(--dim);
+  font-weight: 400;
+}
 
 .command-card-toggle {
   display: flex;
