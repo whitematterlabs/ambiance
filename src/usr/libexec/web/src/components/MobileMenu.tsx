@@ -34,7 +34,7 @@ export function MobileMenu({
   phraseActivation,
   onTogglePhraseActivation,
   phraseSupported,
-  localListener,
+  hostManaged,
   wakePhrase,
   onShowWelcome,
   onSetupRemote,
@@ -66,7 +66,7 @@ export function MobileMenu({
   phraseActivation: boolean;
   onTogglePhraseActivation: () => void;
   phraseSupported: boolean;
-  localListener: boolean;
+  hostManaged?: boolean;
   wakePhrase: string;
   onShowWelcome: () => void;
   onSetupRemote: () => void;
@@ -198,7 +198,7 @@ export function MobileMenu({
                 phraseActivation={phraseActivation}
                 onTogglePhraseActivation={onTogglePhraseActivation}
                 phraseSupported={phraseSupported}
-                localListener={localListener}
+                hostManaged={hostManaged}
                 wakePhrase={wakePhrase}
                 showHead={false}
               />

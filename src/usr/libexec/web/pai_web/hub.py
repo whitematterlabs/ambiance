@@ -114,6 +114,14 @@ def parse_thread(text: str) -> list[dict]:
     return out
 
 
+def _voice_installed() -> bool:
+    """True when the `voice` driver bundle is installed — lets the console show
+    a live on/off switch for the host-mic listener even while it's stopped (a
+    stopped driver drops out of the proc list, so running-state alone can't tell
+    'installed but off' from 'not installed')."""
+    return (paths.PAI_ROOT / "usr" / "lib" / "drivers" / "voice").exists()
+
+
 def _split_message(msg: str) -> dict:
     first_nl = msg.find("\n")
     head = msg if first_nl < 0 else msg[:first_nl]
@@ -323,6 +331,7 @@ class Hub:
             return {
                 "type": "hello",
                 "provider": provider,
+                "voice_installed": _voice_installed(),
                 "fleet": list(self._fleet),
                 "procs": list(self._procs),
                 "pending_approvals": list(self._pending_approvals),

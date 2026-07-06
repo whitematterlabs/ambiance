@@ -225,6 +225,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/interrupt":
                 actions.interrupt(int(body["pid"]))
                 return self._json({"ok": True})
+            if path == "/api/voice-listener":
+                # Start/stop the host-mic wake-word listener (voice-in driver).
+                # The hub's /proc watch rebroadcasts the proc rows, so the
+                # switch reflects the real running state without a push here.
+                return self._json({"ok": True, **actions.set_voice_listener(body.get("active") is True)})
             if path == "/api/setup-remote":
                 result = actions.setup_remote()
                 return self._json({"ok": True, **result})

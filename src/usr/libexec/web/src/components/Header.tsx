@@ -26,7 +26,7 @@ export function Header({
   phraseActivation,
   onTogglePhraseActivation,
   phraseSupported,
-  localListener,
+  hostManaged,
   wakePhrase,
   onShowWelcome,
   onSetupRemote,
@@ -52,10 +52,10 @@ export function Header({
   phraseActivation: boolean;
   onTogglePhraseActivation: () => void;
   phraseSupported: boolean;
+  hostManaged?: boolean;
   // True when the local `voice` driver's host-mic listener is running. Then
   // phrase activation rides the host mic (kernel-side wake + STT) regardless of
   // browser SpeechRecognition support; otherwise it falls back to the browser.
-  localListener: boolean;
   wakePhrase: string;
   onShowWelcome: () => void;
   onSetupRemote: () => void;
@@ -201,7 +201,7 @@ export function Header({
               phraseActivation={phraseActivation}
               onTogglePhraseActivation={onTogglePhraseActivation}
               phraseSupported={phraseSupported}
-              localListener={localListener}
+                hostManaged={hostManaged}
               wakePhrase={wakePhrase}
             />
           </div>

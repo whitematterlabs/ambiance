@@ -118,6 +118,14 @@ export function App() {
     () => localStorage.getItem("voicePhraseActivation") === "true",
   );
   const [phraseSupported] = useState(speechRecognitionSupported);
+  // Whether the host has the local `voice` driver installed (from the hello
+  // snapshot). When true, the Phrase-activation switch controls that driver
+  // (the host mic) via the kernel — not the browser fallback.
+  const [voiceInstalled, setVoiceInstalled] = useState(false);
+  // Optimistic override for the host listener while the kernel reconciles the
+  // start/stop we just requested — cleared once the proc list catches up, so
+  // the switch flips instantly instead of lagging the ~1s reconcile.
+  const [hostListenPending, setHostListenPending] = useState<boolean | null>(null);
   // Host-mic voice activity (local `voice` driver), surfaced as a "Speaking: …"
   // composer indicator. Set from the `voice` SSE message; cleared on a timer.
   const [voiceHeard, setVoiceHeard] = useState<{ phase: "listening" | "utterance"; text: string } | null>(
@@ -296,6 +304,7 @@ export function App() {
       switch (msg.type) {
         case "hello": {
           setProvider(msg.provider);
+          setVoiceInstalled(msg.voice_installed === true);
           setProcs(msg.procs);
           const t: Record<number, ThreadMessage[]> = {};
           for (const [pid, m] of Object.entries(msg.threads)) t[Number(pid)] = m;
@@ -489,9 +498,38 @@ export function App() {
     (p) => p.slug === "voice-in" && p.status.startsWith("running"),
   );
 
+  // Effective on-state of the host-mic listener: the optimistic pending value
+  // while a start/stop is in flight, otherwise the real proc state.
+  const hostListening = hostListenPending ?? localVoiceActive;
+  // Once the kernel's reconcile lands (proc list matches what we asked for),
+  // drop the optimistic override so live proc updates drive the switch again.
+  useEffect(() => {
+    if (hostListenPending !== null && hostListenPending === localVoiceActive) {
+      setHostListenPending(null);
+    }
+  }, [hostListenPending, localVoiceActive]);
+
+  // The Phrase-activation switch. When the local `voice` driver is installed it
+  // is the real off switch for the always-on host mic: toggling start/stops the
+  // voice-in driver via the kernel. `phraseActivation` is kept in sync so the
+  // browser fallback below can never quietly take over after the host mic is
+  // turned off. Without the driver, it's the browser fallback toggle as before.
+  const effectivePhraseOn = voiceInstalled ? hostListening : phraseActivation;
+  const handleTogglePhrase = useCallback(() => {
+    if (voiceInstalled) {
+      const next = !hostListening;
+      setHostListenPending(next);
+      setPhraseActivation(next);
+      void api.setVoiceListener(next).catch(() => setHostListenPending(null));
+    } else {
+      setPhraseActivation((v) => !v);
+    }
+  }, [voiceInstalled, hostListening]);
+
   // Hands-free input (cloud/remote fallback): listen for the wake phrase in the
-  // browser and send what follows. Disabled when the local host listener is
-  // active. Muted while PAI is speaking so its own TTS can't trip the wake word.
+  // browser and send what follows. Stands down when the local host listener is
+  // active (it would double-fire on the same words). Muted while PAI is
+  // speaking so its own TTS can't trip the wake word.
   usePhraseActivation({
     enabled: phraseActivation && !localVoiceActive,
     phrase: DEFAULT_WAKE_PHRASE,
@@ -809,10 +847,10 @@ export function App() {
         onVoiceEngineChange={setVoiceEngine}
         pushToTalk={pushToTalk}
         onTogglePushToTalk={() => setPushToTalk((v) => !v)}
-        phraseActivation={phraseActivation}
-        onTogglePhraseActivation={() => setPhraseActivation((v) => !v)}
+        phraseActivation={effectivePhraseOn}
+        onTogglePhraseActivation={handleTogglePhrase}
         phraseSupported={phraseSupported}
-        localListener={localVoiceActive}
+        hostManaged={voiceInstalled}
         wakePhrase={DEFAULT_WAKE_PHRASE}
         onShowWelcome={() => setWelcomeOpen(true)}
         onSetupRemote={handleSetupRemote}
@@ -842,10 +880,10 @@ export function App() {
         onVoiceEngineChange={setVoiceEngine}
         pushToTalk={pushToTalk}
         onTogglePushToTalk={() => setPushToTalk((v) => !v)}
-        phraseActivation={phraseActivation}
-        onTogglePhraseActivation={() => setPhraseActivation((v) => !v)}
+        phraseActivation={effectivePhraseOn}
+        onTogglePhraseActivation={handleTogglePhrase}
         phraseSupported={phraseSupported}
-        localListener={localVoiceActive}
+        hostManaged={voiceInstalled}
         wakePhrase={DEFAULT_WAKE_PHRASE}
         onShowWelcome={() => setWelcomeOpen(true)}
         onSetupRemote={handleSetupRemote}

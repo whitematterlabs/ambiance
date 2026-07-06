@@ -15,7 +15,7 @@ export function VoiceSettings({
   phraseActivation,
   onTogglePhraseActivation,
   phraseSupported,
-  localListener,
+  hostManaged = false,
   wakePhrase,
   showHead = true,
 }: {
@@ -30,7 +30,9 @@ export function VoiceSettings({
   phraseActivation: boolean;
   onTogglePhraseActivation: () => void;
   phraseSupported: boolean;
-  localListener: boolean;
+  // When true, the host has the local `voice` driver installed and this switch
+  // starts/stops it (the host mic) — so it's operable even while stopped.
+  hostManaged?: boolean;
   wakePhrase: string;
   // The "Voice / <current>" header is useful in the floating popover but
   // redundant in the mobile sheet, which already has its own section heading.
@@ -72,15 +74,18 @@ export function VoiceSettings({
           type="button"
           className="voice-switch"
           role="switch"
-          // When the host `voice` driver is up it owns wake-word activation and
-          // the browser fallback stands down — so show the switch as ON and lock
-          // it rather than letting it toggle a flag nothing reads.
-          aria-checked={localListener ? true : phraseActivation}
+          // With the local `voice` driver installed, this switch is the real
+          // on/off for the host mic — start/stops the voice-in driver, so it
+          // stays operable even while the listener is off. Without the driver,
+          // it toggles the browser fallback (needs Web Speech API support).
+          aria-checked={phraseActivation}
           onClick={onTogglePhraseActivation}
-          disabled={localListener || !phraseSupported}
+          disabled={!hostManaged && !phraseSupported}
           title={
-            localListener
-              ? "The local voice driver owns phrase activation — the host mic is always listening for the wake word, so there's nothing to toggle here."
+            hostManaged
+              ? phraseActivation
+                ? "The host mic is listening for the wake word — toggle off to stop it."
+                : "The host mic is off — toggle on to start listening for the wake word."
               : phraseSupported
                 ? undefined
                 : "Phrase activation needs the local voice driver or the Web Speech API (try Chrome or Edge)"
@@ -89,13 +94,17 @@ export function VoiceSettings({
           <span className="voice-switch-copy">
             <span className="voice-switch-name">
               Phrase activation
-              {localListener && <span className="voice-switch-tag">host mic</span>}
+              {hostManaged && <span className="voice-switch-tag">host mic</span>}
             </span>
             <span className="voice-switch-blurb">
-              {localListener ? (
-                <>
-                  On — the local voice driver is listening for <em>"{wakePhrase}"</em>
-                </>
+              {hostManaged ? (
+                phraseActivation ? (
+                  <>
+                    On — the local voice driver is listening for <em>"{wakePhrase}"</em>
+                  </>
+                ) : (
+                  <>Off — the host mic isn't listening</>
+                )
               ) : phraseSupported ? (
                 <>
                   Say <em>"{wakePhrase}"</em> to talk

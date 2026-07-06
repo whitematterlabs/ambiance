@@ -370,6 +370,44 @@ def interrupt(pid: int) -> None:
     emit_event({"source": "web", "kind": "interrupt", "pai": pid})
 
 
+VOICE_LISTENER_SLUG = "voice-in"
+
+
+def set_voice_listener(active: bool) -> dict:
+    """Start/stop the local host-mic wake-word listener (the `voice-in` driver)
+    from the console — the same one-bit mechanism as `paictl start/stop
+    voice-in`: flip `active:` on /proc/voice-in/spec.yaml and emit
+    kernel:reload_config so the kernel reconciles (spawns or resolves the task).
+
+    Returns {present, active}. `present: False` (no-op) when the voice driver
+    isn't installed, so a client without it can call this harmlessly."""
+    spec_path = paths.proc(VOICE_LISTENER_SLUG) / "spec.yaml"
+    if not spec_path.exists():
+        return {"present": False, "active": False}
+    with spec_path.open() as f:
+        spec = yaml.safe_load(f) or {}
+    if spec.get("active", True) != active:
+        spec["active"] = active
+        tmp = spec_path.with_suffix(spec_path.suffix + ".tmp")
+        with tmp.open("w") as f:
+            yaml.safe_dump(spec, f, sort_keys=False)
+        tmp.rename(spec_path)
+        emit_event({
+            "source": "web",
+            "kind": "kernel:reload_config",
+            "action": "start" if active else "stop",
+            "name": VOICE_LISTENER_SLUG,
+        })
+    return {"present": True, "active": active}
+
+
+def voice_listener_installed() -> bool:
+    """True when the `voice` driver bundle is installed on the host — so the
+    console can offer a real on/off switch even while the listener is stopped
+    (a stopped driver drops out of the live proc list)."""
+    return (PAI_ROOT / "usr" / "lib" / "drivers" / "voice").exists()
+
+
 def reboot_kernel() -> dict:
     """Emit `kernel:restart` so the running kernel drains and re-execs in place
     into the current build (same payload as `sbin/reboot`). Guarded: only fires

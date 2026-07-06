@@ -42,6 +42,15 @@ export const sendMessage = (pid: number, text: string, overclock = false) =>
 
 export const interrupt = (pid: number) => post("/api/interrupt", { pid });
 
+// Start/stop the local host-mic wake-word listener (the `voice-in` driver).
+// `present: false` means the voice driver isn't installed on the host.
+export const setVoiceListener = (active: boolean) =>
+  post("/api/voice-listener", { active }) as Promise<{
+    ok: boolean;
+    present: boolean;
+    active: boolean;
+  }>;
+
 // Ask root (the privileged system PAI) to stand up mobile/remote access via an
 // ngrok tunnel. Returns root's pid so the UI can focus its tab.
 export const setupRemote = () =>
