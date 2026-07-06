@@ -1,85 +1,43 @@
 # PAI
 
-PAI is a local-first Personal Artificial Intelligence runtime for macOS. It runs
-an always-on AI fleet against a plain-text filesystem, with a small Python
-kernel supervising PAIs, drivers, tools, memory, and owner-facing surfaces.
+**PAI is an always-on personal AI for macOS, built like a tiny Unix system.**
 
-PAI is currently an alpha system for technical users. It is useful, hackable,
-and intentionally transparent, but it is not yet a polished consumer app or a
-hosted multi-tenant service.
+It runs a supervised fleet of AI agents against a plain-text filesystem at
+`~/.pai`: your fleet is declared in `/etc/config.yaml`, running agents show up
+under `/proc/`, drivers (email, calendar, iMessage, WhatsApp, voice, browser)
+write ordinary files you can `rg`, `tail`, and `cat` — and when your AI does
+something surprising, you can read the exact prompt it saw.
 
-## What PAI Does
+No database. No SaaS. The filesystem *is* the data structure.
 
-- Runs one or more long-lived AI processes as a supervised local fleet.
-- Stores runtime state as files under `$PAI_ROOT`, defaulting to `~/.pai`.
-- Routes external events from drivers, such as email, calendar, iMessage,
-  WhatsApp, notifications, voice, and browser/computer-use tools.
-- Exposes owner surfaces through a terminal TUI and a local browser UI.
-- Installs userspace capabilities from the companion `pairegistry` repository.
-- Keeps state inspectable with ordinary tools like `rg`, `tail`, `cat`, and git.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/console-dark.png">
+  <img src="docs/readme/console-light.png" alt="The PAI web console: a fleet of agents in the sidebar, a conversation with your PAI, and per-channel send permissions.">
+</picture>
 
-The core design bias is simple: plain text over databases, symlinks over
-duplication, config as source of truth, and an event-driven kernel.
-
-## Current Status
-
-PAI is ready for local development and private alpha use. Public internet
-exposure is not ready.
-
-Supported today:
-
-- macOS local runtime
-- Python kernel and Textual TUI
-- React/Vite local web surface
-- Local filesystem-backed runtime at `~/.pai`
-- Registry-installed drivers, skills, tools, prompts, and PAI bundles
-- API-key based model providers
-
-Not ready yet:
-
-- Hosted service deployment
-- Broad non-technical onboarding
-- Public remote web access
-- Stable signed macOS app distribution
-- Strong sandboxing or privilege separation for untrusted code
-- Versioned registry release channels
-
-Do not expose `pai start --web` directly to the public internet. The local web
-surface includes owner-level controls such as shell execution, kernel lifecycle
-actions, provider switching, clone/delete actions, and message sending.
-
-## Requirements
-
-- macOS
-- [`uv`](https://docs.astral.sh/uv/)
-- Python 3.14, managed through `uv`
-- [`pnpm`](https://pnpm.io/), only needed for the browser UI
-- At least one model provider API key, such as `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, or `ZAI_API_KEY` (z.ai GLM)
-- macOS permissions for whichever drivers you enable, such as Contacts,
-  Calendar, Messages, Mail, Accessibility, or Microphone
-
-Install `uv` if it is not already on your machine. Install `pnpm` if you want
-the web surface.
+PAI is currently an alpha for technical users. It is useful, hackable, and
+intentionally transparent — not yet a polished consumer app or a hosted
+service.
 
 ## Install
 
-End users do not need `uv`, Node/`pnpm`, or `git`. One line installs everything:
+One line, no prerequisites (no git, no Node, no compiler — the script installs
+`uv` and pulls a prebuilt, checksum-verified release):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/whitematterlabs/pai/main/install.sh | sh
 ```
 
-The installer downloads a prebuilt release tarball (source + `uv.lock` + a
-prebuilt web `dist/`) into `~/.pai/opt/pai/<version>/`, installs the `uv` static
-binary if missing, runs `uv sync` against the lockfile (prebuilt wheels — no
-compiler), and provisions the runtime. It will:
+Piping curl into sh deserves suspicion — [read install.sh](install.sh) first.
+It provisions the runtime at `~/.pai`, asks for a model provider key
+(Anthropic, OpenAI, DeepSeek, or z.ai), and offers an interactive capability
+picker. Then:
 
-- Install `uv` automatically if it is not already present.
-- Provision the runtime filesystem at `$PAI_ROOT`, defaulting to `~/.pai`.
-- Seed the kernel, privileged tools, default prompts, and shims.
-- Ask for a default model provider in an interactive shell.
-- Offer the interactive `paisetup` capability picker.
+```bash
+pai start          # terminal UI
+pai start --web    # browser console at localhost:8787
+pai start --headless
+```
 
 Developers work from a checkout instead, which keeps source edits live:
 
@@ -89,98 +47,95 @@ cd pai
 uv sync && uv run paifs-init
 ```
 
-(Building the web surface for a dev checkout needs `pnpm`; release tarballs ship
-it prebuilt.) Cut a release tarball with `pairelease` (dev box needs `pnpm`,
-`git`, and — for `--publish` — `gh`).
+(A dev checkout builds the web surface with `pnpm`; release tarballs ship it
+prebuilt.)
 
-After installation, start PAI:
+## What it does
 
-```bash
-pai start
-```
+- Runs one or more long-lived AI agents as a supervised local fleet — clone
+  them, stop them, talk to any of them from one console.
+- Routes external events from drivers: email, calendar, iMessage, WhatsApp,
+  notifications, voice, and browser/computer-use tools.
+- Gates outbound sending per channel — email, iMessage, and WhatsApp are each
+  **no / ask / yes**, switchable live from the console.
+- Stores everything as plain files under `~/.pai`: memory is markdown, your
+  email archive is a directory tree designed for ripgrep, logs are logs.
+- Installs capabilities (drivers, skills, tools, agent bundles) from the
+  companion [pairegistry](https://github.com/whitematterlabs/pairegistry).
 
-Start the browser UI instead of the TUI:
+The kernel is a pure-Python, fully event-driven supervisor: it sleeps until a
+file changes or a timer fires. No polling loops, nothing burning your battery.
 
-```bash
-pai start --web
-```
+Here is an agent mid-task — tool runs fold into the transcript, and the
+sidebar streams the shell commands it is running:
 
-Use a custom web port:
+<img src="docs/readme/console-root.png" alt="An agent in the Working state: thinking steps and folded tool runs in the transcript, live shell activity in the sidebar.">
 
-```bash
-pai start --web --port 9000
-```
+<details>
+<summary>First-run tour</summary>
+<br>
+<img src="docs/readme/welcome.png" alt="The Welcome to PAI onboarding: chat, shell commands, web browsing, email, voice, and fleet management.">
+</details>
 
-Run only the kernel:
+## Status and expectations
 
-```bash
-pai start --headless
-```
+Ready today:
+
+- macOS local runtime (Apple Silicon tested)
+- Python kernel, terminal TUI, and React/Vite local web console
+- Registry-installed drivers, skills, tools, prompts, and PAI bundles
+- API-key model providers: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  `DEEPSEEK_API_KEY`, or `ZAI_API_KEY`
+
+Not ready yet:
+
+- Hosted deployment or public remote web access
+- Broad non-technical onboarding
+- Stable signed macOS app distribution
+- Strong sandboxing or privilege separation for untrusted code
+- Versioned registry release channels
+
+**Do not expose `pai start --web` to the public internet.** The local web
+surface includes owner-level controls: shell execution, kernel lifecycle,
+provider switching, clone/delete, and message sending.
+
+You will also need macOS permission grants for whichever drivers you enable
+(Contacts, Calendar, Messages, Mail, Accessibility, Microphone).
 
 ## Updating
 
-Check for source updates:
-
 ```bash
-pai update --check
-```
-
-Update:
-
-```bash
-pai update
-```
-
-For a tarball install (the `curl … | sh` path), `pai update` downloads the
-latest release into a new `~/.pai/opt/pai/<version>/`, reprovisions, and
-repoints `current` — your runtime state under `etc/`, `var/`, and `home/` is
-left untouched. Roll back to the previous version with:
-
-```bash
+pai update --check   # see what's new
+pai update           # update
 pai update --rollback
 ```
 
-For a dev checkout, `pai update` instead pulls the git source, refreshes
-dependencies, rebuilds the web frontend, and reprovisions shims. It refuses to
-pull over local source changes — commit or stash them first.
+For a tarball install, `pai update` downloads the latest release into a new
+`~/.pai/opt/pai/<version>/`, reprovisions, and repoints `current` — your state
+under `etc/`, `var/`, and `home/` is untouched. For a dev checkout it pulls
+git, refreshes dependencies, rebuilds the web frontend, and reprovisions shims
+(refusing to pull over local changes).
 
-## Companion Registry
+## Companion registry
 
 This repository contains the kernel and privileged tools. Most user-facing
-capabilities live in the companion registry:
-
-```text
-https://github.com/whitematterlabs/pairegistry
-```
-
-The registry contains installable packages:
-
-- `drivers/`
-- `skills/`
-- `lib/`
-- `bin/`
-- `sbin/`
-- `prompts/`
-- `pais/`
-- `subagents/`
-
-`paiman install <name>` installs packages from the registry into the local PAI
-runtime. The default registry is configured in `paiman`; set `PAIMAN_REGISTRY`
-to point at a local checkout or another registry source.
-
-Examples:
+capability lives in [pairegistry](https://github.com/whitematterlabs/pairegistry)
+as installable packages: `drivers/`, `skills/`, `lib/`, `bin/`, `sbin/`,
+`prompts/`, `pais/`, `subagents/`.
 
 ```bash
 paiman list
 paiman install imessage
 paiman install email-pai
-paisetup
+paisetup            # interactive picker
 ```
 
-## Runtime Layout
+The default registry is configured in `paiman`; set `PAIMAN_REGISTRY` to point
+at a local checkout or another source.
 
-PAI provisions a quasi-Linux filesystem under `$PAI_ROOT`, defaulting to
-`~/.pai`. Important directories include:
+## Runtime layout
+
+PAI provisions a quasi-Linux filesystem under `$PAI_ROOT` (default `~/.pai`):
 
 | Path | Purpose |
 | --- | --- |
@@ -195,27 +150,25 @@ PAI provisions a quasi-Linux filesystem under `$PAI_ROOT`, defaulting to
 | `/home` | Per-PAI stitched home views |
 | `/opt` | Installed package staging area |
 
-The authoritative filesystem spec is
+The authoritative spec is
 [`src/usr/share/doc/FILESYSTEM_v3.md`](src/usr/share/doc/FILESYSTEM_v3.md).
 
 ## Architecture
 
-PAI has three main layers:
+Three layers:
 
-- **Kernel**: `src/boot/`, a Python event loop that supervises drivers,
-  timers, routing, and PAI subprocesses.
-- **Privileged tools**: `src/sbin/` and selected `src/bin/` commands that
-  manage install, fleet config, lifecycle, packages, and runtime state.
-- **Userspace packages**: drivers, skills, prompts, tools, and PAI bundles
+- **Kernel** — `src/boot/`, a Python event loop that supervises drivers,
+  timers, routing, and PAI subprocesses. It routes events; it does not know
+  what a "message" is. On-disk shape belongs to drivers.
+- **Privileged tools** — `src/sbin/` and selected `src/bin/` commands for
+  install, fleet config, lifecycle, packages, and runtime state.
+- **Userspace packages** — drivers, skills, prompts, tools, and PAI bundles
   installed from `pairegistry`.
 
-Owner surfaces attach to the kernel; they do not own it:
+Owner surfaces (TUI, web console, or nothing at all in `--headless`) attach to
+the kernel; they do not own it.
 
-- TUI: terminal owner console
-- Web: local browser owner console, launched with `pai start --web`
-- Headless: kernel only, launched with `pai start --headless`
-
-More architecture detail:
+More detail:
 
 - [`development_docs/OVERVIEW.md`](development_docs/OVERVIEW.md)
 - [`src/usr/share/doc/KERNEL_ARCHITECTURE.md`](src/usr/share/doc/KERNEL_ARCHITECTURE.md)
@@ -225,68 +178,37 @@ More architecture detail:
 
 ## Development
 
-Install dependencies:
-
 ```bash
-uv sync
+uv sync                        # deps
+uv run python -m pytest        # tests
+uv run paifs-init --no-setup   # reprovision ~/.pai after source changes
 ```
 
-Run tests:
-
-```bash
-uv run python -m pytest
-```
-
-Build the web UI:
+Web UI:
 
 ```bash
 cd src/usr/libexec/web
 pnpm install
-pnpm build
+pnpm build     # or: pnpm dev, with `python -m usr.libexec.web.pai_web` alongside
 ```
 
-Run the web API and Vite dev server separately:
+Cut a release tarball with `pairelease` (needs `pnpm`, `git`, and `gh` for
+`--publish`).
 
-```bash
-python -m usr.libexec.web.pai_web
-cd src/usr/libexec/web
-pnpm dev
-```
+### Repository boundaries
 
-Reprovision the local runtime after source changes:
+Use this repo for kernel code (`src/boot/`), privileged tools (`src/sbin/`,
+`src/bin/`), kernel docs (`src/usr/share/doc/`), and the web owner surface
+(`src/usr/libexec/web/`). Drivers, skills, libraries, prompts beyond the kernel
+seeds, and PAI/subagent bundles belong in `pairegistry` — changing the wrong
+repository is the most common development mistake.
 
-```bash
-uv run paifs-init --no-setup
-```
-
-## Repository Boundaries
-
-Use this repository for:
-
-- Kernel code under `src/boot/`
-- Privileged tools under `src/sbin/`
-- PAI-callable kernel tools under `src/bin/`
-- Kernel docs under `src/usr/share/doc/`
-- The local web owner surface under `src/usr/libexec/web/`
-
-Use `pairegistry` for:
-
-- Drivers
-- Skills
-- Libraries
-- PAI bundles
-- Subagent bundles
-- Installable prompts beyond kernel seeds
-- Additional installable bins or sbins
-
-Changing the wrong repository is the most common development mistake. If the
-change is a driver, skill, prompt, or PAI bundle, it belongs in `pairegistry`.
-
-## Security And Privacy
+## Security and privacy
 
 PAI is local-first, but it is powerful software. It can read and write local
 files, run shell commands through owner-authorized tools, access enabled macOS
-surfaces, and call configured model providers.
+surfaces, and call the model providers you configure — your data lives in
+plain files on your machine; inference goes to the provider you choose.
 
 Before installing or enabling packages:
 
@@ -296,46 +218,21 @@ Before installing or enabling packages:
 - Do not expose the local web UI to untrusted networks.
 - Do not install untrusted registry packages.
 
-The runtime is intended to be inspectable. Logs, process state, config, memory,
-and event spools are ordinary files under `$PAI_ROOT`.
+The runtime is intended to be inspectable: logs, process state, config,
+memory, and event spools are ordinary files under `$PAI_ROOT`. If you hate it,
+`rm -rf ~/.pai` removes every trace.
 
 ## Troubleshooting
 
-If the runtime layout is missing or stale:
-
-```bash
-uv run paifs-init --no-setup
-```
-
-If the web UI does not load, build it:
-
-```bash
-cd src/usr/libexec/web
-pnpm install
-pnpm build
-```
-
-If a package is missing:
-
-```bash
-paiman install <name>
-```
-
-If you need to inspect the fleet:
-
-```bash
-paictl status
-paictl logs <name>
-ps
-```
-
-Kernel logs live under:
-
-```text
-$PAI_ROOT/var/log/kernel/kernel.log
-```
+| Symptom | Try |
+| --- | --- |
+| Runtime layout missing or stale | `uv run paifs-init --no-setup` |
+| Web UI does not load (dev checkout) | `cd src/usr/libexec/web && pnpm install && pnpm build` |
+| A package is missing | `paiman install <name>` |
+| Fleet inspection | `paictl status`, `paictl logs <name>` |
+| Kernel logs | `$PAI_ROOT/var/log/kernel/kernel.log` |
 
 ## License
 
-PAI is licensed under the [Apache License 2.0](LICENSE). See [`NOTICE`](NOTICE)
-for attribution.
+PAI is licensed under the [Apache License 2.0](LICENSE). See
+[`NOTICE`](NOTICE) for attribution.
