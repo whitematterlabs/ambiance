@@ -56,6 +56,15 @@ from sbin.tui.state import (
 # the client-side ring-buffer cap (CAP in App.tsx).
 _LOG_BACKLOG_LINES = 500
 
+# Safety-net poll interval for the proc + me-thread watchers. macOS FSEvents
+# coalesces bursty writes and can drop a directory-level notification outright,
+# so a busy multi-tool turn's final me-thread write (the reply) or a proc
+# busy-state flip can be missed — leaving the reply out of the chat and the
+# status stuck on a stale value until a reconnect re-seeds. The kernel.log tail
+# already guards against this with its own poll (see _watch_log); this mirrors
+# it for the two directory watchers. Same cadence as the log tail and the TUI.
+_SAFETY_POLL_SECS = 0.5
+
 
 def _read_log_tail(path: Path, n: int) -> list[str]:
     """Last `n` non-empty lines of `path`, or [] if it can't be read.
@@ -369,6 +378,11 @@ class Hub:
         ME_ROOT.mkdir(parents=True, exist_ok=True)
         self._watch(ME_ROOT.resolve(), lambda _p: me_worker.poke(), recursive=True)
 
+        # Backstop the two directory watchers against dropped FSEvents (see
+        # _SAFETY_POLL_SECS). Poking is idempotent — both recomputes only
+        # broadcast on a real change — so an extra tick costs a couple of stats.
+        self._start_safety_poll([proc_worker, me_worker])
+
         EVENTS_DIR.mkdir(parents=True, exist_ok=True)
         self._watch_events()
         self._watch_log()
@@ -413,6 +427,21 @@ class Hub:
         obs.start()
         self._observers.append(obs)
 
+    def _safety_tick(self, workers: list["_Debounced"]) -> None:
+        """One safety-net poll tick: poke every FS-driven worker so a coalesced
+        or dropped FSEvents notification still gets reconciled on the next tick.
+        Extracted from the poll loop so it can be exercised deterministically."""
+        for w in workers:
+            w.poke()
+
+    def _start_safety_poll(self, workers: list["_Debounced"]) -> None:
+        def poll() -> None:
+            while True:
+                time.sleep(_SAFETY_POLL_SECS)
+                self._safety_tick(workers)
+
+        threading.Thread(target=poll, daemon=True, name="hub-safety-poll").start()
+
     def stop(self) -> None:
         if self._build_recheck is not None:
             self._build_recheck.cancel()
@@ -428,6 +457,12 @@ class Hub:
         rows = read_proc_rows()
         fleet = read_fleet()
         new_pids = [f["pid"] for f in fleet]
+        # Gate the broadcast on an actual change: the safety-net poll drives
+        # this every _SAFETY_POLL_SECS, so an unconditional emit would spam
+        # every client with identical rows twice a second. (The frontend
+        # derives the live elapsed counter itself, so unchanged rows need no
+        # re-send.) _recompute_threads is already change-gated the same way.
+        rows_changed = rows != self._procs
         self._procs = rows
         self._fleet = fleet
 
@@ -441,7 +476,8 @@ class Hub:
             self._threads[pid] = read_thread(pid)
 
         if broadcast:
-            self._broadcast({"type": "procs", "rows": rows})
+            if rows_changed:
+                self._broadcast({"type": "procs", "rows": rows})
             if added or removed:
                 self._broadcast({"type": "fleet", "fleet": fleet})
                 for pid in added:
