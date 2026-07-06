@@ -166,11 +166,38 @@ def _expand_owner_user(value: str) -> Path:
     return Path(value)
 
 
+# First-segment directory names `_opt_rel` generates to group kind-scoped
+# bundles under /opt/paiman/ (e.g. `bin/<name>`, `subagents/<name>`). A bundle
+# that stages FLAT — i.e. a `prompt`, which lands at /opt/paiman/<name>
+# directly — must not be named one of these, or it collides head-on with the
+# group dir: reinstalling it rmtree's the dir (orphaning the nested packages)
+# and the scanners mistake it for a leaf. That is exactly the bug the flat
+# `subagent` prompt hit against the `subagent` kind. A kind-GROUPED bundle named
+# one of these is fine (`bin/pai`, `pai/pai` — a leaf under the group dir), so
+# the guard is scoped to flat staging, not a blanket ban. Kept as an explicit
+# literal for legibility; `test_reserved_names_match_opt_rel` asserts it stays
+# in sync with what `_opt_rel` emits, so adding a kind or changing its staging
+# can't silently reopen the hole.
+RESERVED_BUNDLE_NAMES = frozenset({"bin", "driver", "skill", "pai", "lib", "subagents"})
+
+
 def _validate_name(name: str) -> None:
     if not name:
         raise SystemExit("paiman: name must be non-empty")
     if not NAME_RE.match(name) or name.startswith("."):
         raise SystemExit(f"paiman: invalid name {name!r}")
+
+
+def _reject_reserved_flat_name(kind: str, name: str, topic: str | None) -> None:
+    """Refuse a bundle that would stage flat at /opt/paiman/<name> under a name
+    that collides with a kind-group dir. Only flat-staged bundles (prompts) can
+    collide; kind-grouped ones nest safely as `<kind>/<name>`."""
+    if "/" not in _opt_rel(kind, name, topic) and name in RESERVED_BUNDLE_NAMES:
+        raise SystemExit(
+            f"paiman: a {kind!r} bundle may not be named {name!r} — it stages "
+            f"flat at opt/paiman/{name}, colliding with the group directory "
+            f"paiman uses for {name}-kind bundles. Pick a different name."
+        )
 
 
 def _opt_rel(kind: str, name: str, topic: str | None) -> str:
@@ -479,6 +506,7 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
             f"paiman: kind {kind!r} not installable "
             f"(known: {', '.join(INSTALLABLE_KINDS)})"
         )
+    _reject_reserved_flat_name(kind, name, topic)
     # Key cycle detection on the resolved source path, not the bundle name.
     # Sibling bundles of different kinds may legitimately share a name
     # (e.g. the `ax` driver depends on the `ax` bin client); only a true

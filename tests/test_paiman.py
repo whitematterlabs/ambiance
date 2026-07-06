@@ -133,6 +133,54 @@ def test_install_subagent(fhs_root: Path) -> None:
     slot = fhs_root / "usr" / "lib" / "subagents" / "testsubagent"
     assert slot.is_symlink()
     assert (slot / "prompt.md").is_file()
+    # Subagent kind stages under the PLURAL subagents/ so it can never nest
+    # inside the flat `subagent` prompt bundle's dir (opt/paiman/subagent/) —
+    # nesting there let a prompt reinstall rmtree the packages and made the
+    # scanners skip them. Regression guard for that collision.
+    assert (fhs_root / "opt" / "paiman" / "subagents" / "testsubagent").is_dir()
+    assert not (fhs_root / "opt" / "paiman" / "subagent").exists()
+
+
+@pytest.mark.parametrize("reserved", ["bin", "driver", "skill", "pai", "lib", "subagents"])
+def test_flat_prompt_rejects_reserved_names(reserved: str) -> None:
+    # A PROMPT stages flat at opt/paiman/<name>, so naming it after a group dir
+    # collides. Rejected.
+    with pytest.raises(SystemExit, match="may not be named"):
+        paiman._reject_reserved_flat_name("prompt", reserved, None)
+
+
+@pytest.mark.parametrize(
+    "kind,name",
+    [
+        ("bin", "pai"),          # bin/pai — the real launcher bin, groups safely
+        ("pai", "pai"),          # pai/pai — leaf under the pai group dir
+        ("subagent", "browse"),  # subagents/browse
+        ("driver", "driver"),    # driver/driver
+        ("prompt", "subagent"),  # singular: no longer a group dir → safe flat
+        ("prompt", "pai_default"),
+    ],
+)
+def test_reserved_guard_allows_grouped_and_safe_names(kind: str, name: str) -> None:
+    # Kind-grouped bundles nest as <kind>/<name>, never colliding; and a flat
+    # prompt whose name isn't a group dir is fine. None of these raise.
+    paiman._reject_reserved_flat_name(kind, name, None)
+
+
+def test_reserved_names_match_opt_rel() -> None:
+    # Drift guard: the blacklist must equal exactly the set of first-segment
+    # group-dir names _opt_rel emits for kind-scoped bundles. Add a kind or
+    # change its staging without updating RESERVED_BUNDLE_NAMES and this fails
+    # rather than silently reopening the collision hole. `subagent` (singular,
+    # a real prompt bundle) must NOT be reserved; `subagents` (the plural group
+    # dir) must be.
+    emitted = {
+        rel.split("/", 1)[0]
+        for kind in paiman.INSTALLABLE_KINDS
+        if "/" in (rel := paiman._opt_rel(kind, "x", None))
+    }
+    assert paiman.RESERVED_BUNDLE_NAMES == emitted
+    assert "subagents" in paiman.RESERVED_BUNDLE_NAMES
+    assert "subagent" not in paiman.RESERVED_BUNDLE_NAMES
 
 
 def test_install_subagent_pulls_deps_from_registry(
