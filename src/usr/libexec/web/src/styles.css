@@ -673,6 +673,104 @@ button {
   color: var(--muted);
 }
 
+/* ElevenLabs API key row + inline paste-and-save form. */
+.voice-key {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 4px 8px;
+}
+
+.voice-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 6px;
+}
+
+.voice-key-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.voice-key-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.voice-key-blurb {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.voice-key-action {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+
+.voice-key-action:hover,
+.voice-key-action:focus-visible {
+  background: var(--surface-soft);
+  border-color: var(--border-strong);
+  outline: none;
+}
+
+.voice-key-form {
+  display: flex;
+  gap: 6px;
+  padding: 0 6px;
+}
+
+.voice-key-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--surface-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.voice-key-input:focus {
+  border-color: var(--accent-deep);
+}
+
+.voice-key-save {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.voice-key-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voice-key-error {
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--fail);
+}
+
 .voice-speed {
   display: flex;
   flex-direction: column;

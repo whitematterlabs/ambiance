@@ -119,6 +119,24 @@ export const setSendMode = (flag: string, mode: string) =>
     error?: string;
   }>;
 
+// ElevenLabs key management for the voice dropdown. The backend persists the
+// key into $PAI_ROOT/.env and only ever returns a masked hint (last 4 chars).
+export const elevenLabsKeyStatus = () =>
+  get("/api/elevenlabs-key") as Promise<{
+    ok: boolean;
+    set?: boolean;
+    hint?: string | null;
+    error?: string;
+  }>;
+
+export const setElevenLabsKey = (key: string) =>
+  post("/api/elevenlabs-key", { key }) as Promise<{
+    ok: boolean;
+    set?: boolean;
+    hint?: string | null;
+    error?: string;
+  }>;
+
 export async function transcribeAudio(audio: Blob): Promise<{
   ok: boolean;
   text?: string;

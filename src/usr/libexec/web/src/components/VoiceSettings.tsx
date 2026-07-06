@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+
+import { elevenLabsKeyStatus, setElevenLabsKey } from "../api";
 import { VOICE_OPTIONS, type VoiceEngine } from "../speech";
 
 // The body of the voice configuration panel — activation switches, the
@@ -143,30 +146,33 @@ export function VoiceSettings({
         </button>
       </div>
       {voiceEngine === "elevenlabs" ? (
-        <ul className="voice-list">
-          <li>
-            <button
-              type="button"
-              className={`voice-item ${voiceId === null ? "selected" : ""}`}
-              onClick={() => onVoiceIdChange(null)}
-            >
-              <span className="voice-name">Server default</span>
-              <span className="voice-blurb">Whatever .env / Rachel</span>
-            </button>
-          </li>
-          {VOICE_OPTIONS.map((v) => (
-            <li key={v.id}>
+        <>
+          <ElevenLabsKeySection />
+          <ul className="voice-list">
+            <li>
               <button
                 type="button"
-                className={`voice-item ${voiceId === v.id ? "selected" : ""}`}
-                onClick={() => onVoiceIdChange(v.id)}
+                className={`voice-item ${voiceId === null ? "selected" : ""}`}
+                onClick={() => onVoiceIdChange(null)}
               >
-                <span className="voice-name">{v.name}</span>
-                <span className="voice-blurb">{v.blurb}</span>
+                <span className="voice-name">Server default</span>
+                <span className="voice-blurb">Whatever .env / Rachel</span>
               </button>
             </li>
-          ))}
-        </ul>
+            {VOICE_OPTIONS.map((v) => (
+              <li key={v.id}>
+                <button
+                  type="button"
+                  className={`voice-item ${voiceId === v.id ? "selected" : ""}`}
+                  onClick={() => onVoiceIdChange(v.id)}
+                >
+                  <span className="voice-name">{v.name}</span>
+                  <span className="voice-blurb">{v.blurb}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       ) : (
         <p className="voice-engine-note">
           Siri reads with your macOS system voice — change it in System Settings
@@ -189,5 +195,109 @@ export function VoiceSettings({
         />
       </div>
     </>
+  );
+}
+
+// "API key" row inside the ElevenLabs branch: shows whether a key is
+// configured (masked hint only — the backend never returns the full key) and
+// expands into an inline paste-and-save form. Self-contained so the Header
+// popover and mobile sheet don't each have to thread key state through props.
+function ElevenLabsKeySection() {
+  const [keySet, setKeySet] = useState<boolean | null>(null); // null = loading
+  const [hint, setHint] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    elevenLabsKeyStatus()
+      .then((r) => {
+        if (!alive) return;
+        setKeySet(r.set === true);
+        setHint(r.hint ?? null);
+      })
+      .catch(() => {
+        if (alive) setKeySet(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const save = async () => {
+    const key = draft.trim();
+    if (!key || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await setElevenLabsKey(key);
+      if (!r.ok) throw new Error(r.error || "could not save the key");
+      setKeySet(r.set === true);
+      setHint(r.hint ?? null);
+      setDraft("");
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="voice-key">
+      <div className="voice-key-row">
+        <span className="voice-key-copy">
+          <span className="voice-key-name">API key</span>
+          <span className="voice-key-blurb">
+            {keySet === null
+              ? "Checking…"
+              : keySet
+                ? `Set${hint ? ` · ${hint}` : ""}`
+                : "Not set — cloud voices fall back to Siri"}
+          </span>
+        </span>
+        <button
+          type="button"
+          className="voice-key-action"
+          onClick={() => {
+            setEditing((v) => !v);
+            setError(null);
+          }}
+        >
+          {editing ? "Cancel" : keySet ? "Change" : "Add key"}
+        </button>
+      </div>
+      {editing && (
+        <div className="voice-key-form">
+          <input
+            type="password"
+            className="voice-key-input"
+            placeholder="ElevenLabs API key"
+            value={draft}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void save();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="voice-key-save"
+            disabled={saving || !draft.trim()}
+            onClick={() => void save()}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      )}
+      {error && <span className="voice-key-error">{error}</span>}
+    </div>
   );
 }

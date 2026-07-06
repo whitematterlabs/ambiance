@@ -205,6 +205,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(HUB.snapshot(actions.read_provider()))
         if path == "/api/asset":
             return self._asset()
+        if path == "/api/elevenlabs-key":
+            # Masked status only — the full key never reaches the browser.
+            return self._json({"ok": True, **actions.elevenlabs_key_status()})
         return self._static(path)
 
     def do_POST(self):
@@ -274,6 +277,10 @@ class Handler(BaseHTTPRequestHandler):
                 if action == "stop":
                     return self._json({"ok": True, **actions.stop_kernel()})
                 raise ValueError(f"unknown kernel action: {action}")
+            if path == "/api/elevenlabs-key":
+                # Persist to $PAI_ROOT/.env(.local); goes live on the next TTS
+                # request without a restart.
+                return self._json({"ok": True, **actions.set_elevenlabs_key(str(body["key"]))})
             if path == "/api/tts":
                 voice_id = body.get("voice_id")
                 speed = body.get("speed")

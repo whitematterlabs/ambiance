@@ -83,6 +83,8 @@ cd src/usr/libexec/web && pnpm dev         # UI on :5173, proxies /api → :8787
 | POST | `/api/kernel` | `{action: "start" \| "stop"}` → start/stop the kernel |
 | POST | `/api/tts` | `{text}` → server-side TTS proxy; uses ElevenLabs with `ELEVENLABS_API_KEY`, otherwise macOS `say` |
 | POST | `/api/stt` | `multipart/form-data` with `audio` → server-side STT proxy; requires `OPENAI_API_KEY` |
+| GET | `/api/elevenlabs-key` | Masked key status `{set, hint}` — the full key never reaches the browser |
+| POST | `/api/elevenlabs-key` | `{key}` → persist `ELEVENLABS_API_KEY` into `$PAI_ROOT/.env(.local)`; live on the next TTS request |
 
 Voice input defaults to `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`.
 Optional `OPENAI_TRANSCRIBE_LANGUAGE` and `OPENAI_TRANSCRIBE_PROMPT` values are
