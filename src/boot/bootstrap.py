@@ -82,6 +82,9 @@ nudge. Lifecycle/kill/bundles: `bin/subagent --help`, `SUBAGENT_BUNDLES.md`.
 Delegate to a fleet PAI that owns a capability instead of doing it yourself:
 `bin/send-message --to {pid} --content '...'`. Pids + domains in <fleet>;
 replies arrive as reason `pai message`. How-to guides: `memory/skills/`.
+send-message reaches ANY running pid — fleet PAIs and your own subagents
+alike. Use it to steer, redirect, or answer a running child mid-flight
+(then END your turn); delivery is acked, so a dead pid fails loudly.
 
 Manage context when the buffer bloats: `bin/clear` wipes history after this
 turn; `bin/compact "<summary>"` replaces it with your summary. Both archive to

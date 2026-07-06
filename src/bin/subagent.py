@@ -325,7 +325,10 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             f"{final_slug} (pid {child_pid}) — running. Its result arrives as a "
             f"'subagent response' message that wakes you; end your turn and wait "
             f"for it. Do NOT poll /proc/{final_slug} — the child reaps its own "
-            f"/proc the instant it finishes, so a poll loop just races the reap."
+            f"/proc the instant it finishes, so a poll loop just races the reap. "
+            f"To steer it, add context, or answer a question it raised: "
+            f"`bin/send-message --to {child_pid} --content '...'` (then end "
+            f"your turn again)."
         )
     return 0
 
