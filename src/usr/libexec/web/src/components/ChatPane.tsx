@@ -149,6 +149,7 @@ export function ChatPane({
   const ref = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const previousThreadKey = useRef(threadKey);
+  const previousMessageCount = useRef(messages.length);
   // Per-group override of the collapsed default, keyed by the group's first
   // message index (stable: the thread is append-only). Reset on thread switch.
   const [openGroups, setOpenGroups] = useState<Record<number, boolean>>({});
@@ -296,7 +297,16 @@ export function ChatPane({
     if (previousThreadKey.current !== threadKey) {
       previousThreadKey.current = threadKey;
       stickToBottom.current = true;
+    } else if (
+      messages
+        .slice(previousMessageCount.current)
+        .some((m) => m.sender.toLowerCase() === "me")
+    ) {
+      // The owner just sent something — snap to it even if they had scrolled
+      // up to read history.
+      stickToBottom.current = true;
     }
+    previousMessageCount.current = messages.length;
 
     if (stickToBottom.current) {
       el.scrollTop = el.scrollHeight;

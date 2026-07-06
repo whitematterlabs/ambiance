@@ -38,8 +38,15 @@ export function ApprovalModal({
     setReason("");
   }, [currentId]);
 
+  // Focus the card once on mount only. The ESC listener below re-binds on every
+  // App re-render (onClose is an inline closure), and while the PAI streams
+  // those re-renders are constant — re-focusing there would yank the caret out
+  // of the textarea mid-typing.
   useEffect(() => {
     cardRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onClose();
     };
