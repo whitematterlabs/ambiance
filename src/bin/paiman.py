@@ -186,11 +186,23 @@ def _opt_rel(kind: str, name: str, topic: str | None) -> str:
     every other kind, a prompt's *bundle dir* (not just its activation slot)
     is referenced externally — `config.yaml` points `prompt_dir` at
     `opt/paiman/<name>` so bootstrap can glob its `*.md`. Grouping it by kind
-    would silently empty the PAI's role prompt."""
+    would silently empty the PAI's role prompt.
+
+    Exception: `subagent` kind groups under the *plural* `subagents/<name>`.
+    The singular `subagent/` would collide head-on with the flat prompt bundle
+    literally named `subagent` (the ephemeral subagent-mode template that
+    bootstrap reads as `usr/share/prompts/subagent.md`). That prompt owns
+    `opt/paiman/subagent/` as its flat dir, so nesting `subagent/<name>` under
+    it made the packages casualties: reinstalling the prompt `rmtree`s the
+    parent (orphaning them to dangling symlinks), and the scanners see the
+    prompt's `package.yaml` and treat the dir as a leaf, never descending to
+    find the nested packages. Plural sidesteps both."""
     if topic:
         return f"{topic}/{name}"
     if kind == "prompt":
         return name
+    if kind == "subagent":
+        return f"subagents/{name}"
     return f"{kind}/{name}"
 
 
