@@ -105,3 +105,34 @@ def test_heal_in_sync_is_none() -> None:
 def test_heal_no_kernel_stamp_is_none() -> None:
     st = B.HealState()
     assert B.decide_heal(None, "b25", "b25", st, now=100.0) == "none"
+
+
+# --- console self-restart policy ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "console,current,dev,already,can_restart,expected",
+    [
+        # the bug: release console behind the installed release -> re-exec
+        ("b17", "b25", False, None, True, True),
+        # a later release restarts again even after an earlier attempt
+        ("b17", "b25", False, "b18", True, True),
+        # one attempt per release: already re-exec'd for b25, still stale -> banner
+        ("b17", "b25", False, "b25", True, False),
+        # console already current
+        ("b25", "b25", False, None, True, False),
+        # dev checkout consoles are the developer's business
+        ("dev", "b25", True, None, True, False),
+        # installed target is a dev checkout: nothing to re-exec into
+        ("b17", "dev", False, None, True, False),
+        # embedder gave us no way to re-exec
+        ("b17", "b25", False, None, False, False),
+    ],
+)
+def test_decide_console_restart(console, current, dev, already, can_restart, expected) -> None:
+    assert (
+        B.decide_console_restart(
+            console, current, dev=dev, already=already, can_restart=can_restart
+        )
+        is expected
+    )

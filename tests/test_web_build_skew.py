@@ -1,7 +1,10 @@
 """The web hub detects kernel-vs-console build skew and auto-reboots a stale
-kernel (guarded by cooldown), warns-only when the console itself is stale."""
+kernel (guarded by cooldown); a stale *console* re-execs itself into the new
+release when its entrypoint gave it a restart hook (banner-only otherwise)."""
 
 from __future__ import annotations
+
+import os
 
 import pytest
 
@@ -10,9 +13,11 @@ from usr.libexec.web.pai_web import actions
 from usr.libexec.web.pai_web import hub as H
 
 
-def _hub(monkeypatch, *, console, kernel, current):
+def _hub(monkeypatch, *, console, kernel, current, dev=False):
+    monkeypatch.delenv(B.CONSOLE_REEXEC_ENV, raising=False)
     h = H.Hub()
     h._console_build = console
+    h._console_dev = dev
     monkeypatch.setattr(B, "read_kernel_stamp", lambda: ({"version": kernel} if kernel else None))
     monkeypatch.setattr(B, "current_release", lambda: current)
     monkeypatch.setattr(h, "_schedule_build_recheck", lambda: None)  # no real timers
@@ -42,12 +47,40 @@ def test_in_sync_does_not_reboot(monkeypatch) -> None:
     assert h._build_status["state"] == "in_sync"
 
 
-def test_stale_console_warns_only(monkeypatch) -> None:
+def test_stale_console_warns_only_without_restart_hook(monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(actions, "reboot_kernel", lambda: calls.append(1))
     h = _hub(monkeypatch, console="b17", kernel="b25", current="b25")
     h._recompute_build(broadcast=False)
     assert calls == []
+    assert h._build_status["state"] == "console_stale"
+
+
+def test_stale_console_reexecs_itself(monkeypatch) -> None:
+    monkeypatch.setattr(actions, "reboot_kernel", lambda: pytest.fail("kernel reboot"))
+    h = _hub(monkeypatch, console="b17", kernel="b25", current="b25")
+    restarts = []
+    h.console_restart = lambda: restarts.append(1)  # real hook: os.exec*, no return
+    h._recompute_build(broadcast=False)
+    assert restarts == [1]
+    # the marker survives the exec so the fresh image won't loop
+    assert os.environ[B.CONSOLE_REEXEC_ENV] == "b25"
+
+
+def test_stale_console_restarts_once_per_release(monkeypatch) -> None:
+    h = _hub(monkeypatch, console="b17", kernel="b25", current="b25")
+    restarts = []
+    h.console_restart = lambda: restarts.append(1)
+    monkeypatch.setenv(B.CONSOLE_REEXEC_ENV, "b25")  # already re-exec'd, still stale
+    h._recompute_build(broadcast=False)
+    assert restarts == []
+    assert h._build_status["state"] == "console_stale"  # banner fallback
+
+
+def test_dev_console_never_reexecs(monkeypatch) -> None:
+    h = _hub(monkeypatch, console="dev", kernel="b25", current="b25", dev=True)
+    h.console_restart = lambda: pytest.fail("dev console re-exec'd")
+    h._recompute_build(broadcast=False)
     assert h._build_status["state"] == "console_stale"
 
 

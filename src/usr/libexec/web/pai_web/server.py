@@ -30,6 +30,7 @@ import sys
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as _StdlibThreadingHTTPServer
 from pathlib import Path
+from typing import Callable
 
 from boot.paths import PAI_ROOT, REPO_ROOT, usr_libexec
 
@@ -572,6 +573,7 @@ def run(
     open_browser: bool = False,
     unix_socket: str | None = None,
     auth_token: str | None = None,
+    console_restart: Callable[[], None] | None = None,
 ) -> None:
     """Attach to the running kernel and serve the web surface (blocking).
 
@@ -583,7 +585,14 @@ def run(
     which puts `/api/*` on the public internet; the local unix-socket surface
     and dev runs leave it `None`. The token is stashed on the server so each
     Handler can read it via `self.server.auth_token` (see `_check_auth`).
+
+    `console_restart` is the caller's way to re-exec this whole process when
+    the hub detects the *console* is the stale side of a build skew — after
+    `pai update` swaps the release dir, this process keeps serving the old
+    `pai_web` code with paths into the wiped dir until it is replaced. The
+    listening socket is CLOEXEC, so the fresh image rebinds cleanly.
     """
+    HUB.console_restart = console_restart
     HUB.start()
     if unix_socket:
         server = _bind_unix(unix_socket)
@@ -637,12 +646,23 @@ def main() -> None:
         help="require this bearer token on /api/* (remote/tunneled TCP only)",
     )
     args = parser.parse_args()
+    # Self re-exec for build-skew healing: same serving config, fresh code.
+    # Module form through the stable interpreter/`usr/src` paths, so the new
+    # image loads the freshly-installed release. Never re-adds --open — the
+    # owner's tab reconnects over SSE on its own.
+    reexec = [sys.executable, "-m", "usr.libexec.web.pai_web",
+              "--host", args.host, "--port", str(args.port)]
+    if args.unix_socket:
+        reexec += ["--unix-socket", args.unix_socket]
+    if args.auth_token:
+        reexec += ["--auth-token", args.auth_token]
     run(
         host=args.host,
         port=args.port,
         open_browser=args.open,
         unix_socket=args.unix_socket,
         auth_token=args.auth_token,
+        console_restart=lambda: os.execv(sys.executable, reexec),
     )
 
 

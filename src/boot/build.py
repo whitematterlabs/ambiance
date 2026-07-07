@@ -153,6 +153,38 @@ class HealState:
     escalated: bool = False
 
 
+# Environment marker for a console self re-exec: set to the release being
+# adopted just before the web surface replaces its own process image. The
+# environment survives the exec, so a restart that *didn't* pick up the new
+# build (still stale for the same release) degrades to the banner instead of
+# exec-looping.
+CONSOLE_REEXEC_ENV = "PAI_CONSOLE_RESTARTED_FOR"
+
+
+def decide_console_restart(
+    console: str,
+    current: str,
+    *,
+    dev: bool,
+    already: str | None,
+    can_restart: bool,
+) -> bool:
+    """Whether a stale console should replace itself with a fresh process.
+
+    Rebooting the kernel can't heal a stale console: after `pai update` swaps
+    the release dir, this process still runs the old ``pai_web`` code with
+    paths into the wiped dir (404s on `/` and on any new `/api/*` route). Only
+    a re-exec of the serving process fixes that. Pure — the caller sets the
+    ``already`` env marker and performs the exec. Restricted to release-built
+    consoles targeting a release build (dev checkouts are the developer's
+    business), one attempt per release."""
+    if not can_restart or dev or current == "dev":
+        return False
+    if already == current:
+        return False
+    return console != current
+
+
 def decide_heal(
     kernel: Optional[str],
     console: str,

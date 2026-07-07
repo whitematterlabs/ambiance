@@ -14,6 +14,8 @@ message format has a single source of truth across both surfaces.
 
 from __future__ import annotations
 
+import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -314,10 +316,17 @@ class Hub:
         # Build-skew detection: this console's build is fixed for its lifetime;
         # the kernel's is read from its boot stamp. _heal holds the auto-reboot
         # cooldown/escalation state (see _recompute_build).
-        self._console_build = build.running_build().version
+        console = build.running_build()
+        self._console_build = console.version
+        self._console_dev = console.dev
         self._build_status: dict = {}
         self._heal = build.HealState()
         self._build_recheck: Optional[threading.Timer] = None
+        # Set by the serving entrypoint (`pai start` / `pai-web`): replaces this
+        # process with a fresh image so a *console*-side stale build can heal
+        # itself the way the kernel does via `kernel:restart`. os.exec* — never
+        # returns on success. None when the embedder can't be re-exec'd.
+        self.console_restart: Optional[Callable[[], None]] = None
 
     # -- subscriptions --
     def add(self, sub: "Subscriber") -> None:
@@ -527,6 +536,12 @@ class Hub:
             self._schedule_build_recheck()
         elif action == "escalate":
             self._heal.escalated = True
+        elif action == "warn_console":
+            # This console is the stale side: `pai update` swapped the release
+            # under us, and the kernel (already current) can't fix that. Re-exec
+            # ourselves into the new build; on refusal/failure the state below
+            # still ships the console_stale banner.
+            self._maybe_restart_console(current)
         if state == "in_sync":
             self._heal = build.HealState()
 
@@ -541,6 +556,36 @@ class Hub:
             self._build_status = status
             if broadcast:
                 self._broadcast({"type": "build", "status": status})
+
+    def _maybe_restart_console(self, current: str) -> None:
+        """Heal a stale console by replacing this process with a fresh image.
+
+        Event-driven: reached only from `_recompute_build`, which the kernel's
+        restamp (post-`kernel:restart`) or a `.release` marker write pokes via
+        FS watch. One attempt per release rides `CONSOLE_REEXEC_ENV` — the
+        environment survives the exec, so a restart that came back still stale
+        falls through to the banner instead of exec-looping."""
+        if not build.decide_console_restart(
+            self._console_build,
+            current,
+            dev=self._console_dev,
+            already=os.environ.get(build.CONSOLE_REEXEC_ENV),
+            can_restart=self.console_restart is not None,
+        ):
+            return
+        os.environ[build.CONSOLE_REEXEC_ENV] = current
+        print(
+            f"[web] console build {self._console_build} is behind installed "
+            f"{current} — re-exec'ing the web surface",
+            file=sys.stderr,
+            flush=True,
+        )
+        try:
+            self.console_restart()  # os.exec* — no return on success
+        except Exception:  # never let a failed exec kill the watcher thread
+            import traceback
+
+            traceback.print_exc()
 
     def _schedule_build_recheck(self) -> None:
         """After a reboot attempt, re-evaluate once the cooldown has elapsed —
