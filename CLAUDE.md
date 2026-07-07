@@ -28,7 +28,7 @@ These are not interchangeable. Do not put kernel code under `/usr/`, and do not 
 
 - **`/boot/`** — the kernel image. The supervisor (PID 1, pure Python) and every helper library it links against. The kernel is *not* a userspace program. Repo source for it lives at `src/boot/`.
 - **`/usr/`** — userspace. Drivers, skills, PAI bundles, shipped data. Anything a PAI or a driver runs against. Never holds kernel code.
-- **`/sbin/`** — kernelPAI / owner-only tools that mutate `/etc/`, the fleet, or system state: `init` (entrypoint that `exec`s into the kernel), `reboot` (re-execs the kernel in place via `kernel:restart`), `paiman`, `paiadd`, `paidel`, `paifs-init`, `migrate`, `reset`, `tui`.
+- **`/sbin/`** — kernelPAI / owner-only tools that mutate `/etc/`, the fleet, or system state: `init` (entrypoint that `exec`s into the kernel), `reboot` (re-execs the kernel in place via `kernel:restart`), `paiman`, `paiadd`, `paidel`, `paifs-init`, `migrate`, `reset`.
 - **`/bin/`** — PAI-callable tools (`paictl`, `paicron`, `send-message`, `subagent`, etc.). `/bin/` is a relative symlink to `usr/bin/`.
 
 ## Driver layout
@@ -63,24 +63,15 @@ Four tools, one layer each: `paiman` (bundles) / `paiadd`+`paidel` (configure in
 
 `paifs-init` provisions `~/.pai/` from the repo: creates the FHS skeleton, symlinks `/usr/src/`/`/usr/lib/drivers/`/`/usr/share/prompts/` at the live repo, builds a self-contained venv at `/usr/lib/venv/`, and generates console-script shims at `/usr/bin/` and `/sbin/`. Idempotent and non-destructive — safe to re-run after `git pull` to refresh shims/venv. To wipe runtime state, use `reset` (destructive).
 
-## Graduating from TTY to .app
+## Owner surfaces
 
-> A SwiftUI `PAI.app` (the `macos/` dir + `paibuild`) once lived in this repo but
-> was removed: it required Xcode to build, which broke setup on machines with only
-> the Command Line Tools. The notes below are the forward plan for re-introducing a
-> native surface, not a description of existing code.
+The **web console is the sole owner surface**: `pai start` serves it (backend `src/sbin/web`, frontend `src/usr/libexec/web`, Vite/React). The same console is **PWA-installable on mobile** (`public/manifest.webmanifest` + icons + apple-mobile meta) for remote fleet access — no separate mobile app.
 
-PAI runs in a terminal today. That is deliberate while the kernel's contract with the world is still moving (driver layout, FHS semantics, prompt assembly, send_message shape). An `.app` adds a second surface to keep in sync — window lifecycle, dock, notifications, Sparkle-style updates, code signing, and Location/Contacts/Calendar entitlements as a *bundled identity* instead of borrowed from Terminal — and doing that before the kernel is stable means re-doing it.
+Gone, do not resurrect:
+- **TUI** — removed (deprecated 2026-06-30); only a vestigial `src/sbin/tui/state.py` remains. Never build TUI panes; owner-facing features go in the web console.
+- **PAI.app** — the SwiftUI `macos/` app was deleted 2026-06-17 (Xcode-only build broke setup). If a native surface ever returns, it attaches to the running kernel over send_message; it does not own the runtime.
 
-Three signals to graduate:
-
-1. **The TUI is the daily driver, not the terminal.** When the owner stops dropping to bare shell to inspect `/proc` or tail logs and lives in the TUI, the terminal is just chrome around it.
-2. **Owner-facing things the TTY can't do well.** Native notifications, menubar presence, launch-at-login without a launchd plist, a Location Services prompt tied to *PAI* (not Terminal/iTerm), drag-drop into a PAI's home, global hotkey to summon. Each is a hack in TTY, native in `.app`.
-3. **Non-technical users.** Setup today is `uv sync` + `paifs-init` + grant Terminal accessibility. An `.app` is the only path to "double-click, grant once."
-
-Graduate when **2 of 3** hit — specifically when per-PAI native notifications or owner-bound Location/Contacts permissions are wanted, because that's when borrowing Terminal's identity becomes the wrong abstraction rather than just an aesthetic one.
-
-**Intermediate step before a full `.app`:** package the kernel + TUI as a launchd-managed background agent + a thin SwiftUI menubar app that attaches to the running kernel over the existing send_message channel. Native notifications and proper entitlements without rewriting the kernel or committing to a windowed app. The TTY still works for dev.
+Surfaces attach to the runtime, they don't own it. Non-Python sidecars live in `usr/libexec/`.
 
 ## Reporting back
 
