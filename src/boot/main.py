@@ -25,6 +25,7 @@ import yaml
 
 from . import config as C
 from . import doc_watcher
+from . import inject
 from . import litellm_proxy
 from . import outbound_echo
 from . import paths
@@ -97,6 +98,65 @@ def _dispatch_nudge(
     _active_nudges[to].add(task)
     task.add_done_callback(lambda t: _active_nudges[to].discard(t))
     return task
+
+
+def _deliver_message(
+    to: int,
+    reason: str,
+    *,
+    from_: int | None = None,
+    from_kind: str = "pai",
+    slug: str | None = None,
+    context: dict | None = None,
+    msg_id: str | None = None,
+    event: dict | None = None,
+) -> None:
+    """Deliver a message-shaped event to a PAI.
+
+    If the target has a turn running, the message is injected into that
+    turn at its next tool boundary (see boot.inject) — it interrupts the
+    ongoing work as fresh input and the turn keeps going. Otherwise it
+    falls back to a queued nudge, which starts a new turn immediately
+    (the slug lock is free when no turn is live).
+
+    `event` is the originating event payload: if the turn ends before the
+    injection is drained, nudge re-emits it so the message re-routes
+    instead of vanishing.
+    """
+    to = int(to)
+    try:
+        target_slug = P.find_pai_slug(to)
+    except P.ProcessNotFound:
+        target_slug = None
+    sender = f"{from_kind}:{from_}" if from_ is not None else None
+    if target_slug is not None and inject.try_inject(
+        target_slug, reason, slug=slug, context=context, sender=sender, event=event
+    ):
+        print(f"[kernel] inject: {reason} → {target_slug} (mid-turn)", flush=True)
+        try:
+            P.append_log(target_slug, f"injected mid-turn: {reason}")
+        except P.ProcessNotFound:
+            pass
+        if msg_id:
+            P.emit_ack(msg_id, {
+                "kind": "pai_message:ack",
+                "msg_id": msg_id,
+                "target_pid": to,
+                "slug": target_slug,
+                "delivery": "injected",
+            })
+        return
+    args = (reason, slug) if slug is not None else (reason,)
+    kwargs: dict = {}
+    if context is not None:
+        kwargs["context"] = context
+    if from_kind != "pai":
+        kwargs["from_kind"] = from_kind
+    if msg_id is not None:
+        kwargs["msg_id"] = msg_id
+    if from_ is not None:
+        kwargs["from_"] = from_
+    _dispatch_nudge(to, *args, **kwargs)
 
 
 async def _handle_timer(entry: T.TimerEntry, heap: list[T.TimerEntry]) -> None:
@@ -243,10 +303,11 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         }
         if event.get("overclock") is True:
             ctx["overclock"] = True
-        _dispatch_nudge(
+        _deliver_message(
             pid,
             "owner message",
             context=ctx,
+            event=event,
         )
         return
 
@@ -274,10 +335,14 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
                 }
                 if event.get("overclock") is True:
                     ctx["overclock"] = True
-                _dispatch_nudge(
+                # Re-emit payload is pinned to this pid: the original event
+                # may fan out to several PAIs, and re-processing it whole
+                # would double-deliver to the ones that already got it.
+                _deliver_message(
                     pid,
                     "owner message",
                     context=ctx,
+                    event={**event, "target_pid": pid},
                 )
             return
 
@@ -465,12 +530,13 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         if target_pid is None:
             print(f"[kernel] dropping malformed pai_message event: {event!r}", flush=True)
             return
-        _dispatch_nudge(
+        _deliver_message(
             int(target_pid),
             "peer message",
             from_=int(sender_pid) if sender_pid is not None else None,
             context={"text": text},
             msg_id=msg_id,
+            event=event,
         )
 
     elif kind == "subagent:response":
@@ -487,12 +553,13 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             context["result"] = event.get("result")
         if event.get("auto_fallback") is True:
             context["auto_fallback"] = True
-        _dispatch_nudge(
+        _deliver_message(
             int(target_pid),
             "subagent response",
             from_=int(sender_pid) if sender_pid is not None else None,
             from_kind="subagent",
             context=context,
+            event=event,
         )
 
     elif kind in ("subagent:plan_ready", "subagent:plan_reject"):
@@ -503,13 +570,14 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             print(f"[kernel] dropping malformed {kind} event: {event!r}", flush=True)
             return
         tag = "subagent plan ready" if kind == "subagent:plan_ready" else "subagent plan reject"
-        _dispatch_nudge(
+        _deliver_message(
             int(target_pid),
             tag,
             from_=int(sender_pid) if sender_pid is not None else None,
             from_kind="subagent",
             slug=slug,
             context={"slug": slug, "text": event.get("text") or ""},
+            event=event,
         )
 
     elif kind == "send_failed" and event_source in (None, "imessage", "imessage-out"):

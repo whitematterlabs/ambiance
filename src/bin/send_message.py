@@ -5,7 +5,14 @@ Each send carries a unique msg_id. The kernel writes a delivery ack
 (pai_message:ack on success, pai_message:dropped if the target pid is
 gone) to /run/pai/acks/<msg_id>.yaml. send-message blocks on that file
 for a short timeout so senders get verifiable delivery instead of
-fire-and-forget."""
+fire-and-forget.
+
+If the target is mid-turn, the kernel injects the message into the
+running turn at its next tool boundary (ack carries delivery: injected)
+— the target sees it within one model/tool step and keeps working. An
+ack timeout therefore means "queued, not yet picked up", not "lost":
+the kernel still holds the message and delivers it when the target
+frees up. Never resend on timeout."""
 
 from __future__ import annotations
 
@@ -122,15 +129,23 @@ def main(argv: list[str] | None = None) -> int:
         })
         ack = _wait_for_ack(msg_id, args.timeout)
         if ack is None:
+            # Not a failure: the kernel holds the message and delivers it at
+            # the target's next turn (or injects if a turn starts). Resending
+            # would double-deliver.
             print(
-                f"error: delivery to pid={pid} timed out after {args.timeout}s",
-                file=sys.stderr,
+                f"queued for pid={pid} (no ack within {args.timeout}s — "
+                "the kernel will deliver it when the target picks it up; "
+                "do NOT resend)"
             )
-            failures += 1
             continue
         kind = ack.get("kind")
         if kind == "pai_message:ack":
-            print(f"delivered to pid={pid} (slug={ack.get('slug')})")
+            how = (
+                " — injected into its running turn"
+                if ack.get("delivery") == "injected"
+                else ""
+            )
+            print(f"delivered to pid={pid} (slug={ack.get('slug')}){how}")
         else:
             reason = ack.get("reason") or kind or "unknown"
             print(

@@ -23,7 +23,7 @@ from anthropic import AsyncAnthropic
 
 from . import tokens
 
-from . import bash_tool, noop_tool, shell_tool, stitch
+from . import bash_tool, inject, noop_tool, shell_tool, stitch
 from .image_refs import expand_image_refs
 from . import paths as paths_mod
 from .paths import HOME_DIR
@@ -58,6 +58,22 @@ def _cap_tool_result(text: str) -> str:
         f"TTY/log. Re-run narrowed (head/tail/grep/sed -n) to see more ...]\n\n"
     )
     return text[:half] + marker + text[-half:]
+
+
+def _narrate(pai_slug: str, text: str) -> None:
+    """Surface interim assistant text live: TTY, proc log, and the owner's
+    me-thread. Used for text blocks emitted alongside tool calls and for a
+    would-be final reply that an injected message pre-empts."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        print(f"[pai:{pai_slug}] » {line}", flush=True)
+        try:
+            append_log(pai_slug, f"» {line}")
+        except ProcessNotFound:
+            pass
+        _append_narration_to_me_thread(pai_slug, line)
 
 
 def _append_narration_to_me_thread(pai_slug: str, line: str) -> None:
@@ -347,10 +363,25 @@ async def _loop(
             "content": [b.model_dump() for b in response.content],
         })
 
+        pai_slug = (env or {}).get("PAI_SLUG")
         tool_uses = [b for b in response.content if b.type == "tool_use"]
         if not tool_uses:
             text_parts = [b.text for b in response.content if b.type == "text"]
             reply = "\n".join(text_parts).strip()
+            # A message was injected mid-generation (see boot.inject): the
+            # turn doesn't end — the pending message becomes the next user
+            # input and the loop continues. The would-be final reply is
+            # narrated so it still reaches the owner/log instead of being
+            # swallowed by the continuation.
+            pending = inject.drain(pai_slug)
+            if pending:
+                if pai_slug and reply and not noop_tool.is_sentinel_text(reply):
+                    _narrate(pai_slug, reply)
+                messages.append({
+                    "role": "user",
+                    "content": [{"type": "text", "text": t} for t in pending],
+                })
+                continue
             # A quiet turn the model expressed as prose ("stand_down", "NOOP",
             # "quiet") instead of calling the stand_down tool. Canonicalize the
             # sentinel to no reply so it never surfaces as a bogus message.
@@ -372,24 +403,13 @@ async def _loop(
                 for block in assistant_turn.get("content", [])
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             ]
-        pai_slug = (env or {}).get("PAI_SLUG")
         if pai_slug and not noop_only:
             for block in response.content:
                 if block.type != "text":
                     continue
                 text = (block.text or "").strip()
-                if not text:
-                    continue
-                for line in text.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    print(f"[pai:{pai_slug}] » {line}", flush=True)
-                    try:
-                        append_log(pai_slug, f"» {line}")
-                    except ProcessNotFound:
-                        pass
-                    _append_narration_to_me_thread(pai_slug, line)
+                if text:
+                    _narrate(pai_slug, text)
 
         tool_results = []
         for use in tool_uses:
@@ -445,7 +465,17 @@ async def _loop(
                 })
 
         messages.append({"role": "user", "content": tool_results})
+        # Tool-boundary injection (see boot.inject): messages that arrived
+        # while the model was generating or the tools were running ride along
+        # in the same user turn, as text blocks after the tool_results.
+        pending = inject.drain(pai_slug)
+        for t in pending:
+            messages[-1]["content"].append({"type": "text", "text": t})
         if noop_only:
+            if pending:
+                # The model stood down, but new input just landed — the turn
+                # continues so the message is handled now, not next wake.
+                continue
             messages.append({
                 "role": "assistant",
                 "content": [{"type": "text", "text": noop_tool.TOOL_NAME}],

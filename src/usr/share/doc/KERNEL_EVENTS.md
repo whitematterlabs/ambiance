@@ -65,7 +65,10 @@ reads `paths.EVENTS_DIR`.
 Sibling spool: `$PAI_ROOT/run/pai/acks/{msg_id}.yaml`. Per-message
 delivery acks for `send-message`. Lives *outside* the event spool so
 `EventWatcher` does not consume them; senders poll the ack path
-directly. See `processes.emit_ack`.
+directly. See `processes.emit_ack`. When the target has a turn running,
+the message is injected into that turn at its next tool boundary
+(`boot/inject.py`) and the ack carries `delivery: injected`; otherwise
+the ack is written when the queued nudge starts.
 
 ### Write protocol
 

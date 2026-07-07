@@ -94,6 +94,8 @@ PAIs talk to each other through the event bus. Two directed event kinds, both ro
 
 A spawned subagent has `persistent: true` in its spec, so it stays alive across turns and only resolves when the parent calls `bin/subagent kill --slug <name>`. Until then, parent and child can exchange any number of messages. This is why a parent can drive N concurrent subagents without blocking — every turn is mediated by the bus, not by a synchronous call.
 
+**Mid-turn injection.** Delivery of these messages (and owner messages) does not wait for the target's current turn to finish. If a turn is running, the kernel injects the message into the live conversation at the next tool boundary (`boot/inject.py`): the running turn sees it as fresh user input within one model/tool step and keeps going. This is what makes steering a busy subagent possible at all — a subagent ends its life by ending its turn, so turn-boundary delivery would race the reap and drop. If no turn is running, the message takes the normal queued-nudge path and starts a turn immediately. Anything queued but not yet drained when a turn ends is re-emitted onto the bus rather than lost. Excluded from injection: overclock kickoffs (need the lock-holding loop in `nudge.py`) and kernel compact/onboarding turns (their history is replaced at turn end, which would drop injected content).
+
 ### PAI turn events (`pai:<slug>:input`, `pai:<slug>:output`)
 
 The kernel emits two events around every nudge so other PAIs can react to a peer's turns declaratively, without tail/peek primitives:

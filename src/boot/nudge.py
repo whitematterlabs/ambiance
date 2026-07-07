@@ -28,7 +28,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import bootstrap, config, debugger, image_refs, llm, stitch, tokens
+from . import bootstrap, config, debugger, image_refs, inject, llm, stitch, tokens
 from . import paths as paths_mod
 from . import processes as P
 from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
@@ -999,70 +999,90 @@ async def _nudge_body(
     # Run the turn, with one kernel-side recovery retry if the provider
     # rejects the prompt for exceeding its context window. The retry runs
     # against a freshly reset history, so it fits.
+    #
+    # While the turn runs, messages addressed to this PAI are injected into
+    # the live conversation at the next tool boundary instead of queueing
+    # behind the slug lock for the whole turn (see boot.inject). Compact and
+    # onboarding turns are excluded: both replace the history when the turn
+    # ends, which would silently drop anything injected into it.
+    injection_window = False
+    if reason != "kernel:compact" and not do_onboarding:
+        injection_window = inject.register_turn(pai_slug)
     reply = ""
     new_history: Optional[list[dict]] = None
-    for attempt in range(2):
-        try:
-            reply, new_history = await llm.run_turn(
-                system,
-                user,
-                history=history,
-                env=env,
-                provider=pai_spec.get("provider"),
-                model=pai_spec.get("model"),
-                set_status=_set_status,
-            )
-            break
-        except llm.TurnCancelled as c:
-            _save_history(history_path, c.messages)
-            print(f"[kernel] nudge interrupted (pai={pai_slug})", flush=True)
+    try:
+        for attempt in range(2):
             try:
-                append_log(pai_slug, "nudge interrupted by owner")
-            except ProcessNotFound:
-                pass
-            if slug and slug != pai_slug:
-                try:
-                    append_log(slug, "kernel: nudge interrupted")
-                except ProcessNotFound:
-                    pass
-            if is_ephemeral:
-                try:
-                    P.resolve(pai_slug, "cancelled")
-                except ProcessNotFound:
-                    pass
-            return
-        except Exception as e:
-            # Context-window overflow: the soft compaction never took (the
-            # model didn't call bin/compact), history grew past the provider's
-            # hard limit, and every turn now 400s. Recover kernel-side on the
-            # first attempt — archive and reset the conversation so the retry
-            # fits — without waiting on the model.
-            if attempt == 0 and _is_context_overflow(e):
-                archived = _emergency_reset_history(pai_slug, history_path)
-                history = []
-                note = (
-                    f"kernel: context overflow — archived history to "
-                    f"{archived} and reset; retrying"
+                reply, new_history = await llm.run_turn(
+                    system,
+                    user,
+                    history=history,
+                    env=env,
+                    provider=pai_spec.get("provider"),
+                    model=pai_spec.get("model"),
+                    set_status=_set_status,
                 )
-                print(f"[kernel] nudge: pai={pai_slug} {note}", flush=True)
+                break
+            except llm.TurnCancelled as c:
+                _save_history(history_path, c.messages)
+                print(f"[kernel] nudge interrupted (pai={pai_slug})", flush=True)
                 try:
-                    append_log(pai_slug, note)
+                    append_log(pai_slug, "nudge interrupted by owner")
                 except ProcessNotFound:
                     pass
-                continue
-            if attempt == 0 and _is_transient(e):
-                note = f"kernel: transient provider error, retrying once — {e!r}"
-                print(f"[kernel] nudge: pai={pai_slug} {note}", flush=True)
+                if slug and slug != pai_slug:
+                    try:
+                        append_log(slug, "kernel: nudge interrupted")
+                    except ProcessNotFound:
+                        pass
+                if is_ephemeral:
+                    try:
+                        P.resolve(pai_slug, "cancelled")
+                    except ProcessNotFound:
+                        pass
+                return
+            except Exception as e:
+                # Context-window overflow: the soft compaction never took (the
+                # model didn't call bin/compact), history grew past the provider's
+                # hard limit, and every turn now 400s. Recover kernel-side on the
+                # first attempt — archive and reset the conversation so the retry
+                # fits — without waiting on the model.
+                if attempt == 0 and _is_context_overflow(e):
+                    archived = _emergency_reset_history(pai_slug, history_path)
+                    history = []
+                    note = (
+                        f"kernel: context overflow — archived history to "
+                        f"{archived} and reset; retrying"
+                    )
+                    print(f"[kernel] nudge: pai={pai_slug} {note}", flush=True)
+                    try:
+                        append_log(pai_slug, note)
+                    except ProcessNotFound:
+                        pass
+                    continue
+                if attempt == 0 and _is_transient(e):
+                    note = f"kernel: transient provider error, retrying once — {e!r}"
+                    print(f"[kernel] nudge: pai={pai_slug} {note}", flush=True)
+                    try:
+                        append_log(pai_slug, note)
+                    except ProcessNotFound:
+                        pass
+                    await asyncio.sleep(_TRANSIENT_RETRY_DELAY)
+                    continue
+                await _handle_turn_failure(
+                    e, reason, slug, pai_pid, pai_slug, is_ephemeral
+                )
+                return
+    finally:
+        # Anything queued after the loop's final drain missed this turn —
+        # re-emit the originating events so they take the normal nudge path
+        # (or inject into this PAI's next turn) rather than vanish.
+        if injection_window:
+            for ev in inject.end_turn(pai_slug):
                 try:
-                    append_log(pai_slug, note)
-                except ProcessNotFound:
-                    pass
-                await asyncio.sleep(_TRANSIENT_RETRY_DELAY)
-                continue
-            await _handle_turn_failure(
-                e, reason, slug, pai_pid, pai_slug, is_ephemeral
-            )
-            return
+                    P.emit_event(ev)
+                except Exception as e:
+                    print(f"[kernel] inject: re-emit failed — {e!r}", flush=True)
 
     if debugger_cfg:
         try:
