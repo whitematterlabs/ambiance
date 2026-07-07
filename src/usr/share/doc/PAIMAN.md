@@ -246,16 +246,13 @@ Every PAI declared in `/etc/config.yaml` is, by definition, *persistent*
 `paidel <name> --purge` also wipes `/var/lib/instances/<name>/`
 (destructive; sacred state goes with it).
 
-### Persubs (persistent subagents)
+### Persubs — removed
 
-A `pai` bundle's `package.yaml` may declare `dependencies:` (distinct
-from primitive `deps:`) — each entry materializes a *persub*: a long-
-lived specialist child of the parent. Persubs get a `/proc/<slug>/`
-entry (with `persub: true` and `persistent: true`) but no `/run/pais/`
-entry, so they are addressable only by their parent via
-`bin/send-message`, not by the kernel router. Reconcile spawns and heals
-them. `paiman` only installs the bundle that declares them; spawning is
-the kernel's job.
+Persubs (long-lived specialist children declared via a `dependencies:`
+stanza) are no longer a concept. The model is just **subagents**,
+optionally with packages (`subagent spawn --package <name>`). Do not
+declare `dependencies:` in new bundles; residual persub machinery in
+the kernel is dead code pending excision.
 
 ## Install flow (mechanics)
 

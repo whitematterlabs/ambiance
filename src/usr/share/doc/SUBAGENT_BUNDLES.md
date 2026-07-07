@@ -90,13 +90,12 @@ ls /usr/lib/subagents/       # raw view
 ## What bundles do NOT do (today)
 
 - No version pinning. Bundles live at `/usr/lib/subagents/<name>/` flat; `/opt/<pkg>/<ver>/` is for future versioned releases.
-- No live update of running persubs when a bundle changes — the persub's spec is captured at spawn time. Stop the persub (parent shutdown) and let reconcile respawn it to pick up bundle changes.
+- No live update of running subagents when a bundle changes — the spec is captured at spawn time. Respawn the subagent to pick up bundle changes.
 
 ## See also
 
-- `PERSUBS.md` — persub lifecycle (parent ownership, `done` semantics, addressing).
-- `src/boot/config.py` — `resolve_subagent_package`, `_reconcile_persubs`.
+- `src/boot/config.py` — `resolve_subagent_package`.
 - `src/bin/paiman.py` — `init` / `list` / `show`.
-- `src/bin/subagent.py` — `spawn --persistent --package`.
+- `src/bin/subagent.py` — `spawn --package`.
 - Skill: `manage-subagent-bundles` — operator workflow for authoring/installing.
 - Skill: `manage-dependencies` — wiring a bundle into a parent's config.
