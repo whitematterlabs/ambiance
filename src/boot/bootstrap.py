@@ -78,6 +78,11 @@ quotes around prompts (`$1,200` corrupts under double quotes). Returns a pid
 immediately; the child runs async. After spawning or messaging async work, END
 your turn — never sleep-loop or poll `/proc/`; the reply arrives as a fresh
 nudge. Lifecycle/kill/bundles: `bin/subagent --help`, `SUBAGENT_BUNDLES.md`.
+For a helper you'll reuse across tasks (e.g. while overclocked), spawn with
+`--suicide-allowed no`: the child can't end itself — it replies and stays
+alive for the next instruction until YOU `bin/subagent kill` it. Default
+spawns end themselves via `done`; don't leave no-suicide children running
+past their usefulness.
 
 Delegate to a fleet PAI that owns a capability instead of doing it yourself:
 `bin/send-message --to {pid} --content '...'`. Pids + domains in <fleet>;

@@ -173,6 +173,45 @@ def _auto_finish_subagent_plain_reply(
     return True
 
 
+def _relay_no_suicide_plain_reply(
+    *,
+    pai_slug: str,
+    pai_pid: int,
+    parent_pid: int,
+    visible_reply: str,
+) -> None:
+    """Plain-text turn end from a child spawned with --suicide-allowed no.
+
+    The auto-finish fallback would resolve (kill) the child, which the flag
+    forbids — so relay the text to the parent as an intermediate
+    subagent:response instead and leave the child alive. The parent decides
+    when it dies (`bin/subagent kill`)."""
+    text = visible_reply.strip()
+    if not text:
+        return
+    try:
+        text = image_refs.absolutize_local_refs(text, stitch.home_for(pai_slug))
+    except Exception:
+        pass  # never let attach-rewriting drop the relay
+    try:
+        P.emit_event({
+            "source": "subagent",
+            "kind": "subagent:response",
+            "target_pid": parent_pid,
+            "sender_pid": pai_pid,
+            "text": text,
+        })
+        append_log(
+            pai_slug,
+            "kernel: relayed plain reply to parent (suicide_allowed: no — staying alive)",
+        )
+    except Exception as e:
+        print(
+            f"[kernel] no-suicide relay failed for {pai_slug}: {e!r}",
+            flush=True,
+        )
+
+
 _COMPACT_INSTRUCTION = (
     "Your conversation history has grown past its compaction threshold. "
     "Summarize the conversation so far for context compaction and call "
@@ -1184,12 +1223,20 @@ async def _nudge_body(
             and not already_resolved
             and _is_ad_hoc_subagent(pai_spec)
         ):
-            auto_finished = _auto_finish_subagent_plain_reply(
-                pai_slug=pai_slug,
-                pai_pid=pai_pid,
-                parent_pid=parent_pid,
-                visible_reply=visible_reply,
-            )
+            if pai_spec.get("suicide_allowed") is False:
+                _relay_no_suicide_plain_reply(
+                    pai_slug=pai_slug,
+                    pai_pid=pai_pid,
+                    parent_pid=parent_pid,
+                    visible_reply=visible_reply,
+                )
+            else:
+                auto_finished = _auto_finish_subagent_plain_reply(
+                    pai_slug=pai_slug,
+                    pai_pid=pai_pid,
+                    parent_pid=parent_pid,
+                    visible_reply=visible_reply,
+                )
         # Top-level fleet PAIs (no parent) write back to the owner's
         # me-thread so the TUI chat tab shows their replies. Persubs
         # are also owner-addressable (the user opens a tab for them

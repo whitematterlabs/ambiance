@@ -281,6 +281,11 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         spec["package"] = args.package
     if args.persistent:
         spec["persub"] = True
+    if args.suicide_allowed == "no":
+        # Only the deviation is stored; absent means the default (child may
+        # end itself). Enforced in _ensure_can_finish and by the kernel's
+        # plain-reply auto-finish fallback.
+        spec["suicide_allowed"] = False
     if args.package and bundle.get("prompt"):
         spec["prompt"] = C._resolve_subagent_bundle_path(
             args.package,
@@ -319,6 +324,16 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             f"{final_slug} (pid {child_pid}) — persistent subagent, booted idle. "
             f"Message it with `bin/send-message --to {child_pid} --content ...`; "
             f"it replies as a 'subagent response' message you'll be woken for."
+        )
+    elif args.suicide_allowed == "no":
+        print(
+            f"{final_slug} (pid {child_pid}) — running, cannot end itself "
+            f"(--suicide-allowed no). Its results arrive as 'subagent response' "
+            f"messages that wake you; end your turn and wait. It stays alive "
+            f"between tasks — steer it or hand it the next task with "
+            f"`bin/send-message --to {child_pid} --content '...'`, and when you "
+            f"are done with it, YOU must reap it: `bin/subagent kill --slug "
+            f"{final_slug}`."
         )
     else:
         print(
@@ -397,6 +412,15 @@ def _ensure_can_finish(slug: str) -> bool:
         print(
             f"error: {slug!r} is a persistent subagent and cannot finish itself; "
             f"reply with `bin/subagent reply --content ...` and wait for the parent",
+            file=sys.stderr,
+        )
+        return False
+    if own_spec.get("suicide_allowed") is False:
+        print(
+            f"error: {slug!r} was spawned with --suicide-allowed no and cannot "
+            f"finish itself. Send results with `bin/subagent reply --content ...` "
+            f"(point at files you saved under $PAI_RESULT_DIR) and end your turn; "
+            f"you stay alive for follow-up work until the parent kills you.",
             file=sys.stderr,
         )
         return False
@@ -786,6 +810,18 @@ def main(argv: list[str] | None = None) -> int:
             "name of a /usr/lib/subagents/<name>/ bundle to pull "
             "prompt/provider/model from; works for ephemeral and persistent "
             "subagents"
+        ),
+    )
+    sp.add_argument(
+        "--suicide-allowed",
+        choices=["yes", "no"],
+        default="yes",
+        help=(
+            "whether the child may end itself via `done`/`reply --done` "
+            "(default: yes). With `no` the child stays alive after finishing "
+            "a task — results arrive via `reply` — until you `subagent kill` "
+            "it. Use for long-lived helpers you keep steering (e.g. under "
+            "overclock)."
         ),
     )
     sp.set_defaults(func=cmd_spawn)
