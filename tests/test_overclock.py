@@ -80,25 +80,27 @@ def test_overclock_repeats_until_sentinel_and_strips_visible_reply() -> None:
     assert len(users) == 2
     assert "Overclock mode is active" in users[0]
     assert "overclock continue" in users[1]
-    assert busy_reasons[0].startswith("overclock: turn 1/10")
-    assert busy_reasons[1].startswith("overclock: turn 2/10")
+    assert busy_reasons[0].startswith("overclock: turn 1")
+    assert busy_reasons[1].startswith("overclock: turn 2")
     thread = _me_thread("clock")
     assert "still checking" in thread
     assert "found it" in thread
     assert N.OVERCLOCK_SENTINEL not in thread
 
 
-def test_overclock_turn_limit_posts_stop_note(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_overclock_runs_unbounded_until_sentinel() -> None:
+    # No turn cap: the loop must keep going well past the old 10-turn limit
+    # and stop only on the sentinel.
     _spawn("limit", pid=51)
-    monkeypatch.setattr(N, "OVERCLOCK_MAX_TURNS", 2, raising=True)
     calls = 0
 
     async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
         nonlocal calls
         calls += 1
-        return ("not done yet", list(history or []) + [
+        reply = "not done yet" if calls < 25 else f"done {N.OVERCLOCK_SENTINEL}"
+        return (reply, list(history or []) + [
             {"role": "user", "content": user},
-            {"role": "assistant", "content": "not done yet"},
+            {"role": "assistant", "content": reply},
         ])
 
     L, orig = _patch_run_turn(fake_run_turn)
@@ -114,9 +116,10 @@ def test_overclock_turn_limit_posts_stop_note(monkeypatch: pytest.MonkeyPatch) -
     finally:
         L.run_turn = orig  # type: ignore[assignment]
 
-    assert calls == 2
+    assert calls == 25
     thread = _me_thread("limit")
-    assert "Overclock stopped after 2 turns" in thread
+    assert "Overclock stopped" not in thread
+    assert N.OVERCLOCK_SENTINEL not in thread
 
 
 def test_overclock_cancellation_does_not_continue() -> None:

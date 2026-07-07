@@ -60,8 +60,6 @@ SKILL_CANDIDATE_TOOL_CALLS = 10
 LIBRARIAN_SLUG = "librarian"
 
 OVERCLOCK_SENTINEL = "<PAI_OVERCLOCK_COMPLETE>"
-OVERCLOCK_MAX_TURNS = 10
-OVERCLOCK_MAX_SECONDS = 60 * 60
 
 # Cooldown after a compaction attempt: don't re-trigger compaction for
 # the same PAI again within this window even if tokens still exceed the
@@ -703,21 +701,26 @@ async def _overclock_locked(
     base_context["overclock"] = True
     base_context["goal"] = goal
     try:
-        append_log(pai_slug, f"overclock started — max_turns={OVERCLOCK_MAX_TURNS}")
+        append_log(pai_slug, "overclock started — unbounded until sentinel")
     except ProcessNotFound:
         pass
 
-    for turn in range(1, OVERCLOCK_MAX_TURNS + 1):
+    # No turn or wall-clock cap: the loop runs until the PAI emits the
+    # completion sentinel or the owner interrupts (task cancellation
+    # propagates out of _nudge_locked). Compaction inside the loop keeps
+    # the context window from growing without bound.
+    turn = 0
+    while True:
+        turn += 1
         await _maybe_compact_locked(pai_pid, pai_slug)
         elapsed = int(time.monotonic() - started)
         turn_context = {
             **base_context,
             "overclock_turn": turn,
-            "overclock_max_turns": OVERCLOCK_MAX_TURNS,
             "overclock_elapsed_seconds": elapsed,
         }
         turn_reason = reason if turn == 1 else "overclock continue"
-        status_prefix = f"overclock: turn {turn}/{OVERCLOCK_MAX_TURNS}"
+        status_prefix = f"overclock: turn {turn}"
         reply = await _nudge_locked(
             turn_reason,
             slug,
@@ -737,27 +740,6 @@ async def _overclock_locked(
             except ProcessNotFound:
                 pass
             return
-        if time.monotonic() - started >= OVERCLOCK_MAX_SECONDS:
-            note = (
-                "Overclock stopped after 60 minutes without a completion signal. "
-                "Send a new Overclock goal to continue."
-            )
-            _append_to_me_thread(pai_slug, note)
-            try:
-                append_log(pai_slug, "overclock stopped at wall-clock limit")
-            except ProcessNotFound:
-                pass
-            return
-
-    note = (
-        f"Overclock stopped after {OVERCLOCK_MAX_TURNS} turns without a "
-        "completion signal. Send a new Overclock goal to continue."
-    )
-    _append_to_me_thread(pai_slug, note)
-    try:
-        append_log(pai_slug, "overclock stopped at turn limit")
-    except ProcessNotFound:
-        pass
 
 
 async def _nudge_locked(
