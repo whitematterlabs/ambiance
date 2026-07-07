@@ -10,11 +10,6 @@ something surprising, you can read the exact prompt it saw.
 
 No database. No SaaS. The filesystem *is* the data structure.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/console-dark.png">
-  <img src="docs/readme/console-light.png" alt="The PAI web console: a fleet of agents in the sidebar, a conversation with your PAI, and per-channel send permissions.">
-</picture>
-
 PAI is currently an alpha for technical users. It is useful, hackable, and
 intentionally transparent — not yet a polished consumer app or a hosted
 service.
