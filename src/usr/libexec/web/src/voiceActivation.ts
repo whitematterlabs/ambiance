@@ -38,6 +38,10 @@ export interface PhraseActivationOptions {
   // Returns true while we should ignore the mic (e.g. PAI is speaking) so the
   // wake word can't be triggered by our own TTS bleeding into the mic.
   isMuted?: () => boolean;
+  // Returns true while a follow-up window is open (the PAI just finished
+  // talking): the next final transcript is submitted as a command verbatim,
+  // no wake phrase needed. The wake phrase still works during the window.
+  inFollowUp?: () => boolean;
 }
 
 // Drives a continuous SpeechRecognition session for the lifetime of `enabled`.
@@ -92,7 +96,15 @@ export function usePhraseActivation(options: PhraseActivationOptions): void {
         const said = String(result[0]?.transcript ?? "").trim();
         if (!said) continue;
         const idx = said.toLowerCase().indexOf(needle);
-        if (idx === -1) continue;
+        if (idx === -1) {
+          // No wake phrase — but if the PAI just finished talking, treat the
+          // whole utterance as a follow-up command.
+          if (optsRef.current.inFollowUp?.()) {
+            optsRef.current.onStatus?.("voice: follow-up heard → sending");
+            optsRef.current.onCommand(said);
+          }
+          continue;
+        }
         const command = said
           .slice(idx + needle.length)
           .replace(/^[\s,.:;!?\-—]+/, "")

@@ -233,6 +233,14 @@ class Handler(BaseHTTPRequestHandler):
                 # The hub's /proc watch rebroadcasts the proc rows, so the
                 # switch reflects the real running state without a push here.
                 return self._json({"ok": True, **actions.set_voice_listener(body.get("active") is True)})
+            if path == "/api/voice-followup":
+                # Arm a wake-free follow-up window on the host-mic listener —
+                # called when the PAI's read-aloud reply finishes playing.
+                window = body.get("window_s")
+                return self._json({
+                    "ok": True,
+                    **actions.open_voice_followup(float(window) if window is not None else 12.0),
+                })
             if path == "/api/setup-remote":
                 result = actions.setup_remote()
                 return self._json({"ok": True, **result})

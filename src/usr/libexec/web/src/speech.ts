@@ -133,6 +133,10 @@ export class SpeechQueue {
   private backend: SpeechBackend;
   private items: string[] = [];
   private draining = false;
+  // Fired when the queue finishes draining (the PAI is done talking). Voice
+  // input uses this to open a wake-free follow-up window. Reassigned per
+  // render by the owner, like the backend's voiceId/speed properties.
+  onIdle: (() => void) | null = null;
 
   constructor(backend: SpeechBackend) {
     this.backend = backend;
@@ -170,5 +174,8 @@ export class SpeechQueue {
     } finally {
       this.draining = false;
     }
+    // Outside the finally so a cancelled/cleared queue still counts as idle,
+    // but only report idle when nothing new was enqueued mid-drain.
+    if (!this.items.length) this.onIdle?.();
   }
 }

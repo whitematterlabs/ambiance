@@ -51,6 +51,16 @@ export const setVoiceListener = (active: boolean) =>
     active: boolean;
   }>;
 
+// Arm a wake-free follow-up window on the host-mic listener — called when the
+// PAI's read-aloud reply finishes playing, so the owner can answer without
+// repeating the wake word. `present: false` means the voice driver isn't installed.
+export const openVoiceFollowup = () =>
+  post("/api/voice-followup", {}) as Promise<{
+    ok: boolean;
+    present: boolean;
+    armed: boolean;
+  }>;
+
 // Ask root (the privileged system PAI) to stand up mobile/remote access via an
 // ngrok tunnel. Returns root's pid so the UI can focus its tab.
 export const setupRemote = () =>

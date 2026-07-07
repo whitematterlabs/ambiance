@@ -467,6 +467,25 @@ def set_voice_listener(active: bool) -> dict:
     return {"present": True, "active": active}
 
 
+def open_voice_followup(window_s: float = 12.0) -> dict:
+    """Arm a wake-free follow-up window for the host-mic listener. The console
+    calls this the moment the PAI's read-aloud reply finishes playing, so the
+    owner can answer without repeating the wake word. Writes an epoch deadline
+    to /sys/drivers/voice/followup; voice-in opens a capture on speech onset
+    while the deadline is in the future (one-shot — the driver consumes the
+    file). Harmless no-op when the voice driver isn't installed."""
+    if not voice_listener_installed():
+        return {"present": False, "armed": False}
+    window_s = max(3.0, min(30.0, window_s))
+    base = paths.PAI_ROOT / "sys" / "drivers" / "voice"
+    base.mkdir(parents=True, exist_ok=True)
+    until = time.time() + window_s
+    tmp = base / "followup.tmp"
+    tmp.write_text(f"{until:.3f}\n")
+    tmp.rename(base / "followup")
+    return {"present": True, "armed": True, "until": until}
+
+
 def voice_listener_installed() -> bool:
     """True when the `voice` driver bundle is installed on the host — so the
     console can offer a real on/off switch even while the listener is stopped

@@ -40,6 +40,10 @@ import { ApprovalModal } from "./components/ApprovalModal";
 import { WelcomeDialog } from "./components/WelcomeDialog";
 
 const CAP = 500; // ring-buffer cap for log/activity/events
+// How long the browser-fallback phrase listener accepts a wake-free follow-up
+// after the PAI finishes talking. Mirrors the host-mic driver's server-armed
+// window (actions.open_voice_followup default).
+const FOLLOWUP_WINDOW_MS = 12_000;
 type MobileView = "chat" | "activity";
 type ClearScreen = { label: string; messageIndex: number };
 
@@ -145,6 +149,13 @@ export function App() {
   const threadsRef = useRef<Record<number, ThreadMessage[]>>({});
   const voiceEnabledRef = useRef(voiceEnabled);
   const lastSpokenLen = useRef<Record<number, number>>({});
+  // Was the last owner input spoken (wake phrase / host-mic utterance)? Gates
+  // the follow-up window: only voice-initiated exchanges re-open the mic when
+  // the PAI finishes talking — a typed chat never hot-mics the room.
+  const lastInputVoiceRef = useRef(false);
+  // Browser-fallback follow-up window deadline (epoch ms). While in the
+  // future, the next final transcript is sent without the wake phrase.
+  const followUpUntilRef = useRef(0);
   const pendingCloneSlug = useRef<string | null>(null);
   // After "Set up mobile access", focus root's tab once it appears (root may not
   // be running yet — the nudge wakes it, and applyFleet selects it when it does).
@@ -439,6 +450,9 @@ export function App() {
             const heard = (msg.text ?? "").trim();
             setVoiceHeard({ phase: "utterance", text: heard });
             voiceClearTimer.current = window.setTimeout(() => setVoiceHeard(null), 4000);
+            // A host-mic utterance means this exchange is voice-driven: when
+            // the reply finishes reading aloud, arm the follow-up window.
+            lastInputVoiceRef.current = true;
           }
           break;
         }
@@ -456,12 +470,16 @@ export function App() {
   );
 
   // --- input: message or !shell ---
-  const handleSubmit = useCallback(async (text: string, options?: { overclock?: boolean }) => {
+  const handleSubmit = useCallback(async (text: string, options?: { overclock?: boolean; viaVoice?: boolean }) => {
     const pid = activePidRef.current;
     if (pid === null) {
       setStatus("no PAI tab active");
       return;
     }
+    // Track how this exchange started: a typed send closes any pending
+    // follow-up window; a spoken one keeps the conversation hands-free.
+    lastInputVoiceRef.current = options?.viaVoice === true;
+    if (options?.viaVoice !== true) followUpUntilRef.current = 0;
     const overclock = options?.overclock === true;
     if (!overclock && text.startsWith("!")) {
       const cmd = text.slice(1).trim();
@@ -526,6 +544,23 @@ export function App() {
     }
   }, [voiceInstalled, hostListening]);
 
+  // Follow-up listening: when the PAI finishes talking (read-aloud queue
+  // drains) after a voice-initiated exchange, open a short wake-free window so
+  // the owner can answer without repeating the wake phrase. Host-mic path arms
+  // the driver via the backend; browser fallback arms a local deadline.
+  // Reassigned every render (like the backend prefs above) so it closes over
+  // fresh phrase/host state.
+  voiceQueue.current.onIdle = () => {
+    if (!lastInputVoiceRef.current) return;
+    if (localVoiceActive) {
+      void api.openVoiceFollowup().catch(() => {});
+      setStatus("voice: listening for follow-up…");
+    } else if (phraseActivation) {
+      followUpUntilRef.current = Date.now() + FOLLOWUP_WINDOW_MS;
+      setStatus("voice: listening for follow-up…");
+    }
+  };
+
   // Hands-free input (cloud/remote fallback): listen for the wake phrase in the
   // browser and send what follows. Stands down when the local host listener is
   // active (it would double-fire on the same words). Muted while PAI is
@@ -534,10 +569,12 @@ export function App() {
     enabled: phraseActivation && !localVoiceActive,
     phrase: DEFAULT_WAKE_PHRASE,
     onCommand: (text) => {
-      void handleSubmit(text);
+      followUpUntilRef.current = 0; // one utterance per window; the reply re-arms
+      void handleSubmit(text, { viaVoice: true });
     },
     onStatus: setStatus,
     isMuted: () => Boolean(voiceQueue.current?.speaking),
+    inFollowUp: () => Date.now() < followUpUntilRef.current,
   });
 
   // --- keybindings ---
