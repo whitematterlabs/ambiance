@@ -6,6 +6,47 @@ import type { VoiceEngine } from "../speech";
 import type { SendCapability, SendMode } from "../types";
 import { CAPTURE_COPY } from "../capture";
 
+// Popover open-state that closes on outside click / Escape, so each split
+// button (voice, cowork) behaves like a menu without duplicating listeners.
+function useDismissablePopover() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return { open, setOpen, ref };
+}
+
+// The chevron glyph both split buttons share.
+function Chevron() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+      <path
+        d="M1.5 3.5L5 7L8.5 3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function Header({
   connected,
   kernelRunning,
@@ -61,34 +102,21 @@ export function Header({
   // phrase activation rides the host mic (kernel-side wake + STT) regardless of
   // browser SpeechRecognition support; otherwise it falls back to the browser.
   wakePhrase: string;
-  // Mounted capture gates (cowork/notetaker) — rendered as first-class toggles
-  // next to voice; absent capabilities render nothing.
+  // Mounted capture gates (cowork/notetaker) — one split button next to voice:
+  // the pill toggles cowork, the chevron opens switches for every gate. Renders
+  // nothing when no gate is mounted.
   captureCaps: SendCapability[];
   onSetCaptureMode: (flag: string, mode: SendMode) => void;
   onShowWelcome: () => void;
   onSetupRemote: () => void;
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const voicePicker = useDismissablePopover();
+  const capturePicker = useDismissablePopover();
 
-  // Close on outside click / Escape so the popover behaves like a menu.
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPickerOpen(false);
-    };
-    document.addEventListener("mousedown", onDocMouseDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocMouseDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [pickerOpen]);
+  // The split button toggles cowork; the popover holds every capture gate.
+  const coworkCap = captureCaps.find((c) => c.flag === "cowork") ?? captureCaps[0];
+  const coworkOn = coworkCap?.mode === "yes";
+  const coworkCopy = coworkCap ? CAPTURE_COPY[coworkCap.flag] : undefined;
 
   return (
     <header className="header">
@@ -160,23 +188,60 @@ export function Header({
           <Moon size={15} aria-hidden="true" />
         )}
       </button>
-      {captureCaps.map((cap) => {
-        const copy = CAPTURE_COPY[cap.flag];
-        const name = copy?.name ?? cap.channel;
-        const on = cap.mode === "yes";
-        return (
+      {coworkCap && (
+        <div className="voice-split capture-split" ref={capturePicker.ref}>
           <button
-            key={cap.flag}
-            className="ghost-button capture-toggle"
+            className="ghost-button voice-toggle capture-toggle"
             type="button"
-            onClick={() => onSetCaptureMode(cap.flag, on ? "no" : "yes")}
-            aria-pressed={on}
-            title={on ? (copy?.onHint ?? `${name} on`) : (copy?.offHint ?? `${name} off`)}
+            onClick={() => onSetCaptureMode(coworkCap.flag, coworkOn ? "no" : "yes")}
+            aria-pressed={coworkOn}
+            title={coworkOn ? coworkCopy?.onHint : coworkCopy?.offHint}
           >
-            <span className="ghost-label">{`${name} ${on ? "on" : "off"}`}</span>
+            <span className="ghost-label">
+              {`${coworkCopy?.name ?? coworkCap.channel} ${coworkOn ? "on" : "off"}`}
+            </span>
           </button>
-        );
-      })}
+          <button
+            className="ghost-button voice-chevron"
+            type="button"
+            onClick={() => capturePicker.setOpen((v) => !v)}
+            aria-haspopup="dialog"
+            aria-expanded={capturePicker.open}
+            title="Cowork & Notes settings"
+          >
+            <Chevron />
+          </button>
+          {capturePicker.open && (
+            <div className="voice-popover" role="dialog" aria-label="Cowork & Notes">
+              <div className="voice-section">
+                <span className="voice-section-title">Modes</span>
+                {captureCaps.map((cap) => {
+                  const copy = CAPTURE_COPY[cap.flag];
+                  const on = cap.mode === "yes";
+                  return (
+                    <button
+                      key={cap.flag}
+                      type="button"
+                      className="voice-switch"
+                      role="switch"
+                      aria-checked={on}
+                      onClick={() => onSetCaptureMode(cap.flag, on ? "no" : "yes")}
+                    >
+                      <span className="voice-switch-copy">
+                        <span className="voice-switch-name">{cap.channel}</span>
+                        <span className="voice-switch-blurb">{copy?.blurb ?? ""}</span>
+                      </span>
+                      <span className="voice-switch-track" aria-hidden="true">
+                        <span className="voice-switch-thumb" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {phraseActivation && (
         // A hot mic is never implicit: whenever phrase activation is
         // listening (host driver or browser fallback), this indicator is
@@ -193,7 +258,7 @@ export function Header({
           <span className="ghost-label">Mic on</span>
         </button>
       )}
-      <div className="voice-split" ref={popoverRef}>
+      <div className="voice-split" ref={voicePicker.ref}>
         <button
           className="ghost-button voice-toggle"
           type="button"
@@ -210,29 +275,14 @@ export function Header({
         <button
           className="ghost-button voice-chevron"
           type="button"
-          onClick={() => setPickerOpen((v) => !v)}
+          onClick={() => voicePicker.setOpen((v) => !v)}
           aria-haspopup="dialog"
-          aria-expanded={pickerOpen}
+          aria-expanded={voicePicker.open}
           title="Voice settings"
         >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <path
-              d="M1.5 3.5L5 7L8.5 3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <Chevron />
         </button>
-        {pickerOpen && (
+        {voicePicker.open && (
           <div className="voice-popover" role="dialog" aria-label="Voice settings">
             <VoiceSettings
               voiceId={voiceId}

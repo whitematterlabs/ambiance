@@ -242,9 +242,7 @@ export function MobileMenu({
                     >
                       <span className="voice-switch-copy">
                         <span className="voice-switch-name">{cap.channel}</span>
-                        <span className="voice-switch-blurb">
-                          {on ? (copy?.onHint ?? "On") : (copy?.offHint ?? "Off")}
-                        </span>
+                        <span className="voice-switch-blurb">{copy?.blurb ?? ""}</span>
                       </span>
                       <span className="voice-switch-track" aria-hidden="true">
                         <span className="voice-switch-thumb" />
