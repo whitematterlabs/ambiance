@@ -45,11 +45,13 @@ export const CAPTURE_COPY: Record<
   },
 };
 
-// Copy for the header pill, which toggles all cowork facets as a group.
+// Copy for the header pill, which toggles all cowork facets as a group. The
+// pill is always labeled "Coworking" — Notes and the cowork facets live
+// together in its dropdown, so the label names the button, not one gate.
 export const COWORK_PILL = {
-  name: "Cowork",
+  name: "Coworking",
   onHint:
-    "Cowork on — click to turn all ambient capture (windows, clipboard, files) off; per-facet switches are in the dropdown",
+    "Coworking on — click to turn all ambient capture (windows, clipboard, files) off; per-facet switches are in the dropdown",
   offHint:
-    "Cowork off — click to enable window, clipboard + file capture; per-facet switches are in the dropdown",
+    "Coworking off — click to enable window, clipboard + file capture; per-facet switches are in the dropdown",
 };

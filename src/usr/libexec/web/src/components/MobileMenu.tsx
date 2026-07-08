@@ -227,7 +227,7 @@ export function MobileMenu({
 
             {captureCaps.length > 0 && (
               <section className="mobile-sheet-group">
-                <h2 className="mobile-sheet-heading">Modes</h2>
+                <h2 className="mobile-sheet-heading">Coworking</h2>
                 {captureCaps.map((cap) => {
                   const copy = CAPTURE_COPY[cap.flag];
                   const on = cap.mode === "yes";

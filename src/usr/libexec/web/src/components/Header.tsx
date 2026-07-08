@@ -115,18 +115,12 @@ export function Header({
 
   // The split button toggles the cowork facets as a group (on = any facet
   // on; a click drives them all to the same state); the popover holds the
-  // per-facet switches plus every other capture gate. When no cowork facet
-  // is mounted the pill falls back to the first gate so Notes-only fleets
-  // still get a toggle.
+  // per-facet switches plus every other capture gate (Notes included). The
+  // pill is always labeled "Coworking"; when no cowork facet is mounted it
+  // drives the first gate so Notes-only fleets still get a toggle.
   const coworkCaps = captureCaps.filter((c) => COWORK_FLAGS.has(c.flag));
   const pillCaps = coworkCaps.length > 0 ? coworkCaps : captureCaps.slice(0, 1);
   const pillOn = pillCaps.some((c) => c.mode === "yes");
-  const pillCopy =
-    coworkCaps.length > 0
-      ? COWORK_PILL
-      : pillCaps[0]
-        ? CAPTURE_COPY[pillCaps[0].flag]
-        : undefined;
   const setPillMode = (mode: SendMode) => {
     for (const cap of pillCaps) {
       if (cap.mode !== mode) onSetCaptureMode(cap.flag, mode);
@@ -210,10 +204,10 @@ export function Header({
             type="button"
             onClick={() => setPillMode(pillOn ? "no" : "yes")}
             aria-pressed={pillOn}
-            title={pillOn ? pillCopy?.onHint : pillCopy?.offHint}
+            title={pillOn ? COWORK_PILL.onHint : COWORK_PILL.offHint}
           >
             <span className="ghost-label">
-              {`${pillCopy?.name ?? pillCaps[0].channel} ${pillOn ? "on" : "off"}`}
+              {`${COWORK_PILL.name} ${pillOn ? "on" : "off"}`}
             </span>
           </button>
           <button
@@ -222,14 +216,14 @@ export function Header({
             onClick={() => capturePicker.setOpen((v) => !v)}
             aria-haspopup="dialog"
             aria-expanded={capturePicker.open}
-            title="Cowork & Notes settings"
+            title="Coworking settings"
           >
             <Chevron />
           </button>
           {capturePicker.open && (
-            <div className="voice-popover" role="dialog" aria-label="Cowork & Notes">
+            <div className="voice-popover" role="dialog" aria-label="Coworking settings">
               <div className="voice-section">
-                <span className="voice-section-title">Modes</span>
+                <span className="voice-section-title">Coworking</span>
                 {captureCaps.map((cap) => {
                   const copy = CAPTURE_COPY[cap.flag];
                   const on = cap.mode === "yes";
