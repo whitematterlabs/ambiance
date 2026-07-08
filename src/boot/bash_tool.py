@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 from pathlib import Path
 from typing import Optional
 
@@ -84,6 +85,18 @@ _DEFAULT_TIMEOUT_MS = 120_000
 _MAX_TIMEOUT_MS = 600_000
 
 
+def _kill_group(proc: asyncio.subprocess.Process, sig: int) -> None:
+    """Signal the child's whole process group; fall back to the child
+    alone if the group is already gone or not ours to signal."""
+    try:
+        os.killpg(proc.pid, sig)
+    except (ProcessLookupError, PermissionError):
+        try:
+            proc.send_signal(sig)
+        except ProcessLookupError:
+            pass
+
+
 def _build_env(extra: Optional[dict]) -> dict:
     """Build a clean env: PAI base process env + PATH prefix + TERM=dumb.
 
@@ -147,6 +160,11 @@ async def run(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
             env=proc_env,
+            # setsid: bash + every descendant share one pgroup (pgid ==
+            # bash's pid), so timeout/cancel can kill the whole tree.
+            # Signalling bash alone orphans grandchildren — and a live
+            # grandchild holds the pipes open, blocking communicate().
+            start_new_session=True,
         )
     except Exception as e:
         return ShellResult(stdout="", stderr=f"bash spawn failed: {e!r}", exit_code=-1)
@@ -155,18 +173,17 @@ async def run(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=timeout_s
         )
+    except asyncio.CancelledError:
+        # Owner interrupt: the nudge task is being cancelled with this
+        # call in flight. Reap the whole tree before unwinding.
+        _kill_group(proc, signal.SIGKILL)
+        raise
     except asyncio.TimeoutError:
-        try:
-            proc.terminate()
-        except ProcessLookupError:
-            pass
+        _kill_group(proc, signal.SIGTERM)
         try:
             stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=0.5)
         except asyncio.TimeoutError:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
+            _kill_group(proc, signal.SIGKILL)
             try:
                 stdout_b, stderr_b = await proc.communicate()
             except Exception:

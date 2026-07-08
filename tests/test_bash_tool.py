@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
+import time
 from pathlib import Path
 
 import pytest
@@ -82,6 +85,79 @@ def test_timeout_kills_cleanly(tmp_path: Path):
     res = _run(bash_tool.run({"command": "sleep 5", "timeout_ms": 200, "cwd": str(tmp_path)}))
     assert res.exit_code == -1
     assert "timed out" in res.stderr
+
+
+def _wait_for_death(probe, cleanup_sig_target) -> bool:
+    """Poll `probe` (raises ProcessLookupError once dead) for up to 3s.
+    Returns True if the target died; on survival, SIGKILLs it via
+    `cleanup_sig_target` so a failing test doesn't leak a 30s sleeper."""
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        try:
+            probe()
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    try:
+        cleanup_sig_target()
+    except ProcessLookupError:
+        pass
+    return False
+
+
+def test_timeout_kills_whole_process_tree(tmp_path: Path):
+    """Timeout must signal the process *group*, not just the bash child —
+    a `cmd & wait` grandchild used to survive the kill orphaned to PPID 1
+    (2026-07-07: an interrupted Mail.app osascript ran 15 extra minutes)."""
+    pidfile = tmp_path / "pid"
+    started = time.monotonic()
+    res = _run(
+        bash_tool.run(
+            {
+                "command": f"sleep 30 & echo $! > {pidfile}; wait",
+                "timeout_ms": 1000,
+                "cwd": str(tmp_path),
+            }
+        )
+    )
+    elapsed = time.monotonic() - started
+    assert res.exit_code == -1
+    # A surviving grandchild holds the stdout/stderr pipes open, so the
+    # pre-fix code also *blocked* here until the orphan exited (~30s).
+    assert elapsed < 5, f"timeout path blocked {elapsed:.1f}s on the orphan's pipes"
+    grandchild = int(pidfile.read_text().strip())
+    assert _wait_for_death(
+        lambda: os.kill(grandchild, 0),
+        lambda: os.kill(grandchild, signal.SIGKILL),
+    ), "grandchild survived the timeout kill"
+
+
+def test_cancel_kills_whole_process_tree(tmp_path: Path):
+    """Owner interrupt cancels the nudge task mid-tool-call; the
+    CancelledError path must reap the spawned tree instead of leaking it."""
+    pidfile = tmp_path / "pid"
+
+    async def scenario() -> int:
+        task = asyncio.create_task(
+            bash_tool.run(
+                {
+                    "command": f"sleep 30 & echo $! > {pidfile}; wait",
+                    "cwd": str(tmp_path),
+                }
+            )
+        )
+        while not (pidfile.exists() and pidfile.read_text().strip()):
+            await asyncio.sleep(0.02)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return int(pidfile.read_text().strip())
+
+    grandchild = _run(scenario())
+    assert _wait_for_death(
+        lambda: os.kill(grandchild, 0),
+        lambda: os.kill(grandchild, signal.SIGKILL),
+    ), "grandchild survived cancellation"
 
 
 def test_fhs_rewrite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
