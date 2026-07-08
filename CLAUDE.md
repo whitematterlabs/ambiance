@@ -41,7 +41,7 @@ Drivers ship as code-owned bundles, not user-editable config. There is no `/etc/
 | `/sys/drivers/<name>/` | Driver-internal runtime state (cursors, last event) | written at runtime |
 | `/proc/<slug>/` | Kernel-managed lifecycle (status, log, `active:` flag for paictl) | written at runtime |
 
-Drivers are a code-time registry in the kernel (see `DRIVER_SPECS` in `src/boot/main.py`). `paictl start/stop <slug>` flips `/proc/<slug>/spec.yaml` `active:` and emits `kernel:reload_config`; reconcile is event-driven, never polled.
+Driver specs are discovered at boot by walking every `events.yaml` under `/usr/lib/drivers/` (see `_discover_driver_specs()` in `src/boot/main.py`) — installing a new driver requires a kernel re-exec to be picked up. `paictl start/stop <slug>` flips `/proc/<slug>/spec.yaml` `active:` and emits `kernel:reload_config`; reconcile is event-driven, never polled.
 
 If something owns the on-disk shape of an external surface (messages, email, calendar, contacts), it is a **driver**. It is not kernel.
 
