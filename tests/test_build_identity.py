@@ -67,6 +67,10 @@ def test_read_kernel_stamp_missing_is_none(tmp_path: Path, monkeypatch) -> None:
         ("b17", "b25", "b25", "kernel_stale"),  # the bug we hit
         ("b25", "b17", "b25", "console_stale"),
         ("b17", "b18", "b25", "both_stale"),
+        # equal-but-behind (the post-`pai update`, pre-restart state) is NOT
+        # in sync — reporting it as such hid a dropped restart nudge forever
+        ("b17", "b17", "b25", "both_stale"),
+        ("dev", "dev", "dev", "in_sync"),
     ],
 )
 def test_classify_skew(kernel, console, current, expected) -> None:
@@ -105,6 +109,24 @@ def test_heal_in_sync_is_none() -> None:
 def test_heal_no_kernel_stamp_is_none() -> None:
     st = B.HealState()
     assert B.decide_heal(None, "b25", "b25", st, now=100.0) == "none"
+
+
+def test_heal_equal_but_behind_reboots_kernel() -> None:
+    # kernel and console both on the old build (post-update, pre-restart):
+    # reboot the kernel; its restamp then drives the console re-exec.
+    st = B.HealState()
+    assert B.decide_heal("b17", "b17", "b25", st, now=100.0) == "reboot"
+
+
+def test_heal_equal_but_behind_escalates_after_cooldown() -> None:
+    st = B.HealState(last_kernel_ver="b17", last_attempt_monotonic=100.0)
+    assert B.decide_heal("b17", "b17", "b25", st, now=200.0) == "escalate"
+
+
+def test_heal_never_reboots_toward_unknown_target() -> None:
+    # current unreadable ("dev") while a release kernel runs: no action.
+    st = B.HealState()
+    assert B.decide_heal("b17", "b25", "dev", st, now=100.0) == "none"
 
 
 # --- console self-restart policy ---------------------------------------------

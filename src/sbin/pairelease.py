@@ -208,23 +208,33 @@ def next_build_number(base: str) -> int:
     return parse_build_number(text) + 1
 
 
-def _run(cmd: list[str], *, cwd: Path) -> None:
+def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
     try:
-        subprocess.run(cmd, cwd=str(cwd), check=True)
+        subprocess.run(cmd, cwd=str(cwd), check=True, env=env)
     except FileNotFoundError as e:
         sys.exit(f"pairelease: `{cmd[0]}` not found on PATH")
     except subprocess.CalledProcessError as e:
         sys.exit(f"pairelease: command failed ({e.returncode}): {' '.join(cmd)}")
 
 
-def build_web(repo: Path) -> None:
-    """Build the web surface so its (git-ignored) dist/ can be shipped."""
+def build_web(repo: Path, version: str) -> None:
+    """Build the web surface so its (git-ignored) dist/ can be shipped.
+
+    `version` is baked into the bundle (VITE_PAI_BUILD → import.meta.env) so a
+    loaded tab can tell exactly which release its JS came from and reload
+    itself when the console server moves to a newer one. It must match the
+    opt/pai/<ver> dir name `pai update` will extract this tarball into — i.e.
+    the version.txt string."""
     web_dir = repo / WEB_DIR_REL
     if not web_dir.is_dir():
         sys.exit(f"pairelease: web dir not found: {web_dir}")
     print("==> web frontend (pnpm)")
     _run(["pnpm", "install"], cwd=web_dir)
-    _run(["pnpm", "build"], cwd=web_dir)
+    _run(
+        ["pnpm", "build"],
+        cwd=web_dir,
+        env={**os.environ, "VITE_PAI_BUILD": version},
+    )
     dist = web_dir / "dist"
     if not dist.is_dir() or not any(dist.iterdir()):
         sys.exit(f"pairelease: web build produced no dist/ at {dist}")
@@ -405,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"==> building PAI {version}")
 
     if not args.no_web:
-        build_web(repo)
+        build_web(repo, version)
 
     dist_dir = repo / "dist"
     with tempfile.TemporaryDirectory(prefix="pairelease-") as tmp:

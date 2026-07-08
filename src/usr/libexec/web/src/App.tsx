@@ -312,6 +312,31 @@ export function App() {
 
   // --- SSE stream (kernel → browser) ---
   useEffect(() => {
+    // The bundle running in this tab: stamped at release build time, or (dev /
+    // unstamped builds) inferred from the first build the server reports —
+    // the tab loaded its assets from that same server moments earlier.
+    let bundleBuild: string | null = import.meta.env.VITE_PAI_BUILD ?? null;
+    // Loaded-bundle staleness: after `pai update` the console *server*
+    // re-execs itself into the new release, but this tab keeps running the
+    // old JS forever — the skew model (kernel vs console process) never saw
+    // the tab at all, so the owner just watched a stale UI with no banner
+    // (the "pai update doesn't update the web UI" bug). When the server
+    // reports a console build different from the one this bundle came from,
+    // reload once per target build (sessionStorage-guarded so a reload that
+    // lands back on a stale server can't loop).
+    const maybeReloadForBuild = (status: BuildStatus | null | undefined) => {
+      const server = status?.console;
+      if (!server) return;
+      if (bundleBuild === null) {
+        bundleBuild = server;
+        return;
+      }
+      if (server === bundleBuild) return;
+      const key = "pai-reloaded-for";
+      if (sessionStorage.getItem(key) === server) return;
+      sessionStorage.setItem(key, server);
+      window.location.reload();
+    };
     const es = new EventSource(withTokenParam("/api/stream"));
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
@@ -337,6 +362,7 @@ export function App() {
           setDrivers(msg.drivers ?? []);
           setNotetakerRecording(msg.notetaker_recording ?? false);
           setBuild(msg.build ?? null);
+          maybeReloadForBuild(msg.build);
           // A hello is a fresh snapshot: drop any command groups from a prior
           // connection before (re)seeding from this backlog.
           commandState.current = initialCommands();
@@ -422,6 +448,7 @@ export function App() {
         }
         case "build":
           setBuild(msg.status);
+          maybeReloadForBuild(msg.status);
           break;
         case "pending_approvals": {
           // The single source of truth for the queue. Auto-present when a new

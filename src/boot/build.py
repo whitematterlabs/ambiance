@@ -136,7 +136,11 @@ def classify_skew(kernel: Optional[str], console: str, current: str) -> str:
     if kernel is None:
         return "unknown"
     if kernel == console:
-        return "in_sync"
+        # Equal is only healthy if it equals the installed target: right after
+        # `pai update` (before anything restarts) kernel and console are both
+        # on the *old* build — calling that "in_sync" hid the whole stale state
+        # behind a blank banner.
+        return "in_sync" if kernel == current else "both_stale"
     kernel_current = kernel == current
     console_current = console == current
     if console_current and not kernel_current:
@@ -200,10 +204,19 @@ def decide_heal(
 
     - Kernel behind ``current`` → reboot it (once), then wait out ``cooldown``;
       if it's *still* the same stale build after the cooldown, ``escalate`` to a
-      manual banner (the auto-reboot didn't take).
+      manual banner (the auto-reboot didn't take). This holds even when the
+      console is *equally* stale (the post-`pai update` state) — the old
+      ``kernel == console → none`` early-out meant a dropped restart nudge left
+      the whole system silently stale; rebooting the kernel restamps it, which
+      then drives the console's own re-exec.
     - Console behind ``current`` → ``warn_console``; rebooting the kernel can't
       fix a stale console, so never auto-act."""
-    if kernel is None or kernel == console:
+    if kernel is None:
+        return "none"
+    if current == "dev" and kernel != "dev":
+        # No identifiable installed target (marker/symlink unreadable, or a
+        # release process running against a dev checkout) — never reboot
+        # toward a build we can't name.
         return "none"
     if kernel != current:
         if (
@@ -214,5 +227,7 @@ def decide_heal(
                 return "none"
             return "escalate"
         return "reboot"
-    # kernel == current, but console != kernel → console is the stale one.
-    return "warn_console"
+    # kernel == current; the console is the stale side (if any).
+    if console != current:
+        return "warn_console"
+    return "none"
