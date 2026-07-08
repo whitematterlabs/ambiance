@@ -1,9 +1,10 @@
 import { useState } from "react";
-import type { EventSighting, ProcRow, SendCapability, SendMode } from "../types";
+import type { DriverHealth, EventSighting, ProcRow, SendCapability, SendMode } from "../types";
 import type { ActivityEntry } from "../activity";
 import { StatusCard } from "./StatusCard";
 import { SendPermissions } from "./SendPermissions";
 import { ActivityFeed } from "./ActivityFeed";
+import { DriversPanel } from "./DriversPanel";
 import { ProcList } from "./ProcList";
 import { EventStrip } from "./EventStrip";
 import { LogTail } from "./LogTail";
@@ -20,6 +21,7 @@ export function SidePanel({
   events,
   logLines,
   sendCaps,
+  drivers,
   onSetSendMode,
 }: {
   activeProc: ProcRow | null;
@@ -28,9 +30,15 @@ export function SidePanel({
   events: EventSighting[];
   logLines: string[];
   sendCaps: SendCapability[];
+  drivers: DriverHealth[];
   onSetSendMode: (flag: string, mode: SendMode) => void;
 }) {
   const [tab, setTab] = useState<Tab>("activity");
+  // Surface a dead/looping driver even while the Activity tab has focus — the
+  // whole point of the health panel is that silent breakage isn't silent.
+  const driversNeedAttention = drivers.some(
+    (d) => d.state === "down" || d.state === "looping",
+  );
 
   return (
     <aside className={`side-panel ${tab === "system" ? "system-open" : "activity-open"}`}>
@@ -50,6 +58,7 @@ export function SidePanel({
           onClick={() => setTab("system")}
         >
           System
+          {driversNeedAttention && <span className="segment-alert-dot" aria-label="driver needs attention" />}
         </button>
       </div>
 
@@ -64,6 +73,13 @@ export function SidePanel({
         </div>
       ) : (
         <div className="side-body system-body">
+          <div className="sys-block">
+            <div className="sys-head">
+              <span>Drivers</span>
+              <span className="sys-count">{drivers.length}</span>
+            </div>
+            <DriversPanel drivers={drivers} />
+          </div>
           <div className="sys-block">
             <div className="sys-head">
               <span>Processes</span>
