@@ -858,6 +858,17 @@ def cmd_remove(args: argparse.Namespace) -> int:
     shutil.rmtree(bundle_dir)
     _audit_log(f"remove {kind} {name}")
     print(f"removed {kind} {name}")
+    # Mirror the install-side reload: a removed driver's kernel task must
+    # stop now (reconcile drops specs whose manifest is gone), and removed
+    # skills/prompts must vanish from running PAIs' stitched homes.
+    if kind in ("skill", "prompt", "driver"):
+        try:
+            from boot import processes as _processes
+            _processes.emit_event({"kind": "kernel:reload_config", "source": "paiman",
+                                   "action": "remove", "name": name})
+        except Exception as e:
+            print(f"paiman: warning — could not emit kernel:reload_config: {e}",
+                  file=sys.stderr)
     return 0
 
 
