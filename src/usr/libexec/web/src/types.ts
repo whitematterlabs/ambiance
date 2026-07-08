@@ -91,7 +91,7 @@ export interface BuildStatus {
 }
 
 export type ServerMessage =
-  | { type: "hello"; provider: string; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
+  | { type: "hello"; provider: string; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
   | { type: "build"; status: BuildStatus }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
@@ -106,4 +106,5 @@ export type ServerMessage =
   // The owner approval queue changed — full pending list, single source of truth.
   | { type: "pending_approvals"; approvals: PendingApproval[] }
   // Send permissions changed (toggle or hand-edit) — full list per channel.
-  | { type: "send_capabilities"; capabilities: SendCapability[] };
+  | { type: "send_capabilities"; capabilities: SendCapability[] }
+  | { type: "notetaker_recording"; recording: boolean };

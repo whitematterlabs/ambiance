@@ -2057,6 +2057,24 @@ button {
   animation: fade-in 0.3s var(--ease) both;
 }
 
+/* Notetaker live-recording indicator: always visible while the driver holds
+   its recording marker — PAI never records silently. */
+.status-bar .recording-pill {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #c62828;
+  animation: recording-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes recording-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 .composer {
   display: flex;
   flex-direction: column;

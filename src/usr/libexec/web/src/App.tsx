@@ -77,6 +77,7 @@ export function App() {
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [sendCaps, setSendCaps] = useState<SendCapability[]>([]);
+  const [notetakerRecording, setNotetakerRecording] = useState(false);
   // Last seen pending count, so the SSE handler can auto-present the modal only
   // when a *new* proposal arrives (count grew), not on every rebroadcast.
   const approvalsCountRef = useRef(0);
@@ -330,6 +331,7 @@ export function App() {
             approvalsCountRef.current = pending.length;
           }
           setSendCaps(msg.send_capabilities ?? []);
+          setNotetakerRecording(msg.notetaker_recording ?? false);
           setBuild(msg.build ?? null);
           // A hello is a fresh snapshot: drop any command groups from a prior
           // connection before (re)seeding from this backlog.
@@ -435,6 +437,9 @@ export function App() {
           // Full per-channel list, single source of truth — reconciles any
           // optimistic toggle and reflects hand-edits to config.yaml.
           setSendCaps(msg.capabilities);
+          break;
+        case "notetaker_recording":
+          setNotetakerRecording(msg.recording);
           break;
         case "voice": {
           // Host-mic listener fired. "listening" = wake word landed (no text
@@ -1032,7 +1037,7 @@ export function App() {
               busy={activeProc?.busy ?? null}
               clearMarker={clearScreen?.label ?? null}
             />
-            <StatusBar text={status} />
+            <StatusBar text={status} recording={notetakerRecording} />
             <MessageInput
               disabled={activePid === null}
               onSubmit={handleSubmit}

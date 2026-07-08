@@ -312,6 +312,7 @@ class Hub:
         self._fleet: list[dict] = []
         self._pending_approvals: list[dict] = []
         self._send_caps: list[dict] = []
+        self._notetaker_recording = False
         self._log_offset = 0
         # Build-skew detection: this console's build is fixed for its lifetime;
         # the kernel's is read from its boot stamp. _heal holds the auto-reboot
@@ -354,6 +355,7 @@ class Hub:
                 "procs": list(self._procs),
                 "pending_approvals": list(self._pending_approvals),
                 "send_capabilities": list(self._send_caps),
+                "notetaker_recording": self._notetaker_recording,
                 "build": dict(self._build_status),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
                 # The live tail only streams *new* lines (starts at EOF), so a
@@ -416,6 +418,17 @@ class Hub:
         self._workers.append(caps_worker)
         self._watch(etc_dir, lambda _p: caps_worker.poke(), recursive=False)
         self._recompute_send_caps(broadcast=False)
+
+        # Notetaker recording indicator: the driver holds a `recording` marker
+        # file while a call is being captured; the console must show it (PAI
+        # never records silently).
+        notetaker_dir = paths.PAI_ROOT / "sys" / "drivers" / "notetaker"
+        notetaker_dir.mkdir(parents=True, exist_ok=True)
+        rec_worker = _Debounced(lambda: self._recompute_notetaker(broadcast=True))
+        rec_worker.start()
+        self._workers.append(rec_worker)
+        self._watch(notetaker_dir, lambda _p: rec_worker.poke(), recursive=False)
+        self._recompute_notetaker(broadcast=False)
 
         # Build-skew: recompute when the kernel restamps its build (reboot) or
         # when `pai update` moves the installed release (`.release` marker).
@@ -509,6 +522,16 @@ class Hub:
         self._send_caps = caps
         if broadcast:
             self._broadcast({"type": "send_capabilities", "capabilities": caps})
+
+    def _recompute_notetaker(self, broadcast: bool) -> None:
+        recording = (
+            paths.PAI_ROOT / "sys" / "drivers" / "notetaker" / "recording"
+        ).exists()
+        if recording == self._notetaker_recording:
+            return
+        self._notetaker_recording = recording
+        if broadcast:
+            self._broadcast({"type": "notetaker_recording", "recording": recording})
 
     def _recompute_build(self, broadcast: bool) -> None:
         """Classify kernel-vs-console build skew and auto-heal a stale kernel.
