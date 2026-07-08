@@ -299,7 +299,7 @@ class _Debounced:
 class Hub:
     """Owns the observers and fans state out to subscribers as dict messages.
 
-    Subscribers receive: hello (once), procs, fleet, thread, event, log, provider.
+    Subscribers receive: hello (once), procs, fleet, thread, event, log.
     """
 
     def __init__(self):
@@ -346,12 +346,11 @@ class Hub:
         for s in subs:
             s.send(msg)
 
-    def snapshot(self, provider: str) -> dict:
+    def snapshot(self) -> dict:
         """Full initial state for a freshly connected client."""
         with self._lock:
             return {
                 "type": "hello",
-                "provider": provider,
                 "voice_installed": _voice_installed(),
                 "fleet": list(self._fleet),
                 "procs": list(self._procs),

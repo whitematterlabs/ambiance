@@ -69,10 +69,12 @@ match it feature-for-feature.
 - `Ctrl+Tab` / `Ctrl+Shift+Tab` → next / prev tab (`action_next_tab/prev_tab`).
 - `Ctrl+1..9` → select tab N (`action_select_tab`).
 
-### 7. Provider switching (command palette)
-- Command palette entries `Provider: Anthropic` / `Provider: Deepseek`, with
-  help text `active` / `switch on next turn`. Writes
-  `memory/myself/provider.yaml`. Source: `ProviderCommands`, `set_provider`.
+### 7. Provider switching (model picker)
+- Per-PAI model picker: catalog rows + per-provider API-key status come from
+  `GET /api/models` (optionally scoped `?pai=<slug>` for the current
+  selection); picking a row writes that PAI's `provider`/`model` into
+  `/etc/config.yaml` and reloads via `POST /api/models`. Source:
+  `actions.models_state`, `actions.set_pai_model`.
 
 ### 8. Running procs list
 - Table columns: `slug, pid, type, parent, ctx, when`. Source: `ProcList`.

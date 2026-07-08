@@ -88,6 +88,6 @@ def test_snapshot_includes_build_status(monkeypatch) -> None:
     monkeypatch.setattr(actions, "reboot_kernel", lambda: {"running": True})
     h = _hub(monkeypatch, console="b25", kernel="b25", current="b25")
     h._recompute_build(broadcast=False)
-    snap = h.snapshot(provider="anthropic")
+    snap = h.snapshot()
     assert snap["build"]["state"] == "in_sync"
     assert snap["build"]["kernel"] == "b25"

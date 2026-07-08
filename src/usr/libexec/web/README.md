@@ -73,13 +73,15 @@ cd src/usr/libexec/web && pnpm dev         # UI on :5173, proxies /api → :8787
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/stream` | SSE: `hello`, `procs`, `fleet`, `thread`, `event`, `log`, `provider` |
+| GET | `/api/stream` | SSE: `hello`, `procs`, `fleet`, `thread`, `event`, `log` |
 | GET | `/api/state` | One-shot snapshot (same payload as `hello`) |
 | GET | `/api/kernel` | Kernel lifecycle status `{running, pid}` |
 | POST | `/api/message` | `{pid, text}` → append day-file line + emit `new_message` |
 | POST | `/api/interrupt` | `{pid}` → emit `interrupt` event |
 | POST | `/api/shell` | `{pid, cmd}` → run `!cmd`, returns `{lines, rc, ctx_applied}` |
-| POST | `/api/provider` | `{key}` → write `provider.yaml` |
+| GET  | `/api/models` | catalog + key status (+ `?pai=` current selection) |
+| POST | `/api/models` | `{pai, provider, model}` → rewrite that PAI's config.yaml entry + reload |
+| POST | `/api/apikey` | `{provider, key}` → store key in `$PAI_ROOT/.env` + reload |
 | POST | `/api/kernel` | `{action: "start" \| "stop"}` → start/stop the kernel |
 | POST | `/api/tts` | `{text}` → server-side TTS proxy; uses ElevenLabs with `ELEVENLABS_API_KEY`, otherwise macOS `say` |
 | POST | `/api/stt` | `multipart/form-data` with `audio` → server-side STT proxy; requires `OPENAI_API_KEY` |

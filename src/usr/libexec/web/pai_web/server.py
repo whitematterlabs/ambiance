@@ -209,7 +209,11 @@ class Handler(BaseHTTPRequestHandler):
             # live path; this is the poke-it-with-curl view of the same rows.
             return self._json({"ok": True, "drivers": driver_health.read_rows()})
         if path == "/api/state":
-            return self._json(HUB.snapshot(actions.read_provider()))
+            return self._json(HUB.snapshot())
+        if path == "/api/models":
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            vals = urllib.parse.parse_qs(query).get("pai")
+            return self._json({"ok": True, **actions.models_state(vals[0] if vals else None)})
         if path == "/api/asset":
             return self._asset()
         if path == "/api/elevenlabs-key":
@@ -281,10 +285,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))
                 return self._json({"ok": True, **result})
-            if path == "/api/provider":
-                key = actions.write_provider(str(body["key"]))
-                HUB._broadcast({"type": "provider", "provider": key})
-                return self._json({"ok": True, "provider": key})
+            if path == "/api/models":
+                result = actions.set_pai_model(
+                    str(body["pai"]), str(body["provider"]), str(body["model"])
+                )
+                return self._json({"ok": True, **result})
+            if path == "/api/apikey":
+                result = actions.set_api_key(str(body["provider"]), str(body["key"]))
+                return self._json({"ok": True, **result})
             if path == "/api/kernel":
                 action = str(body["action"])
                 if action == "start":
@@ -410,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
-            self._sse_send(HUB.snapshot(actions.read_provider()))
+            self._sse_send(HUB.snapshot())
             while True:
                 msg = sub.get(timeout=15)
                 if msg is None:

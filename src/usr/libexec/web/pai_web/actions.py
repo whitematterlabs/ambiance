@@ -35,12 +35,9 @@ from boot.nudge import apply_pending_history_action
 from boot.processes import emit_event
 from boot import stitch
 
-from sbin.tui.state import HOME_DIR, today_file
+from sbin.tui.state import today_file
 
 
-PROVIDER_CONFIG_PATH = HOME_DIR / "memory" / "myself" / "provider.yaml"
-PROVIDER_OPTIONS = [("Anthropic", "anthropic"), ("Deepseek", "deepseek"), ("OpenAI", "openai"), ("GLM (z.ai)", "zai")]
-_VALID_PROVIDERS = {k for _, k in PROVIDER_OPTIONS}
 _KERNEL_LOCK_FILE = PAI_ROOT / "run" / "kernel.pid"
 
 
@@ -71,23 +68,6 @@ def _kernel_env() -> dict[str, str]:
         python_roots.append(current_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(python_roots)
     return env
-
-
-def read_provider() -> str:
-    try:
-        data = yaml.safe_load(PROVIDER_CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    except FileNotFoundError:
-        return "anthropic"
-    key = data.get("provider") if isinstance(data, dict) else None
-    return key if key in _VALID_PROVIDERS else "anthropic"
-
-
-def write_provider(key: str) -> str:
-    if key not in _VALID_PROVIDERS:
-        raise ValueError(f"unknown provider: {key}")
-    PROVIDER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PROVIDER_CONFIG_PATH.write_text(f"provider: {key}\n", encoding="utf-8")
-    return key
 
 
 def kernel_status() -> dict:
@@ -373,6 +353,65 @@ def _write_env_var(var: str, value: str) -> None:
     except OSError:
         pass
     os.environ[var] = value
+
+
+# Serializes config.yaml read-modify-write against concurrent POSTs — the web
+# server is threaded and two rapid switches would otherwise lose an update.
+_config_write_lock = threading.Lock()
+
+
+def models_state(pai: str | None) -> dict:
+    """Catalog rows + per-provider key status + one PAI's current selection.
+
+    `current` reads /etc/config.yaml — the file POST /api/models edits — so a
+    re-fetch right after a switch is never stale, resolving absent
+    provider/model to the same defaults reconcile applies.
+    """
+    from boot import config as bconfig
+
+    providers = {
+        key: {
+            "key_status": "found" if _dotenv_lookup(spec.api_key_env) else "missing",
+            "api_key_env": spec.api_key_env,
+            "default_model": spec.default_model,
+        }
+        for key, spec in llm.PROVIDERS.items()
+    }
+    rows = [
+        {
+            "provider": e.provider,
+            "model": e.model,
+            "label": e.label,
+            "tag": e.tag,
+            "key_status": providers[e.provider]["key_status"],
+        }
+        for e in llm.CATALOG
+    ]
+    current = None
+    if pai:
+        entry = bconfig.load_config().get(pai)
+        if entry is not None:
+            provider = entry.get("provider") or llm.DEFAULT_PROVIDER
+            model = entry.get("model") or llm.PROVIDERS[provider].default_model
+            current = {"pai": pai, "provider": provider, "model": model}
+    return {"rows": rows, "providers": providers, "current": current}
+
+
+def set_pai_model(name: str, provider: str, model: str) -> dict:
+    """Switch one PAI's provider/model in config.yaml and reload the kernel."""
+    from boot import config as bconfig
+
+    with _config_write_lock:
+        out = bconfig.set_pai_model(name, provider, model)
+    emit_event({
+        "kind": "kernel:reload_config",
+        "source": "web",
+        "action": "set-model",
+        "name": name,
+        "provider": provider,
+        "model": model,
+    })
+    return out
 
 
 def set_api_key(provider: str, key: str) -> dict:
