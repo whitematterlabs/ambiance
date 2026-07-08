@@ -250,9 +250,9 @@ Every PAI declared in `/etc/config.yaml` is, by definition, *persistent*
 
 Persubs (long-lived specialist children declared via a `dependencies:`
 stanza) are no longer a concept. The model is just **subagents**,
-optionally with packages (`subagent spawn --package <name>`). Do not
-declare `dependencies:` in new bundles; residual persub machinery in
-the kernel is dead code pending excision.
+optionally with packages (`subagent spawn --package <name>`). The
+`dependencies:` config key and the kernel's persub machinery have been
+removed; do not declare `dependencies:` in bundles.
 
 ## Install flow (mechanics)
 

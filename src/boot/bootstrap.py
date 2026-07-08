@@ -272,14 +272,13 @@ def _runtime_status_safe(slug: str) -> str:
 
 
 def _render_runtime(self_pid: int) -> str:
-    """Walk /proc and emit a three-section listing of running fleet:
-    PAIs, Persubs, Drivers. Each row is `name  active  status  description`.
+    """Walk /proc and emit a two-section listing of running fleet:
+    PAIs, Drivers. Each row is `name  active  status  description`.
     Mirrors paictl ls's shape with simple two-space separators."""
     if not PROC_DIR.exists():
         return ""
 
     pai_rows: list[tuple[str, str, str, str, str]] = []
-    persub_rows: list[tuple[str, str, str, str, str]] = []
     driver_rows: list[tuple[str, str, str, str, str]] = []
 
     for child in sorted(PROC_DIR.iterdir()):
@@ -303,15 +302,10 @@ def _render_runtime(self_pid: int) -> str:
         elif kind == "pai":
             pid = spec.get("pid")
             pid_str = str(pid) if pid is not None else "-"
-            if spec.get("persub"):
-                parent = spec.get("parent", "")
-                d = desc or (f"persub of {parent}" if parent else "persub")
-                persub_rows.append((slug, pid_str, active, status, d))
-            else:
-                marker = "  (you)" if pid == self_pid else ""
-                pai_rows.append((slug, pid_str, active, status, desc + marker))
+            marker = "  (you)" if pid == self_pid else ""
+            pai_rows.append((slug, pid_str, active, status, desc + marker))
 
-    if not (pai_rows or persub_rows or driver_rows):
+    if not (pai_rows or driver_rows):
         return ""
 
     out: list[str] = []
@@ -327,25 +321,8 @@ def _render_runtime(self_pid: int) -> str:
             out.append(f"{name}  {pid}  {active}  {status}  {desc}")
 
     _emit("PAIs:", pai_rows)
-    _emit("Persubs:", persub_rows)
     _emit("Drivers:", driver_rows)
     return "\n".join(out)
-
-
-def _render_my_persubs(self_pid: int) -> str:
-    """List this PAI's own persistent-subagent children, if any. Empty
-    string if it has none."""
-    rows: list[str] = []
-    for slug, spec in processes._iter_pai_specs():
-        if spec.get("parent") != self_pid:
-            continue
-        if not spec.get("persub"):
-            continue
-        pid = spec.get("pid")
-        pid_str = f"pid {pid}  " if pid is not None else ""
-        desc = str(spec.get("description", "") or "")
-        rows.append(f"{pid_str}{slug}: {desc}" if desc else f"{pid_str}{slug}")
-    return "\n".join(sorted(rows))
 
 
 def _pai_line(pai: int, parent: Optional[int]) -> str:
@@ -465,9 +442,8 @@ def _owner_profile_block(home: Path) -> str:
     return f"<owner-profile>\n{body}\n</owner-profile>\n\n"
 
 
-def _subagent_block(parent: int, persub: bool) -> str:
-    tmpl_name = "subagent-persistent.md" if persub else "subagent.md"
-    tmpl = _read_or_empty(PAI_ROOT / "usr/share/prompts" / tmpl_name)
+def _subagent_block(parent: int) -> str:
+    tmpl = _read_or_empty(PAI_ROOT / "usr/share/prompts" / "subagent.md")
     if not tmpl:
         return ""
     return f"<subagent-mode>\n{tmpl.format(parent=parent)}</subagent-mode>\n\n"
@@ -507,10 +483,9 @@ def _common_listings(bins: str, skills: str, system_skills: str) -> str:
 
 def _fleet_extras(pai: int, home: Path) -> str:
     """Blocks every fleetPAI (root and non-root) gets but subagents don't:
-    system-subagents, runtime, my-persubs, fhs-reference."""
+    system-subagents, runtime, fhs-reference."""
     system_subagents = _list_system_subagents(usr_lib_subagents())
     runtime = _render_runtime(pai)
-    my_persubs = _render_my_persubs(pai)
     fhs_reference = _render_fhs_reference(home)
 
     out = ""
@@ -526,12 +501,6 @@ def _fleet_extras(pai: int, home: Path) -> str:
         out += (
             f"<runtime>\nRunning fleet right now (live snapshot of /proc):\n"
             f"{runtime}\n</runtime>\n\n"
-        )
-    if my_persubs:
-        out += (
-            f"<my-persubs>\nPersistent subagents you own (parent: {pai}). "
-            f"Talk to them via `bin/send-message --to <pid> --content '...'`.\n"
-            f"{my_persubs}\n</my-persubs>\n\n"
         )
     out += f"<fhs-reference>\n{fhs_reference}\n</fhs-reference>\n\n"
     return out
@@ -765,7 +734,6 @@ def _runtime_blocks(
     pai: int,
     parent: Optional[int],
     home: Path,
-    persub: bool,
 ) -> str:
     """The kernel-computed half of the prompt: pai-instance line, fleet,
     bin/skills/system-skills listings, and (fleet-only) the runtime extras.
@@ -783,7 +751,7 @@ def _runtime_blocks(
     if parent is None:
         out += _fleet_extras(pai, home)
     else:
-        out += _subagent_block(parent, persub)
+        out += _subagent_block(parent)
     return out
 
 
@@ -794,7 +762,6 @@ def build_system_prompt(
     prompt_path: Optional[str] = None,
     boilerplate: Optional[list[str]] = None,
     home_dir: Optional[str] = None,
-    persub: bool = False,
     identity_dir: Optional[str] = None,
 ) -> str:
     """Assemble the system prompt from three layers: custom prose (from
@@ -811,7 +778,7 @@ def build_system_prompt(
         + _capabilities_block(pai)
         + _memory_index_block(home)
         + _owner_profile_block(home)
-        + _runtime_blocks(pai, parent, home, persub)
+        + _runtime_blocks(pai, parent, home)
         + "~ $ "
     )
 

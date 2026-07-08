@@ -212,7 +212,7 @@ def test_subagent_package_deps_mount_prefixed_driver(fhs: Path) -> None:
         slug="pai.computer-use",
         description="macOS UI operator",
         parent=2,
-        extra={"persistent": True, "persub": True, "package": "computer-use"},
+        extra={"persistent": True, "package": "computer-use"},
     )
 
     assert stitch.mounted_drivers_for("pai.computer-use") == {"email"}

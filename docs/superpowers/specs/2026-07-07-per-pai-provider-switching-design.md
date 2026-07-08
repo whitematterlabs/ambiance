@@ -101,10 +101,11 @@ Three endpoints (all under the existing `/api/*` auth gate):
 `provider` field in `hub.snapshot()` and the `provider` SSE broadcast, and the
 `provider.yaml` file's role. `HUB.snapshot()` loses its argument.
 
-**Note on dependents:** dependency persubs inherit the parent's provider unless
-they pin their own (`config._reconcile_persubs` chain) — switching a PAI also
-switches its unpinned persubs. That is the intended semantic; the dialog does
-not surface it.
+**Note on dependents:** subagents inherit the spawning PAI's provider/model
+unless a `--model` or bundle pin overrides it (`subagent._inherited_model`
+cascade) — switching a PAI also switches what its future subagents inherit.
+That is the intended semantic; the dialog does not surface it. (Persubs and
+the `dependencies:` config key were removed 2026-07-07.)
 
 ### 4. Frontend (`src/usr/libexec/web`)
 

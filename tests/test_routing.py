@@ -312,45 +312,6 @@ def test_parent_prompt_hides_bin_that_collides_with_system_subagent(
     )
 
 
-def test_parent_prompt_lists_persub_pid(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "pai"
-    home = root / "home" / "pai"
-    home.mkdir(parents=True)
-    (root / "proc").mkdir(parents=True)
-    (root / "usr" / "lib" / "skills").mkdir(parents=True)
-    (root / "usr" / "lib" / "subagents").mkdir(parents=True)
-
-    monkeypatch.setattr(paths, "PAI_ROOT", root, raising=True)
-    monkeypatch.setattr(P, "PROC_DIR", root / "proc", raising=True)
-    monkeypatch.setattr(P, "HOME_DIR", home, raising=True)
-    monkeypatch.setattr(bootstrap, "PAI_ROOT", root, raising=True)
-    monkeypatch.setattr(bootstrap, "REPO_ROOT", root, raising=True)
-    monkeypatch.setattr(bootstrap, "PROC_DIR", root / "proc", raising=True)
-
-    P.spawn_pai(pid=2, slug="pai", description="parent")
-    P.spawn_pai(
-        pid=5,
-        slug="pai.computer-use",
-        description="local macOS computer-use operator for app automation",
-        parent=2,
-        extra={"persistent": True, "persub": True},
-    )
-
-    out = bootstrap.build_system_prompt(
-        pai=2,
-        parent=None,
-        home_dir=str(home),
-        boilerplate=[],
-    )
-
-    assert (
-        "pid 5  pai.computer-use: local macOS computer-use operator for app automation"
-        in _block(out, "my-persubs")
-    )
-
-
 def test_fleet_prompt_uses_compact_fhs_reference(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

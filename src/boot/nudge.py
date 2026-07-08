@@ -86,7 +86,6 @@ def _is_ad_hoc_subagent(spec: dict) -> bool:
     return (
         spec.get("kind") == "pai"
         and spec.get("parent") is not None
-        and not spec.get("persub")
         and "run" not in spec
         and "schedule" not in spec
     )
@@ -972,7 +971,6 @@ async def _nudge_body(
         prompt_path=pai_spec.get("prompt"),
         boilerplate=pai_spec.get("boilerplate"),
         home_dir=str(home),
-        persub=bool(pai_spec.get("persub")),
         identity_dir=str(paths_mod.var_lib_instance(pai_slug) / "prompt"),
     )
     sender = f"{from_kind}:{from_}" if from_ is not None else None
@@ -1238,12 +1236,10 @@ async def _nudge_body(
                     visible_reply=visible_reply,
                 )
         # Top-level fleet PAIs (no parent) write back to the owner's
-        # me-thread so the TUI chat tab shows their replies. Persubs
-        # are also owner-addressable (the user opens a tab for them
-        # in the TUI), so their replies belong in the me-thread too.
-        # Plain ephemeral subagents talk to their parent via
-        # subagent:response, not the me-thread, so they're excluded.
-        elif visible_reply and (not parent_str or pai_spec.get("persub")):
+        # me-thread so the console chat tab shows their replies.
+        # Subagents talk to their parent via subagent:response, not
+        # the me-thread, so they're excluded.
+        elif visible_reply and not parent_str:
             _append_to_me_thread(pai_slug, visible_reply)
     print("[kernel] nudge complete", flush=True)
     try:
