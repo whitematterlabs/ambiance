@@ -2,6 +2,7 @@
 // handled through the web backend's explicit control endpoint.
 
 import { authHeaders, notifyUnauthorized } from "./auth";
+import type { ModelsState } from "./types";
 
 async function post(path: string, body: unknown): Promise<any> {
   const res = await fetch(path, {
@@ -116,7 +117,15 @@ export const approve = (id: string, body?: string) =>
 export const reject = (id: string, reason: string) =>
   post("/api/reject", { id, reason }) as Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
 
-export const setProvider = (key: string) => post("/api/provider", { key });
+// Model picker: catalog + key status (GET), per-PAI switch (POST), key entry.
+export const getModels = (pai: string | null) =>
+  get(`/api/models${pai ? `?pai=${encodeURIComponent(pai)}` : ""}`) as Promise<
+    ModelsState & { ok: boolean }
+  >;
+export const setModel = (pai: string, provider: string, model: string) =>
+  post("/api/models", { pai, provider, model });
+export const setApiKey = (provider: string, key: string) =>
+  post("/api/apikey", { provider, key });
 
 // Set a send channel's tri-state mode (no/ask/yes). The backend rewrites
 // capabilities in config.yaml and reloads the kernel; the hub then rebroadcasts

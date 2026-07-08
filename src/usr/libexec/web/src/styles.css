@@ -4341,3 +4341,44 @@ html[data-theme="dark"] .build-banner--warn {
     color: #f0cf88;
   }
 }
+
+/* Model picker (evolves the old palette shell) */
+.picker-title {
+  padding: 10px 14px 0;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.picker-current {
+  font-weight: 400;
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-tag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.model-active { color: var(--ok, #3a9d5d); }
+.model-need-key { opacity: 0.55; font-style: italic; }
+.model-error { color: var(--warn, #b3564d); }
+.model-key-form {
+  display: flex;
+  gap: 6px;
+  padding: 4px 10px 8px;
+}
+.model-key-form .palette-input { flex: 1; }
+.model-button {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

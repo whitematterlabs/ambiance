@@ -113,14 +113,13 @@ export interface BuildStatus {
 }
 
 export type ServerMessage =
-  | { type: "hello"; provider: string; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
+  | { type: "hello"; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
   | { type: "build"; status: BuildStatus }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
   | { type: "thread"; pid: number; messages: ThreadMessage[] }
   | { type: "event"; at: string; source: string; kind: string; target: string; pai?: string; consumed: boolean }
   | { type: "log"; line: string }
-  | { type: "provider"; provider: string }
   // Host-mic voice activity forwarded from the kernel: "listening" the instant
   // the wake word fires (no text yet), "utterance" once the phrase is
   // transcribed (the kernel already routed it to the PAI — this is display-only).
@@ -133,3 +132,20 @@ export type ServerMessage =
   // source of truth, change-gated by the hub.
   | { type: "drivers"; drivers: DriverHealth[] }
   | { type: "notetaker_recording"; recording: boolean };
+
+export interface ModelRow {
+  provider: string;
+  model: string;
+  label: string;
+  tag: string | null;
+  key_status: "found" | "missing";
+}
+
+export interface ModelsState {
+  rows: ModelRow[];
+  providers: Record<
+    string,
+    { key_status: "found" | "missing"; api_key_env: string; default_model: string }
+  >;
+  current: { pai: string; provider: string; model: string } | null;
+}

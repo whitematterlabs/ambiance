@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   BuildStatus,
   DriverHealth,
   EventSighting,
   FleetMember,
   KernelStatus,
+  ModelsState,
   PendingApproval,
   ProcRow,
   SendCapability,
@@ -35,7 +36,7 @@ import { ChatPane } from "./components/ChatPane";
 import { StatusBar } from "./components/StatusBar";
 import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
-import { CommandPalette } from "./components/CommandPalette";
+import { ModelPicker } from "./components/ModelPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { BuildBanner } from "./components/BuildBanner";
 import { ApprovalModal } from "./components/ApprovalModal";
@@ -56,7 +57,6 @@ function cap<T>(arr: T[], extra: T[]): T[] {
 
 export function App() {
   const [connected, setConnected] = useState(false);
-  const [provider, setProvider] = useState("anthropic");
   const [fleet, setFleet] = useState<FleetMember[]>([]);
   const [activePid, setActivePid] = useState<number | null>(null);
   const [procs, setProcs] = useState<ProcRow[]>([]);
@@ -81,10 +81,11 @@ export function App() {
   const [sendCaps, setSendCaps] = useState<SendCapability[]>([]);
   const [drivers, setDrivers] = useState<DriverHealth[]>([]);
   const [notetakerRecording, setNotetakerRecording] = useState(false);
+  const [models, setModels] = useState<ModelsState | null>(null);
   // Last seen pending count, so the SSE handler can auto-present the modal only
   // when a *new* proposal arrives (count grew), not on every rebroadcast.
   const approvalsCountRef = useRef(0);
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Show the welcome/capability tour automatically on the very first boot,
   // then never again unless the owner re-opens it via the header "?" button.
   const [welcomeOpen, setWelcomeOpen] = useState(
@@ -318,7 +319,6 @@ export function App() {
       const msg: ServerMessage = JSON.parse(e.data);
       switch (msg.type) {
         case "hello": {
-          setProvider(msg.provider);
           setVoiceInstalled(msg.voice_installed === true);
           setProcs(msg.procs);
           const t: Record<number, ThreadMessage[]> = {};
@@ -422,9 +422,6 @@ export function App() {
         }
         case "build":
           setBuild(msg.status);
-          break;
-        case "provider":
-          setProvider(msg.provider);
           break;
         case "pending_approvals": {
           // The single source of truth for the queue. Auto-present when a new
@@ -591,6 +588,26 @@ export function App() {
     inFollowUp: () => Date.now() < followUpUntilRef.current,
   });
 
+  const activeMember = activePid !== null ? fleet.find((m) => m.pid === activePid) ?? null : null;
+  const activeSlug = activeMember?.slug ?? null;
+  const refreshModels = useCallback(() => {
+    if (!activeSlug) {
+      setModels(null);
+      return;
+    }
+    api.getModels(activeSlug).then(setModels).catch(() => setModels(null));
+  }, [activeSlug]);
+  useEffect(refreshModels, [refreshModels]);
+
+  const currentModelLabel = useMemo(() => {
+    const cur = models?.current;
+    if (!cur) return "Model";
+    const row = models?.rows.find(
+      (r) => r.provider === cur.provider && r.model === cur.model,
+    );
+    return row?.label ?? cur.model;
+  }, [models]);
+
   // --- keybindings ---
   const selectByIndex = useCallback((i: number) => {
     const f = fleetRef.current;
@@ -609,12 +626,12 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setPaletteOpen((v) => !v);
+        if (activeSlug) setPickerOpen((v) => !v);
         return;
       }
       if (e.key === "Escape") {
-        if (paletteOpen) {
-          setPaletteOpen(false);
+        if (pickerOpen) {
+          setPickerOpen(false);
           return;
         }
         const pid = activePidRef.current ?? 1;
@@ -634,13 +651,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen, cycle, selectByIndex]);
-
-  const onPickProvider = useCallback((key: string) => {
-    api.setProvider(key);
-    setProvider(key);
-    setPaletteOpen(false);
-  }, []);
+  }, [pickerOpen, cycle, selectByIndex, activeSlug]);
 
   // Optimistic toggle: paint the new mode immediately, then persist. The hub's
   // send_capabilities broadcast is the source of truth and reconciles — if the
@@ -856,13 +867,11 @@ export function App() {
           afterMessageIndex: Math.max((entry.afterMessageIndex ?? clearOffset) - clearOffset, 0),
         }))
     : shellEntries;
-  const activeMember = activePid !== null ? fleet.find((m) => m.pid === activePid) ?? null : null;
   const activeProc =
     activePid !== null ? procs.find((r) => r.pid === String(activePid)) ?? null : null;
   // Inline command cards for the active PAI only. Completed backlog groups are
   // historical (sidebar owns full history); the clear marker rebases anchors
   // just like the shell feed above.
-  const activeSlug = activeMember?.slug ?? null;
   const activeCommands =
     activeSlug !== null ? commands.filter((g) => !g.historical && g.slug === activeSlug) : [];
   const visibleCommands = clearScreen
@@ -1026,6 +1035,15 @@ export function App() {
                   </button>
                 )}
                 <button
+                  className="head-action model-button"
+                  type="button"
+                  disabled={!activeMember}
+                  onClick={() => setPickerOpen(true)}
+                  title="Switch this PAI's provider/model (⌘K)"
+                >
+                  {currentModelLabel}
+                </button>
+                <button
                   className="head-action"
                   type="button"
                   disabled={activePid === null || clearBusy}
@@ -1073,11 +1091,12 @@ export function App() {
           </section>
         </section>
       </main>
-      {paletteOpen && (
-        <CommandPalette
-          provider={provider}
-          onPick={onPickProvider}
-          onClose={() => setPaletteOpen(false)}
+      {pickerOpen && activeSlug && (
+        <ModelPicker
+          pai={activeSlug}
+          onClose={() => setPickerOpen(false)}
+          onStatus={setStatus}
+          onSwitched={refreshModels}
         />
       )}
       {confirmDelete && (
