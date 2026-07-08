@@ -498,8 +498,10 @@ class Handler(BaseHTTPRequestHandler):
     def _static(self, path: str):
         rel = path.lstrip("/") or "index.html"
         target = (FRONTEND_DIST / rel).resolve()
+        is_asset = str(target).startswith(str(FRONTEND_DIST / "assets")) and target.is_file()
         if not str(target).startswith(str(FRONTEND_DIST)) or not target.is_file():
             target = FRONTEND_DIST / "index.html"  # SPA fallback
+            is_asset = False
         if not target.is_file():
             return self._json(
                 {"error": "frontend not built — run `pnpm build` in frontend/"},
@@ -511,6 +513,17 @@ class Handler(BaseHTTPRequestHandler):
             "Content-Type", _CONTENT_TYPES.get(target.suffix, "application/octet-stream")
         )
         self.send_header("Content-Length", str(len(body)))
+        # Cache policy: Vite fingerprints everything under /assets/ by content
+        # hash, so those files are immutable — cache them hard. The entry HTML
+        # (and the SPA fallback) is NOT fingerprinted and points at the current
+        # asset hashes, so it must revalidate every load; otherwise a browser
+        # keeps serving a stale index that references a deleted bundle and the
+        # console never picks up a new build (this is what hid the Cowork
+        # toggle after a deploy).
+        if is_asset:
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 
