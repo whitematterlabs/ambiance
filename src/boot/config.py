@@ -74,9 +74,22 @@ CAPABILITY_SPECS: dict[str, dict] = {
     # the tri-state: "ask" is meaningless for capture (a capture either
     # happens or it doesn't), so these are two-state and an out-of-range mode
     # clamps to `no`.
-    "cowork": {
-        "driver": "cowork", "freeze": "capture.freeze", "mounts": {"cowork"},
-        "default": "yes", "modes": ("no", "yes"),
+    #
+    # Cowork is three independent facets, one flag + freeze file each, so the
+    # owner can leave file activity on while killing clipboard capture.
+    # `legacy` names the pre-split single key: a config that still says
+    # `cowork: no` keeps meaning "all three off" until a facet key overrides.
+    "cowork_window": {
+        "driver": "cowork", "freeze": "window.freeze", "mounts": {"cowork"},
+        "default": "yes", "modes": ("no", "yes"), "legacy": "cowork",
+    },
+    "cowork_clipboard": {
+        "driver": "cowork", "freeze": "clipboard.freeze", "mounts": {"cowork"},
+        "default": "yes", "modes": ("no", "yes"), "legacy": "cowork",
+    },
+    "cowork_files": {
+        "driver": "cowork", "freeze": "files.freeze", "mounts": {"cowork"},
+        "default": "yes", "modes": ("no", "yes"), "legacy": "cowork",
     },
     "notetaker": {
         "driver": "notetaker", "freeze": "capture.freeze", "mounts": {"notetaker"},
@@ -531,7 +544,11 @@ def capability_modes(path: Path | None = None) -> dict[str, str]:
     exception); a missing file, parse error, or unrecognized value resolves
     to `no` — a grant must come from a well-formed, readable config, never
     from a broken or typo'd one. A mode outside the flag's allowed `modes`
-    (e.g. "ask" on a two-state capture gate) clamps to `no`."""
+    (e.g. "ask" on a two-state capture gate) clamps to `no`.
+
+    A flag whose key is absent falls back to its spec `legacy` key when the
+    config still carries one (the pre-split `cowork:` toggle seeds all three
+    facets), and only then to the spec default."""
     p = path or CONFIG_PATH
     try:
         data = _load_yaml(p)
@@ -541,8 +558,11 @@ def capability_modes(path: Path | None = None) -> dict[str, str]:
     caps = caps if isinstance(caps, dict) else {}
     out: dict[str, str] = {}
     for k, spec in CAPABILITY_SPECS.items():
+        legacy = spec.get("legacy")
         if k in caps:
             mode = _normalize_capability_mode(caps.get(k))
+        elif legacy is not None and legacy in caps:
+            mode = _normalize_capability_mode(caps.get(legacy))
         else:
             mode = spec.get("default", "no")
         if mode not in spec.get("modes", CAPABILITY_MODES):
@@ -603,6 +623,13 @@ def project_capabilities(path: Path | None = None) -> None:
     send; this keeps it in lockstep with `capabilities:` on boot and on every
     `kernel:reload_config`, so changing a mode in config.yaml takes effect
     without touching driver state by hand."""
+    # Pre-split leftover: cowork used one capture.freeze for all facets. The
+    # per-facet files below are the only gate now; a stale one would just
+    # confuse whoever reads the dir, so drop it.
+    try:
+        (paths.sys_drivers("cowork") / "capture.freeze").unlink()
+    except OSError:
+        pass
     modes = capability_modes(path)
     for flag, spec in CAPABILITY_SPECS.items():
         mode = modes.get(flag, "no")

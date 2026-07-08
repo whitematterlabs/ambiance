@@ -4,7 +4,7 @@ import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
 import type { VoiceEngine } from "../speech";
 import type { SendCapability, SendMode } from "../types";
-import { CAPTURE_COPY } from "../capture";
+import { CAPTURE_COPY, COWORK_FLAGS, COWORK_PILL } from "../capture";
 
 // Popover open-state that closes on outside click / Escape, so each split
 // button (voice, cowork) behaves like a menu without duplicating listeners.
@@ -102,9 +102,9 @@ export function Header({
   // phrase activation rides the host mic (kernel-side wake + STT) regardless of
   // browser SpeechRecognition support; otherwise it falls back to the browser.
   wakePhrase: string;
-  // Mounted capture gates (cowork/notetaker) — one split button next to voice:
-  // the pill toggles cowork, the chevron opens switches for every gate. Renders
-  // nothing when no gate is mounted.
+  // Mounted capture gates (cowork facets/notetaker) — one split button next
+  // to voice: the pill toggles the cowork facets as a group, the chevron opens
+  // per-facet switches for every gate. Renders nothing when no gate is mounted.
   captureCaps: SendCapability[];
   onSetCaptureMode: (flag: string, mode: SendMode) => void;
   onShowWelcome: () => void;
@@ -113,10 +113,25 @@ export function Header({
   const voicePicker = useDismissablePopover();
   const capturePicker = useDismissablePopover();
 
-  // The split button toggles cowork; the popover holds every capture gate.
-  const coworkCap = captureCaps.find((c) => c.flag === "cowork") ?? captureCaps[0];
-  const coworkOn = coworkCap?.mode === "yes";
-  const coworkCopy = coworkCap ? CAPTURE_COPY[coworkCap.flag] : undefined;
+  // The split button toggles the cowork facets as a group (on = any facet
+  // on; a click drives them all to the same state); the popover holds the
+  // per-facet switches plus every other capture gate. When no cowork facet
+  // is mounted the pill falls back to the first gate so Notes-only fleets
+  // still get a toggle.
+  const coworkCaps = captureCaps.filter((c) => COWORK_FLAGS.has(c.flag));
+  const pillCaps = coworkCaps.length > 0 ? coworkCaps : captureCaps.slice(0, 1);
+  const pillOn = pillCaps.some((c) => c.mode === "yes");
+  const pillCopy =
+    coworkCaps.length > 0
+      ? COWORK_PILL
+      : pillCaps[0]
+        ? CAPTURE_COPY[pillCaps[0].flag]
+        : undefined;
+  const setPillMode = (mode: SendMode) => {
+    for (const cap of pillCaps) {
+      if (cap.mode !== mode) onSetCaptureMode(cap.flag, mode);
+    }
+  };
 
   return (
     <header className="header">
@@ -188,17 +203,17 @@ export function Header({
           <Moon size={15} aria-hidden="true" />
         )}
       </button>
-      {coworkCap && (
+      {pillCaps.length > 0 && (
         <div className="voice-split capture-split" ref={capturePicker.ref}>
           <button
             className="ghost-button voice-toggle capture-toggle"
             type="button"
-            onClick={() => onSetCaptureMode(coworkCap.flag, coworkOn ? "no" : "yes")}
-            aria-pressed={coworkOn}
-            title={coworkOn ? coworkCopy?.onHint : coworkCopy?.offHint}
+            onClick={() => setPillMode(pillOn ? "no" : "yes")}
+            aria-pressed={pillOn}
+            title={pillOn ? pillCopy?.onHint : pillCopy?.offHint}
           >
             <span className="ghost-label">
-              {`${coworkCopy?.name ?? coworkCap.channel} ${coworkOn ? "on" : "off"}`}
+              {`${pillCopy?.name ?? pillCaps[0].channel} ${pillOn ? "on" : "off"}`}
             </span>
           </button>
           <button

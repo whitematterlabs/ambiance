@@ -86,11 +86,14 @@ def test_list_send_capabilities_reports_both_channels(repo_root, monkeypatch):
     ]
 
 
-def test_list_send_capabilities_capture_gate_row(repo_root, monkeypatch):
-    # A capture gate is two-state and defaults on (cowork) — the row must say
-    # so, so the frontend renders a two-button toggle, not a dead "Ask".
+def test_list_send_capabilities_capture_gate_rows(repo_root, monkeypatch):
+    # Capture gates are two-state and the cowork facets default on — each row
+    # must say so, so the frontend renders a two-button toggle, not a dead
+    # "Ask". One row per facet: the whole point of the split.
     _write_config(repo_root)
     monkeypatch.setattr(actions, "_mounted_driver_union", lambda: {"cowork"})
     assert actions.list_send_capabilities() == [
-        {"flag": "cowork", "channel": "Cowork Mode", "mode": "yes", "modes": ["no", "yes"]},
+        {"flag": "cowork_window", "channel": "Windows & tabs", "mode": "yes", "modes": ["no", "yes"]},
+        {"flag": "cowork_clipboard", "channel": "Clipboard", "mode": "yes", "modes": ["no", "yes"]},
+        {"flag": "cowork_files", "channel": "File activity", "mode": "yes", "modes": ["no", "yes"]},
     ]

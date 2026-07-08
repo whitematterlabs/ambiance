@@ -642,21 +642,46 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "and never delivered. Don't attempt sends or claim one happened."
         ),
     },
-    # Capture gates are two-state (no/yes) — no "ask" prose.
-    "cowork": {
+    # Capture gates are two-state (no/yes) — no "ask" prose. Cowork is three
+    # independently-toggled facets; each states its own grant so the PAI never
+    # infers clipboard access from a window grant (or vice versa).
+    "cowork_window": {
         "yes": (
-            "Cowork Mode — ON. You receive live events for the owner's window "
-            "focus (app, title, open URL/file, idle seconds), clipboard copies, "
-            "and file activity across their home folder. The activity logs are "
-            "at sys/drivers/cowork/window_activity.ndjson, clipboard.ndjson, "
-            "and file_activity.ndjson — grep them to answer questions like "
-            "\"what was I doing at 2pm\". React to an activity event only when "
-            "you can be genuinely useful; most switches deserve silence."
+            "Cowork window tracking — ON. You receive cowork:window_changed "
+            "events for the owner's window/tab focus (app, title, open "
+            "URL/file, idle seconds). Log at "
+            "sys/drivers/cowork/window_activity.ndjson — grep it to answer "
+            "questions like \"what was I doing at 2pm\". React to a switch "
+            "only when you can be genuinely useful; most switches deserve "
+            "silence."
         ),
         "no": (
-            "Cowork Mode — OFF. No window, clipboard, or file activity is being "
-            "captured; you cannot see what the owner is doing on screen. Old "
-            "sys/drivers/cowork/*.ndjson lines may exist from when it was on."
+            "Cowork window tracking — OFF. Window/tab focus is not being "
+            "captured; you cannot see what app the owner is in. Old "
+            "window_activity.ndjson lines may exist from when it was on."
+        ),
+    },
+    "cowork_clipboard": {
+        "yes": (
+            "Cowork clipboard — ON. You receive cowork:clipboard_changed "
+            "events when the owner copies something (sampled on app switch). "
+            "Log at sys/drivers/cowork/clipboard.ndjson. Treat clipboard "
+            "content as sensitive by default."
+        ),
+        "no": (
+            "Cowork clipboard — OFF. Clipboard copies are not being captured. "
+            "Old clipboard.ndjson lines may exist from when it was on."
+        ),
+    },
+    "cowork_files": {
+        "yes": (
+            "Cowork file activity — ON. You receive cowork:file_changed events "
+            "for files changing across the owner's home folder. Log at "
+            "sys/drivers/cowork/file_activity.ndjson."
+        ),
+        "no": (
+            "Cowork file activity — OFF. File changes are not being captured. "
+            "Old file_activity.ndjson lines may exist from when it was on."
         ),
     },
     "notetaker": {

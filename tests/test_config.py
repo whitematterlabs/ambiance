@@ -666,7 +666,8 @@ pais:
     # (capture gate, ships on-by-default per its spec).
     assert flags == {
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
-        "cowork": True, "notetaker": False,
+        "cowork_window": True, "cowork_clipboard": True,
+        "cowork_files": True, "notetaker": False,
     }
 
 
@@ -675,7 +676,8 @@ def test_capability_flags_missing_file_is_deny(repo_root):
     # fail closed here: no readable config means no grants of any kind.
     assert C.capability_flags() == {
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
-        "cowork": False, "notetaker": False,
+        "cowork_window": False, "cowork_clipboard": False,
+        "cowork_files": False, "notetaker": False,
     }
 
 
@@ -788,7 +790,8 @@ pais:
     modes = C.capability_modes()
     assert modes == {
         "email_send": "ask", "imessage_send": "yes", "whatsapp_send": "no",
-        "cowork": "yes", "notetaker": "no",
+        "cowork_window": "yes", "cowork_clipboard": "yes",
+        "cowork_files": "yes", "notetaker": "no",
     }
 
 
@@ -808,7 +811,8 @@ pais:
     )
     assert C.capability_modes() == {
         "email_send": "yes", "imessage_send": "no", "whatsapp_send": "no",
-        "cowork": "yes", "notetaker": "no",
+        "cowork_window": "yes", "cowork_clipboard": "yes",
+        "cowork_files": "yes", "notetaker": "no",
     }
 
 
@@ -827,7 +831,8 @@ pais:
     )
     assert C.capability_modes() == {
         "email_send": "no", "imessage_send": "no", "whatsapp_send": "no",
-        "cowork": "yes", "notetaker": "no",
+        "cowork_window": "yes", "cowork_clipboard": "yes",
+        "cowork_files": "yes", "notetaker": "no",
     }
 
 
@@ -848,7 +853,8 @@ pais:
     flags = C.capability_flags()
     assert flags == {
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
-        "cowork": True, "notetaker": False,
+        "cowork_window": True, "cowork_clipboard": True,
+        "cowork_files": True, "notetaker": False,
     }
 
 
@@ -928,12 +934,15 @@ pais:
     assert not wa_freeze.exists()
 
 
-# ----- capabilities: capture gates (cowork / notetaker) -----
+# ----- capabilities: capture gates (cowork facets / notetaker) -----
+
+_COWORK_FACETS = ("cowork_window", "cowork_clipboard", "cowork_files")
 
 
 def test_cowork_defaults_yes_when_key_absent(repo_root):
-    # capabilities block exists but carries neither capture key: cowork is
-    # on-by-default (its spec's deliberate exception), notetaker fails closed.
+    # capabilities block exists but carries no capture key: the cowork facets
+    # are on-by-default (their specs' deliberate exception), notetaker fails
+    # closed.
     _write_config(
         repo_root,
         """
@@ -946,7 +955,8 @@ pais:
 """,
     )
     modes = C.capability_modes()
-    assert modes["cowork"] == "yes"
+    for facet in _COWORK_FACETS:
+        assert modes[facet] == "yes"
     assert modes["notetaker"] == "no"
 
 
@@ -955,7 +965,9 @@ def test_capture_flag_explicit_values_respected(repo_root):
         repo_root,
         """
 capabilities:
-  cowork: no
+  cowork_window: no
+  cowork_clipboard: no
+  cowork_files: yes
   notetaker: yes
 pais:
   - name: root
@@ -964,8 +976,32 @@ pais:
 """,
     )
     modes = C.capability_modes()
-    assert modes["cowork"] == "no"
+    assert modes["cowork_window"] == "no"
+    assert modes["cowork_clipboard"] == "no"
+    assert modes["cowork_files"] == "yes"
     assert modes["notetaker"] == "yes"
+
+
+def test_legacy_cowork_key_seeds_all_facets(repo_root):
+    # A pre-split config saying `cowork: no` must keep meaning "all capture
+    # off" — the default-yes facets may not silently resurrect capture. A
+    # facet key present alongside the legacy key wins.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  cowork: no
+  cowork_files: yes
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    modes = C.capability_modes()
+    assert modes["cowork_window"] == "no"
+    assert modes["cowork_clipboard"] == "no"
+    assert modes["cowork_files"] == "yes"
 
 
 def test_capture_flag_ask_clamps_to_no(repo_root):
@@ -975,7 +1011,9 @@ def test_capture_flag_ask_clamps_to_no(repo_root):
         repo_root,
         """
 capabilities:
-  cowork: ask
+  cowork_window: ask
+  cowork_clipboard: ask
+  cowork_files: ask
   notetaker: ask
 pais:
   - name: root
@@ -984,7 +1022,8 @@ pais:
 """,
     )
     modes = C.capability_modes()
-    assert modes["cowork"] == "no"
+    for facet in _COWORK_FACETS:
+        assert modes[facet] == "no"
     assert modes["notetaker"] == "no"
 
 
@@ -1000,18 +1039,21 @@ pais:
 """,
     )
     with pytest.raises(ValueError):
-        C.set_capability_mode("cowork", "ask")
+        C.set_capability_mode("cowork_window", "ask")
     with pytest.raises(ValueError):
         C.set_capability_mode("notetaker", "ask")
-    assert C.set_capability_mode("cowork", "no") == "no"
+    assert C.set_capability_mode("cowork_window", "no") == "no"
     assert C.set_capability_mode("notetaker", "yes") == "yes"
 
 
 def test_project_capabilities_capture_freeze(repo_root, tmp_path, monkeypatch):
-    # cowork absent (default yes) → no freeze; notetaker absent (default no)
-    # → capture.freeze written. Flipping cowork off writes its freeze too.
+    # Cowork facets absent (default yes) → no freezes; notetaker absent
+    # (default no) → capture.freeze written. Flipping one facet off writes
+    # only that facet's freeze.
     monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
-    cowork_freeze = PA.sys_drivers("cowork") / "capture.freeze"
+    window_freeze = PA.sys_drivers("cowork") / "window.freeze"
+    clipboard_freeze = PA.sys_drivers("cowork") / "clipboard.freeze"
+    files_freeze = PA.sys_drivers("cowork") / "files.freeze"
     notetaker_freeze = PA.sys_drivers("notetaker") / "capture.freeze"
 
     _write_config(
@@ -1024,7 +1066,9 @@ pais:
 """,
     )
     C.project_capabilities()
-    assert not cowork_freeze.exists()
+    assert not window_freeze.exists()
+    assert not clipboard_freeze.exists()
+    assert not files_freeze.exists()
     assert notetaker_freeze.exists()
     assert "notetaker=no" in notetaker_freeze.read_text()
 
@@ -1032,7 +1076,7 @@ pais:
         repo_root,
         """
 capabilities:
-  cowork: no
+  cowork_clipboard: no
   notetaker: yes
 pais:
   - name: root
@@ -1041,9 +1085,33 @@ pais:
 """,
     )
     C.project_capabilities()
-    assert cowork_freeze.exists()
-    assert "cowork=no" in cowork_freeze.read_text()
+    assert not window_freeze.exists()
+    assert clipboard_freeze.exists()
+    assert "cowork_clipboard=no" in clipboard_freeze.read_text()
+    assert not files_freeze.exists()
     assert not notetaker_freeze.exists()
+
+
+def test_project_capabilities_drops_legacy_capture_freeze(
+    repo_root, tmp_path, monkeypatch
+):
+    # The pre-split single capture.freeze is dead; every projection pass
+    # removes it so a stale file can't contradict the per-facet gates.
+    monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
+    legacy = PA.sys_drivers("cowork") / "capture.freeze"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("frozen by capabilities.cowork=no in etc/config.yaml\n")
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert not legacy.exists()
 
 
 # ----- set_capability_mode (sidebar toggle writer) -----

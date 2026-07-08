@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -804,7 +805,9 @@ SEND_CHANNEL_LABELS = {
     "email_send": "Email",
     "imessage_send": "iMessage",
     "whatsapp_send": "WhatsApp",
-    "cowork": "Cowork Mode",
+    "cowork_window": "Windows & tabs",
+    "cowork_clipboard": "Clipboard",
+    "cowork_files": "File activity",
     "notetaker": "Notetaker",
 }
 
@@ -853,6 +856,12 @@ def list_send_capabilities() -> list[dict]:
     return out
 
 
+# The web server is threaded and the header's Cowork pill flips all three
+# cowork facets at once — three concurrent POSTs would each read-modify-write
+# config.yaml and lose updates without this.
+_send_mode_lock = threading.Lock()
+
+
 def set_send_mode(flag: str, mode: str) -> dict:
     """Persist a send-mode choice and trigger a kernel reload.
 
@@ -860,7 +869,8 @@ def set_send_mode(flag: str, mode: str) -> dict:
     flag or mode, which the server maps to a 400. On success the reload event
     makes `project_capabilities` re-write the driver freeze so the change takes
     effect without a restart (and, if the kernel is down, on its next boot)."""
-    updated = config.set_capability_mode(flag, mode)
+    with _send_mode_lock:
+        updated = config.set_capability_mode(flag, mode)
     emit_event(
         {
             "kind": "kernel:reload_config",
