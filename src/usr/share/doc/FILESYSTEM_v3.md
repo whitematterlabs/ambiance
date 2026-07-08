@@ -103,7 +103,7 @@ via `paiman install`, etc.) is an implementation detail tracked in Open Question
 | `src/sbin/reboot.py` | `~/.pai/sbin/reboot` | Emits `kernel:restart`; kernel drains in-flight nudges, gracefully stops drivers, then `os.execvp`s itself in place (PID 1 preserved). Use to apply on-disk patches to kernel-imported modules. |
 | `src/usr/libexec/web/` | `~/.pai/usr/libexec/web/` | Web owner surface sidecar: backend package, frontend source, and built assets. Invoked by `pai start --web`; not a `/sbin/` source tree. |
 | `src/prompts/` | `~/.pai/usr/share/prompts/` | Shipped baseline prompts |
-| `src/usr/share/doc/` | `~/.pai/usr/share/doc/` | Shipped documentation |
+| `src/usr/share/doc/` | `~/.pai/usr/share/doc/` | Shipped documentation. The runtime slot is a **real directory of per-file symlinks** into the shipped source (repo checkout in dev, `opt/pai/<ver>/` in tarball installs), plus `built` → `/var/lib/doc/built/` for durable PAI-authored docs — never one whole-dir symlink into the rotating release dir |
 | `src/seed/` | *removed* | Folded into bundle `defaults/` |
 
 ## Mental model: bundle → instance → process
@@ -192,10 +192,14 @@ driver. Internal supervision is the PAI's job, not kernelPAI's.
 │   │   ├── skills/<name>/       skill source code
 │   │   ├── pais/<name>/         in-development PAI bundle source
 │   │   └── venv/                Python virtualenv (uv-managed)
-│   ├── share/prompts/           shipped baseline prompts
+│   ├── share/
+│   │   ├── prompts/             shipped baseline prompts
+│   │   └── doc/                 real dir; per-file links into the shipped docs
+│   │       └── built            → /var/lib/doc/built/ (durable PAI-authored docs)
 │   └── src/                     Python source (kernelPAI, libraries)
 └── var/
     ├── lib/
+    │   ├── doc/built/           durable owner/PAI-authored docs (capability help pages)
     │   ├── memory/              canonical ground truth (multi-PAI shared)
     │   │   ├── people/<name>/about.yaml
     │   │   ├── topics/<topic>/
@@ -366,8 +370,16 @@ Code, libraries, shipped data.
   never committed in pairegistry. The driver's `package.yaml` declares
   the install step paiman runs to populate this dir.
 - `usr/share/prompts/` — shipped baseline prompts.
-- `usr/share/doc/` — shipped documentation (architecture guides,
-  filesystem spec, etc.). Where `src/usr/share/doc/` lands at install time.
+- `usr/share/doc/` — documentation view. A **real directory** holding one
+  symlink per shipped doc (into the repo checkout in dev, or the current
+  `opt/pai/<ver>/src/usr/share/doc/` release dir in tarball installs) plus
+  `built` → `/var/lib/doc/built/`, the durable slot for owner/PAI-authored
+  docs. Deliberately *not* a single whole-dir symlink into the release dir:
+  releases rotate on `pai update` (old `opt/pai/<ver>` dirs are GC'd), so
+  anything written through such a link would be destroyed. Shipped links
+  are re-pointed by paifs-init on every provision/update; `built/` content
+  never moves. The kernel's doc-watcher watches both this dir and
+  `/var/lib/doc/`, so a doc dropped in either place nudges the librarian.
 - `usr/src/` — userspace Python source: shared libraries used by
   drivers, skills, and PAI bundles. **Kernel code does not live here**
   — the kernel image is `/boot/`.
@@ -376,6 +388,13 @@ Code, libraries, shipped data.
 All persistent mutable state.
 
 - `var/lib/memory/` — canonical ground truth (see Memory Layout).
+- `var/lib/doc/built/` — **durable owner/PAI-authored documentation**
+  (e.g. the capability help pages root writes after `grow-capability`).
+  Exposed to every PAI at `/usr/share/doc/built/` (and through the home
+  view at `memory/doc/built/`) via a symlink; the files live here in
+  `/var` so they survive `pai update` release rotation. paifs-init
+  migrates any real files stranded at the legacy in-release
+  `usr/share/doc/built/` location into this slot, idempotently.
 - `var/lib/instances/<pai>/` — **per-PAI mutable instance state.** This
   is what survives uninstall/reinstall. Sacred.
 - `var/lib/packages/` — paiman metadata (deferred).

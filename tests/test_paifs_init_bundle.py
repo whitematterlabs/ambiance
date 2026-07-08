@@ -133,6 +133,38 @@ def test_bundle_seeds_kernel_essentials(
     assert no_seed_kernel == [root]
 
 
+def test_bundle_wires_durable_built_docs(
+    tmp_path: Path, seed: Path, no_seed_kernel, forbid_dev_machinery
+) -> None:
+    root = tmp_path / "pai"
+    paifs_init.lay_out(root, bundle_mode=True, seed=seed)
+
+    built = root / "usr" / "share" / "doc" / "built"
+    durable = root / "var" / "lib" / "doc" / "built"
+    assert built.is_symlink() and built.resolve() == durable.resolve()
+    (built / "pandoc.md").write_text("# pandoc\n")
+    assert (durable / "pandoc.md").read_text() == "# pandoc\n"
+
+
+def test_bundle_reprovision_rescues_built_docs_before_recopy(
+    tmp_path: Path, seed: Path, no_seed_kernel, forbid_dev_machinery
+) -> None:
+    """copy_seed_content wipes + recopies usr/share/doc on every provision; a
+    real built/ dir written under the old layout must be migrated first."""
+    root = tmp_path / "pai"
+    legacy = root / "usr" / "share" / "doc" / "built"
+    legacy.mkdir(parents=True)
+    (legacy / "pandoc.md").write_text("# pandoc\n")
+
+    paifs_init.lay_out(root, bundle_mode=True, seed=seed)
+
+    durable = root / "var" / "lib" / "doc" / "built"
+    assert (durable / "pandoc.md").read_text() == "# pandoc\n"
+    built = root / "usr" / "share" / "doc" / "built"
+    assert built.is_symlink()
+    assert (built / "pandoc.md").read_text() == "# pandoc\n"
+
+
 def test_bundle_requires_seed(tmp_path: Path, forbid_dev_machinery) -> None:
     with pytest.raises(SystemExit, match="requires --seed"):
         paifs_init.lay_out(tmp_path / "pai", bundle_mode=True, seed=None)

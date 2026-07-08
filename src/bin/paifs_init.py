@@ -79,6 +79,7 @@ SKELETON: tuple[str, ...] = (
     "usr/libexec",
     "usr/share/prompts",
     "usr/src",
+    "var/lib/doc/built",
     "var/lib/memory/people",
     "var/lib/memory/topics",
     "var/lib/memory/journal",
@@ -99,7 +100,10 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
     ("boot", REPO_ROOT / "src" / "boot"),
     ("usr/src", REPO_ROOT / "src"),
     ("usr/libexec/web", REPO_ROOT / "src" / "usr" / "libexec" / "web"),
-    ("usr/share/doc", REPO_ROOT / "src" / "usr" / "share" / "doc"),
+    # usr/share/doc is NOT here: it is a real directory of per-file links
+    # (shipped docs) plus a durable `built/` slot — see ensure_doc_shipped_links
+    # and ensure_built_docs. A single symlink into the release/repo dir made
+    # everything a PAI wrote under doc/ die with the release on `pai update`.
     # owner.md is intentionally NOT here: it holds per-owner PII and is
     # gitignored ("not shipped"), so a fresh clone has no source to point at.
     # It is generated in the FHS by ensure_default_owner() and the boilerplate
@@ -341,6 +345,139 @@ def ensure_symlink(link: Path, target: Path) -> None:
             return
     link.parent.mkdir(parents=True, exist_ok=True)
     link.symlink_to(target)
+
+
+def durable_built_docs(root: Path) -> Path:
+    """Durable home for owner/PAI-authored docs (survives release rotation)."""
+    return root / "var" / "lib" / "doc" / "built"
+
+
+def _merge_move_docs(src_dir: Path, dst_dir: Path) -> None:
+    """Move `src_dir`'s entries into `dst_dir` without ever discarding data.
+
+    Missing at dest → moved. Byte-identical file at dest → stray source copy
+    dropped. Anything conflicting (differing content, shape mismatch) is left
+    in place on both sides, so re-runs are idempotent and nothing is lost."""
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for entry in sorted(src_dir.iterdir()):
+        dst = dst_dir / entry.name
+        if entry.is_dir() and not entry.is_symlink():
+            if dst.is_symlink() or (dst.exists() and not dst.is_dir()):
+                continue  # shape conflict — leave the source dir in place
+            _merge_move_docs(entry, dst)
+            try:
+                entry.rmdir()
+            except OSError:
+                pass  # conflicts left inside — keep it
+            continue
+        if not dst.exists() and not dst.is_symlink():
+            shutil.move(str(entry), str(dst))
+        elif (
+            entry.is_file() and not entry.is_symlink()
+            and dst.is_file() and not dst.is_symlink()
+            and entry.read_bytes() == dst.read_bytes()
+        ):
+            entry.unlink()  # exact duplicate — safe to drop the stray copy
+        # else: both sides differ — non-destructive, leave both.
+
+
+def migrate_built_docs(root: Path) -> None:
+    """Rescue PAI-authored docs stranded at the legacy built-docs location.
+
+    Old layout: usr/share/doc was one symlink into the repo/release dir, so
+    `usr/share/doc/built/` physically lived inside opt/pai/<ver>/ and was
+    destroyed when `pai update` rotated releases. If a *real* built dir exists
+    at the slot usr/share/doc currently resolves to, move its contents into
+    the durable /var/lib/doc/built home. Idempotent and non-destructive."""
+    durable = durable_built_docs(root)
+    durable.mkdir(parents=True, exist_ok=True)
+    doc = root / "usr" / "share" / "doc"
+    if not doc.exists():
+        return
+    try:
+        legacy = doc.resolve() / "built"
+    except OSError:
+        return
+    if legacy == durable or legacy.is_symlink() or not legacy.is_dir():
+        return
+    _merge_move_docs(legacy, durable)
+    try:
+        legacy.rmdir()
+    except OSError:
+        print(
+            f"paifs-init: note: conflicting entries left at {legacy} "
+            f"(not moved to {durable}); resolve manually."
+        )
+
+
+def ensure_doc_shipped_links(root: Path, source: Path) -> None:
+    """Wire usr/share/doc as a REAL directory of per-file symlinks into the
+    shipped doc source (dev repo checkout, or opt/pai/<ver> release dir).
+
+    Replaces the legacy whole-dir symlink: the slot must be a real dir so it
+    can also host `built/` → /var/lib/doc/built (durable, PAI-authored) that
+    survives `pai update` wiping old release dirs. Idempotent: re-runs repoint
+    shipped links at the current source and drop dangling ones; real files a
+    PAI dropped at the top level are never touched."""
+    doc = root / "usr" / "share" / "doc"
+    if not source.is_dir():
+        sys.exit(
+            f"paifs-init: shipped doc source missing: {source}\n"
+            f"  fix: re-run paifs-init from this machine's complete pai checkout."
+        )
+    # In-tree case: the FHS slot already IS the canonical content dir.
+    try:
+        if doc.exists() and not doc.is_symlink() and doc.resolve() == source.resolve():
+            return
+    except OSError:
+        pass
+    # Rescue legacy built/ content while the whole-dir link (if any) still
+    # resolves to where those files physically live.
+    migrate_built_docs(root)
+    if doc.is_symlink():
+        doc.unlink()
+    doc.mkdir(parents=True, exist_ok=True)
+    # `built` is never a shipped link — it is the durable /var slot (wired by
+    # ensure_built_docs). A source-side built/ is legacy content, not shipped.
+    shipped = {
+        entry.name
+        for entry in source.iterdir()
+        if not entry.name.startswith(".") and entry.name != "built"
+    }
+    for name in sorted(shipped):
+        ensure_symlink(doc / name, source / name)
+    # Prune dangling shipped links (doc no longer ships, or its old release
+    # dir got GC'd). Only dangling symlinks — never real files, never `built`.
+    for child in doc.iterdir():
+        if child.name == "built" or not child.is_symlink():
+            continue
+        if child.name not in shipped and not child.exists():
+            child.unlink()
+
+
+def ensure_built_docs(root: Path) -> None:
+    """Expose the durable built-docs home at usr/share/doc/built.
+
+    Migrates any legacy real built/ content first, then lays a relative
+    symlink usr/share/doc/built → ../../../var/lib/doc/built so docs written
+    through the doc view land in /var (durable) instead of the rotating
+    release dir. No-op while usr/share/doc is still a whole-dir symlink."""
+    migrate_built_docs(root)
+    doc = root / "usr" / "share" / "doc"
+    if doc.is_symlink() or not doc.is_dir():
+        return
+    durable = durable_built_docs(root)
+    built = doc / "built"
+    target = Path(os.path.relpath(durable, doc))
+    if built.is_symlink():
+        if built.readlink() == target:
+            return
+        built.unlink()
+    elif built.exists():
+        # A real dir survived migration (conflicting entries). Leave it —
+        # nothing is lost; the next run retries once it's resolved.
+        return
+    built.symlink_to(target)
 
 
 def ensure_default_config(root: Path, *, provider: str = DEFAULT_SEED_PROVIDER,
@@ -653,12 +790,19 @@ def lay_out(root: Path, *, bundle_mode: bool = False, seed: Path | None = None,
     if bundle_mode:
         if seed is None:
             sys.exit("paifs-init: --bundle-mode requires --seed <dir>")
+        # Rescue PAI-authored built docs BEFORE copy_seed_content wipes and
+        # recopies usr/share/doc from the seed.
+        migrate_built_docs(root)
         # Code symlinks are skipped (code is in the bundle); content slots are
         # copied from the seed instead of symlinked at a repo checkout.
         copy_seed_content(root, seed)
     else:
         for rel, target in SYMLINKS:
             ensure_symlink(root / rel, target)
+        ensure_doc_shipped_links(root, REPO_ROOT / "src" / "usr" / "share" / "doc")
+    # Durable owner/PAI-authored docs: /var/lib/doc/built, exposed at
+    # usr/share/doc/built. Runs in both modes, after the doc slot is wired.
+    ensure_built_docs(root)
     # /bin → usr/bin (relative). One bin for PAI-callable tools; /sbin
     # holds the kernel-only ones.
     ensure_symlink(root / "bin", Path("usr/bin"))
