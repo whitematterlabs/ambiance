@@ -1293,7 +1293,10 @@ button {
   flex: 1;
   overflow-y: auto;
   padding: 24px 22px 10px;
-  scroll-behavior: smooth;
+  /* No scroll-behavior: smooth here — the sticky auto-follow in ChatPane sets
+     scrollTop programmatically on every stream tick, and animating those snaps
+     emits intermediate scroll events that handleScroll can't tell apart from
+     the owner scrolling, so stick-to-bottom flaps off/on and the pane jitters. */
 }
 
 .chat-empty {

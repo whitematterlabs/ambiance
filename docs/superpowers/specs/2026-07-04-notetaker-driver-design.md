@@ -1,6 +1,6 @@
 # Notetaker Driver — Local Call Recording + Transcription (v1)
 
-**Status:** Draft, pending user review
+**Status:** Implemented (2026-07-07) — see `docs/superpowers/plans/2026-07-07-cowork-notetaker-rollout.md`. Implementation deviations: raw PCM (`mic.raw` int16 + `system.raw` float32, ffmpeg-mixed at finalize) instead of `.caf` — crash-safe; tap IO reads via ctypes HAL IOProc (pyobjc can't round-trip `AudioDeviceIOProcID`); auto-stop-on-silence not implemented (manual stop only).
 **Date:** 2026-07-04
 
 ## Context

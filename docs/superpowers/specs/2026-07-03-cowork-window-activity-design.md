@@ -1,6 +1,6 @@
 # Cowork Mode — Window + Clipboard + File Activity Tracking (v1 slice)
 
-**Status:** Draft, pending user review
+**Status:** Implemented (2026-07-07) — see `docs/superpowers/plans/2026-07-07-cowork-notetaker-rollout.md`. Implementation deviations: window observation runs in a sidecar subprocess (NSWorkspace notifications need a main-thread runloop); idle via Quartz `CGEventSourceSecondsSinceLastEventType` instead of IOKit; event payload text capped at 2,000 chars.
 **Date:** 2026-07-03
 
 ## Context
