@@ -429,12 +429,150 @@ def test_install_pai_pulls_deps_from_registry(fhs_root: Path) -> None:
 
 def test_install_pai_skips_existing_deps(fhs_root: Path) -> None:
     paiman.main(["install", "testskill1"])
-    # User edits the installed skill.
+    # User adds a file to the installed skill.
     skill_dir = fhs_root / "opt" / "paiman" / "skill" / "testskill1"
     (skill_dir / "user-edit.md").write_text("hand-tweaked")
     paiman.main(["install", str(FIXTURES / "testpai")])
-    # Edit must survive — paiman skipped reinstalling the existing dep.
+    # Addition must survive — the installed dep matches the registry on every
+    # registry-owned file, so paiman skips the reinstall; extra files (hook
+    # outputs, user additions) never count as drift.
     assert (skill_dir / "user-edit.md").is_file()
+
+
+# ---------- dep staleness: exists != current ----------
+
+def _stale_reg(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A mutable tmp registry with bin/tool plus a subagent depending on it.
+    Returns (registry_root, tool_src_dir, parent_src_dir)."""
+    reg = tmp_path / "stale-registry"
+    tool = reg / "bin" / "tool"
+    _write_pkg(tool, name="tool", kind="bin", entrypoint="tool.py")
+    (tool / "tool.py").write_text("print('v1')\n")
+    parent = reg / "subagents" / "parent"
+    _write_pkg(parent, name="parent", kind="subagent", prompt="prompt.md",
+               deps=["bin/tool"])
+    (parent / "prompt.md").write_text("parent role\n")
+    return reg, tool, parent
+
+
+def test_install_dep_stale_copy_reinstalled(
+    fhs_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """A registry edit to an already-installed dep reaches the runtime on the
+    next install of anything depending on it — the old existence-only check
+    left the runtime copy stale forever."""
+    reg, tool, _ = _stale_reg(tmp_path)
+    monkeypatch.setenv("PAIMAN_REGISTRY", str(reg))
+    paiman.main(["install", "bin/tool"])
+    installed = fhs_root / "opt" / "paiman" / "bin" / "tool" / "tool.py"
+    assert installed.read_text() == "print('v1')\n"
+
+    (tool / "tool.py").write_text("print('v2')\n")
+    capsys.readouterr()
+    assert paiman.main(["install", "subagents/parent"]) == 0
+    out = capsys.readouterr().out
+    assert "bin/tool: installed copy stale -> reinstalling" in out
+    assert installed.read_text() == "print('v2')\n"
+    # Reinstall is audited.
+    log = (fhs_root / "var" / "lib" / "paiman" / "log.md").read_text()
+    assert "stale dep bin/tool -> reinstall" in log
+
+
+def test_install_dep_fresh_copy_skipped(
+    fhs_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """An installed dep that matches the registry byte-for-byte is left alone —
+    including any extra files hooks or the user dropped into the staging dir."""
+    reg, _, _ = _stale_reg(tmp_path)
+    monkeypatch.setenv("PAIMAN_REGISTRY", str(reg))
+    paiman.main(["install", "bin/tool"])
+    marker = fhs_root / "opt" / "paiman" / "bin" / "tool" / "hook-output.bin"
+    marker.write_text("built at install time")
+
+    capsys.readouterr()
+    assert paiman.main(["install", "subagents/parent"]) == 0
+    out = capsys.readouterr().out
+    assert "stale" not in out
+    assert marker.is_file()
+
+
+def test_install_dep_symlinked_at_registry_skipped(
+    fhs_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """A staging dir that IS a symlink to the registry source can't drift —
+    the check notes that and skips without re-staging it as a copy."""
+    import os as _os
+
+    reg, tool, _ = _stale_reg(tmp_path)
+    monkeypatch.setenv("PAIMAN_REGISTRY", str(reg))
+    staging = fhs_root / "opt" / "paiman" / "bin" / "tool"
+    staging.parent.mkdir(parents=True)
+    _os.symlink(tool, staging)
+
+    capsys.readouterr()
+    assert paiman.main(["install", "subagents/parent"]) == 0
+    out = capsys.readouterr().out
+    assert "stale" not in out
+    assert staging.is_symlink()  # untouched, not replaced by a copy
+
+
+def test_install_dep_missing_from_registry_keeps_installed_copy(
+    fhs_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """A dep that is installed but no longer resolves in the registry (renamed,
+    or registry unreachable) is kept with a warning — staleness checking must
+    not break installs that used to succeed."""
+    loner = tmp_path / "loner"
+    loner.mkdir()
+    (loner / "package.yaml").write_text(
+        "name: loner\nkind: bin\nversion: 0.1.0\nentrypoint: loner.py\n"
+    )
+    (loner / "loner.py").write_text("#!/usr/bin/env python\n")
+    paiman.main(["install", str(loner)])
+
+    empty_reg = tmp_path / "empty-registry"
+    empty_reg.mkdir()
+    monkeypatch.setenv("PAIMAN_REGISTRY", str(empty_reg))
+    parent = tmp_path / "needs-loner"
+    parent.mkdir()
+    (parent / "package.yaml").write_text(
+        "name: needs-loner\nkind: subagent\nprompt: prompt.md\ndeps: [loner]\n"
+    )
+    (parent / "prompt.md").write_text("role\n")
+
+    capsys.readouterr()
+    assert paiman.main(["install", str(parent)]) == 0
+    err = capsys.readouterr().err
+    assert "cannot check 'loner'" in err
+    assert (fhs_root / "opt" / "paiman" / "bin" / "loner").is_dir()
+
+
+def test_installed_copy_stale_ignores_copy_ignore_patterns(tmp_path: Path) -> None:
+    import shutil as _shutil
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "package.yaml").write_text("name: x\nkind: bin\nentrypoint: x.py\n")
+    (src / "x.py").write_text("code v1\n")
+    inst = tmp_path / "inst"
+    _shutil.copytree(src, inst)
+
+    # .git / __pycache__ / *.pyc churn in the registry is not drift.
+    (src / "__pycache__").mkdir()
+    (src / "__pycache__" / "x.cpython-314.pyc").write_bytes(b"\x00")
+    (src / "junk.pyc").write_bytes(b"\x00")
+    assert paiman._installed_copy_stale(src, inst) is False
+
+    # A registry-owned file edit is.
+    (src / "x.py").write_text("code v2\n")
+    assert paiman._installed_copy_stale(src, inst) is True
+
+    # Symlink-mode: installed dir resolves to the source itself.
+    assert paiman._installed_copy_stale(src, src) is None
 
 
 def test_install_pai_dep_missing_from_registry_errors(

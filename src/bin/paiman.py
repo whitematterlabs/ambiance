@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import filecmp
 import os
 import pwd
 import re
@@ -487,6 +488,79 @@ def _audit_log(line: str) -> None:
         f.write(f"- {ts}  {line}\n")
 
 
+def _registry_owned_files(src: Path) -> list[str]:
+    """Relative paths of every file the registry ships in bundle `src`,
+    honoring COPY_IGNORE (the same filter `shutil.copytree` installs with),
+    so .git/__pycache__/*.pyc churn never counts as drift. Follows directory
+    symlinks like copytree(symlinks=False) does."""
+    out: list[str] = []
+
+    def walk(d: Path, rel: str) -> None:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            return
+        ignored = COPY_IGNORE(str(d), names)
+        for n in names:
+            if n in ignored:
+                continue
+            p = d / n
+            child_rel = f"{rel}/{n}" if rel else n
+            if p.is_dir():
+                walk(p, child_rel)
+            elif p.is_file():
+                out.append(child_rel)
+
+    walk(src, "")
+    return out
+
+
+def _installed_copy_stale(src: Path, installed: Path) -> bool | None:
+    """Compare the installed bundle at `installed` against registry source
+    `src`, looking only at registry-owned files (per COPY_IGNORE). Extra files
+    in the installed copy — install-hook outputs, user additions — are ignored;
+    the registry only owns what it ships.
+
+    Returns None when `installed` resolves to `src` itself (a symlink-mode
+    install): content cannot drift, so the caller can skip cheaply. Returns
+    True when any registry-owned file is missing or differs byte-for-byte,
+    else False."""
+    try:
+        if installed.resolve() == src.resolve():
+            return None
+    except OSError:
+        pass
+    for rel in _registry_owned_files(src):
+        theirs = installed / rel
+        try:
+            if not theirs.is_file():
+                return True
+            if not filecmp.cmp(src / rel, theirs, shallow=False):
+                return True
+        except OSError:
+            return True  # unreadable installed copy → reinstall to heal
+    return False
+
+
+def _installed_dep_dir(dep_src: Path) -> Path | None:
+    """Where the bundle at registry source `dep_src` would be staged if
+    installed — `opt/paiman/<_opt_rel(...)>` — or None if nothing valid is
+    there. Preferring this exact path over a name-only scan matters when a
+    name exists under several kinds (bin/ax vs drivers/ax): comparing the
+    registry driver against an installed *bin* of the same name would look
+    permanently stale and reinstall on every run."""
+    manifest = _load_manifest(dep_src)
+    name = manifest.get("name")
+    kind = manifest.get("kind")
+    if not isinstance(name, str) or not name or kind not in INSTALLABLE_KINDS:
+        return None
+    topic = manifest.get("topic") if kind == "skill" else None
+    expected = paths.opt_paiman() / _opt_rel(kind, name, topic)
+    if (expected / "package.yaml").is_file():
+        return expected
+    return None
+
+
 def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Path,
                          seen: set[str], kinds_out: set[str] | None = None) -> str:
     """Install one bundle from a resolved source tree. Returns the bundle name.
@@ -532,9 +606,34 @@ def _install_from_source(src: Path, src_arg: str, registry: _Registry, work: Pat
         for dep in deps:
             if not isinstance(dep, str):
                 raise SystemExit(f"paiman: dep entries must be strings, got {dep!r}")
-            if _find_installed_bundle(dep) is not None:
-                continue  # already installed; mutable, leave it alone
-            dep_src = registry.lookup(dep)
+            # "Exists" is not "current": an installed dep is only skipped when
+            # its registry-owned files still match the registry source. A
+            # registry edit to a dep must reach the runtime on the next install
+            # of anything that depends on it — not wait for the owner to know
+            # to run `paiman install <dep>` by hand. Only opt/paiman staging is
+            # ever touched; runtime state (/sys, /var cursors, …) is not.
+            try:
+                dep_src = registry.lookup(dep)
+            except SystemExit as e:
+                if _find_installed_bundle(dep) is not None:
+                    # Registry unreachable (offline URL registry) or the dep no
+                    # longer resolves — keep the installed copy, as before.
+                    print(
+                        f"paiman: warning — cannot check {dep!r} against the "
+                        f"registry ({e}); keeping installed copy",
+                        file=sys.stderr,
+                    )
+                    continue
+                raise
+            installed = _installed_dep_dir(dep_src) or _find_installed_bundle(dep)
+            if installed is not None:
+                stale = _installed_copy_stale(dep_src, installed)
+                if stale is None:
+                    continue  # symlinked at the registry source; cannot drift
+                if not stale:
+                    continue  # installed copy matches the registry; leave it
+                print(f"{dep}: installed copy stale -> reinstalling")
+                _audit_log(f"stale dep {dep} -> reinstall")
             _install_from_source(dep_src, dep, registry, work, seen, kinds_out)
 
     # Clean up old flat install if migrating into a topic subdir.
