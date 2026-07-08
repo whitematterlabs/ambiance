@@ -897,6 +897,14 @@ async def _handle_reload_config(event: dict | None = None) -> None:
                 flush=True,
             )
         try:
+            # Keys entered from the web console land in $PAI_ROOT/.env after
+            # boot already snapshotted the env; re-read them and rebuild the
+            # per-provider clients (they capture the key at construction).
+            import boot as _boot
+            from . import llm as _llm
+            _boot.reload_env()
+            _llm._clients.clear()
+
             C.reconcile_from_config()
             # Re-stitch every running PAI's home view so newly-installed
             # skills/prompts surface without a reboot. Mirrors the boot-time

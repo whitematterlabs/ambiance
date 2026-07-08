@@ -20,3 +20,17 @@ _code_root = _Path(__file__).resolve().parent.parent.parent
 for _base in (_pai_root, _code_root):
     _load_dotenv(_base / ".env.local")
     _load_dotenv(_base / ".env")
+
+
+def reload_env() -> None:
+    """Re-read the .env files so runtime edits (web-console key entry) go live.
+
+    Boot loads with override=False, high-precedence file first. To keep the
+    same precedence with override=True we load lowest-precedence first so the
+    later files win. override=True means .env values now beat inherited shell
+    exports — intended: the console's key editor writes .env and must win over
+    a stale exported var. Called by the kernel on kernel:reload_config.
+    """
+    for _base in (_code_root, _pai_root):
+        for _name in (".env", ".env.local"):
+            _load_dotenv(_base / _name, override=True)
