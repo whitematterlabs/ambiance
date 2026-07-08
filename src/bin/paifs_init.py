@@ -118,10 +118,9 @@ SYMLINKS: tuple[tuple[str, Path], ...] = (
 ROOT_SEED_PROMPTS: tuple[str, ...] = (
     "root",
     "pai_default",
-    # Sysprompt fragments stitched in for spawned subagents so the child
+    # Sysprompt fragment stitched in for spawned subagents so the child
     # knows it IS the subagent and shouldn't recursively spawn another.
     "subagent",
-    "subagent-persistent",
 )
 
 # Drivers the kernel imports directly as libraries during boot/runtime. A fresh

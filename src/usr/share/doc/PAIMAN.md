@@ -338,9 +338,9 @@ anyway. See "Install hooks vs setup hooks" above.
 On first install of `$PAI_ROOT`, `paifs-init` calls `paiman install` for a
 tight seed set declared as module constants in `src/bin/paifs_init.py`:
 
-- `ROOT_SEED_PROMPTS` — `root`, `pai_default`, `subagent`,
-  `subagent-persistent`. Stitched into every spawned PAI/subagent
-  sysprompt; the kernel will not boot without them.
+- `ROOT_SEED_PROMPTS` — `root`, `pai_default`, `subagent`. Stitched into
+  every spawned PAI/subagent sysprompt; the kernel will not boot without
+  them.
 - `KERNEL_SEED_DRIVERS` — `contacts`, `messages`. Imported as Python
   libraries at module-load time; a missing one raises during boot.
   Drivers with runnable processes (e.g. `imessage`, `macmail`) are NOT
