@@ -20,6 +20,9 @@ place); only `version.txt` carries the counter. A plain build (no --publish)
 keeps the bare base semver.
 
 Steps:
+  0. Pre-flight: every dual-homed tool (src/{bin,sbin}/<name>.py with an
+     installable copy in ~/Projects/pairegistry) must be byte-identical with
+     its registry copy — hard-fails otherwise (bypass: --skip-drift-check).
   1. Read the base version from pyproject.toml [project].version. On --publish,
      append `+build.<N>` where N is one past the published version.txt.
   2. Build the web surface (`pnpm install && pnpm build`).
@@ -66,6 +69,96 @@ _BUILD_RE = re.compile(r"\+build\.(\d+)")
 # Dev-only trees pruned from the staged tree before tarring. Note we keep
 # src/usr/share/doc (runtime PAI docs) — only top-level dev dirs are dropped.
 PRUNE_DIRS: tuple[str, ...] = ("tests", "development_docs", "docs")
+
+# The canonical package registry (see CLAUDE.md: pairegistry is upstream).
+# Dual-homed tools have dev source at src/{bin,sbin}/<name>.py and an
+# installable copy at <registry>/{bin,sbin}/<pkg>/<file>.py; the two must be
+# byte-identical at release time. Overridable for tests / other checkouts.
+DEFAULT_REGISTRY_ROOT = Path.home() / "Projects" / "pairegistry"
+
+
+def _registry_root() -> Path:
+    return Path(os.environ.get("PAI_REGISTRY_ROOT", str(DEFAULT_REGISTRY_ROOT)))
+
+
+def _name_variants(name: str) -> list[str]:
+    """Registry package dirs (and sometimes files) hyphenate underscores,
+    e.g. src/bin/send_message.py ↔ bin/send-message/send_message.py."""
+    return list(dict.fromkeys([name, name.replace("_", "-")]))
+
+
+def _registry_copy(registry: Path, kind: str, name: str) -> Path | None:
+    """Locate the registry's installable copy of a src/<kind>/<name>.py tool.
+
+    Checks the matching registry kind first, then the other one (tools have
+    historically moved between bin/ and sbin/). Both the package dir and the
+    file inside it may use either underscores or hyphens."""
+    kinds = (kind, "sbin" if kind == "bin" else "bin")
+    for k in kinds:
+        for pkg in _name_variants(name):
+            for fname in _name_variants(name):
+                cand = registry / k / pkg / f"{fname}.py"
+                if cand.is_file():
+                    return cand
+    return None
+
+
+def discover_dual_homed(repo: Path, registry: Path) -> list[tuple[Path, Path]]:
+    """Empirically build the dual-homed mapping: every src/{bin,sbin}/*.py that
+    has an installable copy in the registry. Discovered, not hardcoded, so a
+    newly-registered tool is covered the moment its registry package exists."""
+    pairs: list[tuple[Path, Path]] = []
+    for kind in ("bin", "sbin"):
+        src_dir = repo / "src" / kind
+        if not src_dir.is_dir():
+            continue
+        for src in sorted(src_dir.glob("*.py")):
+            if src.stem == "__init__":
+                continue
+            reg = _registry_copy(registry, kind, src.stem)
+            if reg is not None:
+                pairs.append((src, reg))
+    return pairs
+
+
+def find_dual_homed_drift(repo: Path, registry: Path) -> list[tuple[Path, Path]]:
+    """Return the (repo_copy, registry_copy) pairs that are not byte-identical."""
+    return [
+        (src, reg)
+        for src, reg in discover_dual_homed(repo, registry)
+        if src.read_bytes() != reg.read_bytes()
+    ]
+
+
+def check_dual_homed_drift(repo: Path, registry: Path) -> None:
+    """Release pre-flight: hard-fail if any dual-homed tool has drifted from
+    its registry copy. The registry is upstream (CLAUDE.md) and must never be
+    behind a release."""
+    if not registry.is_dir():
+        print(
+            f"pairelease: WARNING — package registry not found at {registry}; "
+            "skipping dual-homed drift check (set PAI_REGISTRY_ROOT to point at it)",
+            file=sys.stderr,
+        )
+        return
+    drifted = find_dual_homed_drift(repo, registry)
+    if not drifted:
+        return
+    lines = [
+        "pairelease: dual-homed drift — these tools differ from their registry copies:"
+    ]
+    for src, reg in drifted:
+        lines.append(f"  {src.stem}:")
+        lines.append(f"    repo:     {src}")
+        lines.append(f"    registry: {reg}")
+    lines.append(
+        "The registry is upstream and must never be behind (CLAUDE.md). Diff each"
+    )
+    lines.append(
+        "pair, copy the newer side over the stale one, then rerun. To bypass"
+    )
+    lines.append("(you almost never should): --skip-drift-check.")
+    sys.exit("\n".join(lines))
 
 
 def read_version(repo: Path) -> str:
@@ -284,9 +377,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip the pnpm build (reuse an already-built dist/)",
     )
+    ap.add_argument(
+        "--skip-drift-check",
+        action="store_true",
+        help="bypass the dual-homed registry drift pre-flight (escape hatch)",
+    )
     args = ap.parse_args(argv)
 
     repo = REPO_ROOT
+
+    # Pre-flight, before any build/publish work: every dual-homed tool
+    # (src/{bin,sbin} ↔ pairegistry) must be byte-identical with its registry
+    # copy — the registry is upstream and a release must never ship ahead of it.
+    if not args.skip_drift_check:
+        check_dual_homed_drift(repo, _registry_root())
+
     base_version = read_version(repo)
 
     # The build counter only advances on --publish (its source of truth is the
