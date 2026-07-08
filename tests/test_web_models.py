@@ -102,3 +102,60 @@ def test_set_pai_model_validation_bubbles(env_root, events, monkeypatch, tmp_pat
 def test_provider_yaml_plumbing_is_gone():
     for name in ("read_provider", "write_provider", "PROVIDER_CONFIG_PATH", "PROVIDER_OPTIONS"):
         assert not hasattr(actions, name)
+
+
+# ── GET /api/models route-level error mapping ───────────────────────────────
+#
+# models_state calls the strict boot.config.load_config, which raises
+# ConfigError on any invalid hand-edited fleet entry; the route must map that
+# to an error JSON (mirroring do_POST) instead of dying with no HTTP response.
+# Drive the real Handler over an in-memory socket — no network needed.
+
+
+class _FakeSocket:
+    def __init__(self, data: bytes) -> None:
+        import io
+
+        self._in = io.BytesIO(data)
+        self.out = io.BytesIO()
+
+    def makefile(self, mode, *args, **kwargs):
+        return self._in if "r" in mode else self.out
+
+    def sendall(self, data: bytes) -> None:
+        self.out.write(data)
+
+    def close(self) -> None:
+        pass
+
+
+def _route_get(path: str) -> tuple[int, dict]:
+    import json
+    import types
+
+    from usr.libexec.web.pai_web import server
+
+    raw = f"GET {path} HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n".encode()
+    sock = _FakeSocket(raw)
+    server.Handler(sock, ("127.0.0.1", 0), types.SimpleNamespace(auth_token=None))
+    head, _, body = sock.out.getvalue().partition(b"\r\n\r\n")
+    return int(head.split()[1]), json.loads(body)
+
+
+def test_models_get_route_maps_config_error(env_root, monkeypatch):
+    def boom():
+        raise bconfig.ConfigError("pai 'writer': unknown provider 'grok'")
+
+    monkeypatch.setattr(bconfig, "load_config", boom)
+    status, payload = _route_get("/api/models?pai=writer")
+    assert status == 500
+    assert payload["ok"] is False
+    assert "grok" in payload["error"]
+
+
+def test_models_get_route_ok(env_root, monkeypatch):
+    monkeypatch.setattr(bconfig, "load_config", lambda: {})
+    status, payload = _route_get("/api/models")
+    assert status == 200
+    assert payload["ok"] is True
+    assert "rows" in payload

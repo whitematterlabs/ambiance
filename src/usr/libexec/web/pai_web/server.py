@@ -213,7 +213,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/models":
             query = self.path.split("?", 1)[1] if "?" in self.path else ""
             vals = urllib.parse.parse_qs(query).get("pai")
-            return self._json({"ok": True, **actions.models_state(vals[0] if vals else None)})
+            # models_state reads /etc/config.yaml strictly (ConfigError on a
+            # bad hand-edit) — map errors to JSON like do_POST does instead of
+            # killing the request with no response.
+            try:
+                return self._json({"ok": True, **actions.models_state(vals[0] if vals else None)})
+            except (KeyError, ValueError) as e:
+                return self._json({"ok": False, "error": str(e)}, status=400)
+            except Exception as e:  # noqa: BLE001
+                return self._json({"ok": False, "error": str(e)}, status=500)
         if path == "/api/asset":
             return self._asset()
         if path == "/api/elevenlabs-key":

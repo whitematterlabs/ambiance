@@ -119,6 +119,7 @@ export function ModelPicker({
                   <input
                     className="palette-input"
                     type="password"
+                    autoComplete="new-password"
                     placeholder={`${keyEnv(r.provider)}…`}
                     autoFocus
                     value={keyInput}
@@ -163,7 +164,7 @@ export function ModelPicker({
                 >
                   <input
                     className="palette-input"
-                    placeholder="vendor/model — e.g. moonshotai/kimi-k2:free"
+                    placeholder="vendor/model — e.g. nvidia/nemotron-3-ultra-550b-a55b:free"
                     autoFocus
                     value={customModel}
                     onChange={(e) => setCustomModel(e.target.value)}
@@ -172,6 +173,7 @@ export function ModelPicker({
                     <input
                       className="palette-input"
                       type="password"
+                      autoComplete="new-password"
                       placeholder="OPENROUTER_API_KEY…"
                       value={keyInput}
                       onChange={(e) => setKeyInput(e.target.value)}

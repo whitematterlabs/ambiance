@@ -916,8 +916,11 @@ async def _handle_reload_config(event: dict | None = None) -> None:
                 except Exception as e:
                     print(f"[kernel] reload_config: stitch {slug} failed: {e!r}", flush=True)
             # Start/stop the LiteLLM proxy if adding/removing a proxied PAI
-            # changed whether the fleet needs it — no reboot required.
-            await litellm_proxy.reconcile()
+            # changed whether the fleet needs it — no reboot required. The
+            # event rides along so a config change (new proxied provider) or a
+            # set-api-key for a proxied provider restarts a running proxy,
+            # whose config and env are otherwise frozen at spawn.
+            await litellm_proxy.reconcile(event)
             print("[kernel] reload_config: done", flush=True)
         except Exception as e:
             tb = traceback.format_exc()

@@ -70,8 +70,13 @@ its `:free` models are the cheapest way to try PAI.
 2. Clears `llm._clients` wholesale (≤5 entries; no per-key finesse needed), so
    the next turn constructs clients with the fresh env.
 
-Existing proxy reconcile already handles the rest: an OpenRouter/OpenAI PAI
-appearing in config spawns or reconfigures the LiteLLM proxy on reload.
+Proxy reconcile handles the rest, but needs more than spawn/stop: a running
+proxy freezes its config and env at fork. `litellm_proxy.reconcile(event)`
+therefore also, when the proxy is needed and already running, regenerates the
+config and restarts the proxy if the content changed (e.g. a PAI switched to a
+new proxied provider), and restarts even on unchanged config when the reload
+event is a `set-api-key` for a proxied provider — the key resolves from the
+proxy's own process env, so only a restart picks it up.
 
 ### 3. Web backend (`pai_web`)
 

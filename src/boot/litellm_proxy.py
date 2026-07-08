@@ -181,39 +181,87 @@ def _ensure_proc() -> None:
         P.spawn(PROXY_SLUG, {"kind": "infra"})
 
 
-async def reconcile() -> None:
+async def _spawn() -> None:
+    """Write a fresh config and start the proxy under the supervisor."""
+    cfg = _write_config()
+    _ensure_proc()
+    spec = {
+        "run": _proxy_argv(cfg),
+        "restart": "always",
+    }
+    await supervisor.start(PROXY_SLUG, spec)
+    ready = await _await_ready()
+    if ready:
+        P.append_log(PROXY_SLUG, f"kernel: proxy ready on 127.0.0.1:{L.PROXY_PORT}")
+    else:
+        P.append_log(
+            PROXY_SLUG,
+            f"kernel: proxy not ready after {_READINESS_TIMEOUT}s "
+            "(first turn will retry)",
+        )
+
+
+async def _stop() -> None:
+    """Stop the supervised proxy without tripping its restart policy."""
+    # Resolve to a non-running status BEFORE stopping so the supervisor's
+    # _await_exit sees a terminal status and does not restart-loop a proxy
+    # we deliberately killed (restart policy is "always").
+    try:
+        P.resolve(PROXY_SLUG, "stopped")
+    except P.ProcessNotFound:
+        pass
+    await supervisor.stop(PROXY_SLUG)
+
+
+async def reconcile(event: dict | None = None) -> None:
     """Bring the proxy into sync with the fleet's need for it. Idempotent.
 
     Called at boot (after driver reconcile) and on every kernel:reload_config,
     so adding/removing an `openai` PAI at runtime starts/stops the proxy with
     no reboot. Never on a timer.
+
+    A running proxy can also go stale in place: its config is written once at
+    spawn (one model_list row per proxied provider), and it resolves
+    `os.environ/<API_KEY_ENV>` from its own process env, snapshotted at fork.
+    So when the proxy is needed AND already running, regenerate the config and
+    restart on any content change (e.g. a PAI switched openai→openrouter), and
+    also restart when the triggering reload is a `set-api-key` for a proxied
+    provider even if the config bytes are unchanged — the key lives in the
+    proxy's env, not the config. `event` is the kernel:reload_config payload
+    when the caller has one.
     """
     needs = fleet_needs_proxy()
     tracked = supervisor.is_tracked(PROXY_SLUG)
 
     if needs and not tracked:
-        cfg = _write_config()
-        _ensure_proc()
-        spec = {
-            "run": _proxy_argv(cfg),
-            "restart": "always",
-        }
-        await supervisor.start(PROXY_SLUG, spec)
-        ready = await _await_ready()
-        if ready:
-            P.append_log(PROXY_SLUG, f"kernel: proxy ready on 127.0.0.1:{L.PROXY_PORT}")
-        else:
-            P.append_log(
-                PROXY_SLUG,
-                f"kernel: proxy not ready after {_READINESS_TIMEOUT}s "
-                "(first turn will retry)",
-            )
+        await _spawn()
     elif not needs and tracked:
-        # Resolve to a non-running status BEFORE stopping so the supervisor's
-        # _await_exit sees a terminal status and does not restart-loop a proxy
-        # we deliberately killed (restart policy is "always").
+        await _stop()
+    elif needs and tracked:
+        # The on-disk config always matches the running proxy (spawn writes it,
+        # and any change below triggers a restart), so read-before/compare-after
+        # detects drift without extra bookkeeping.
+        path = _config_path()
         try:
-            P.resolve(PROXY_SLUG, "stopped")
-        except P.ProcessNotFound:
-            pass
-        await supervisor.stop(PROXY_SLUG)
+            before = path.read_bytes()
+        except OSError:
+            before = None
+        _write_config()
+        changed = path.read_bytes() != before
+        key_changed = bool(
+            event
+            and event.get("action") == "set-api-key"
+            and event.get("provider")
+            and _provider_is_proxied(event.get("provider"))
+        )
+        if changed or key_changed:
+            reason = (
+                "config changed" if changed
+                else f"{event.get('provider')} key updated"  # type: ignore[union-attr]
+            )
+            try:
+                P.append_log(PROXY_SLUG, f"kernel: restarting proxy ({reason})")
+            except P.ProcessNotFound:
+                pass
+            await _stop()
+            await _spawn()

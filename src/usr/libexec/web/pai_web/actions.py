@@ -347,11 +347,13 @@ def _write_env_var(var: str, value: str) -> None:
     if target is None:
         target = paths.PAI_ROOT / ".env"
         target.touch(exist_ok=True)
-    set_key(target, var, value)
+    # Lock perms down BEFORE the secret lands: touch() uses umask perms, so a
+    # fresh .env would otherwise be world-readable while set_key writes the key.
     try:
         target.chmod(0o600)
     except OSError:
         pass
+    set_key(target, var, value)
     os.environ[var] = value
 
 
