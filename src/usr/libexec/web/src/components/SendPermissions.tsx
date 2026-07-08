@@ -6,24 +6,12 @@ const MODES: { mode: SendMode; label: string; hint: string }[] = [
   { mode: "yes", label: "Yes", hint: "Sends autonomously, no approval" },
 ];
 
-// Capture gates aren't sends — give their buttons honest hover copy.
-const FLAG_HINTS: Record<string, Partial<Record<SendMode, string>>> = {
-  cowork: {
-    yes: "PAI sees window, clipboard + file activity",
-    no: "No ambient capture",
-  },
-  notetaker: {
-    yes: "PAI may record + transcribe calls when you ask (requires system-audio permission)",
-    no: "Call recording disabled",
-  },
-};
-
-// Owner control for the capability permissions. One segmented row per mounted
-// capability; send channels are tri-state (the modal approval tray still
-// handles individual sends in `ask` mode), capture gates are two-state — each
-// row renders only the modes its flag allows. Rows arrive pre-filtered by the
-// backend (only capabilities a PAI can actually use), so an empty list means
-// nothing is mounted and the block hides.
+// Owner control for the send-channel permissions. One segmented tri-state row
+// per mounted channel (the modal approval tray still handles individual sends
+// in `ask` mode). Capture gates (cowork/notetaker) live as header/mobile-sheet
+// toggles, not here — App filters them out before this renders. Rows arrive
+// pre-filtered by the backend (only capabilities a PAI can actually use), so
+// an empty list means nothing is mounted and the block hides.
 export function SendPermissions({
   capabilities,
   onSetMode,
@@ -52,7 +40,7 @@ export function SendPermissions({
                   key={m.mode}
                   role="radio"
                   aria-checked={cap.mode === m.mode}
-                  title={FLAG_HINTS[cap.flag]?.[m.mode] ?? m.hint}
+                  title={m.hint}
                   className={`segment ${cap.mode === m.mode ? "active" : ""}`}
                   onClick={() => {
                     if (cap.mode !== m.mode) onSetMode(cap.flag, m.mode);

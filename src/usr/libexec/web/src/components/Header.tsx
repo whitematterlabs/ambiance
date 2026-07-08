@@ -3,6 +3,8 @@ import { HelpCircle, Loader, Moon, Pause, Play, Smartphone, Sun } from "lucide-r
 import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
 import type { VoiceEngine } from "../speech";
+import type { SendCapability, SendMode } from "../types";
+import { CAPTURE_COPY } from "../capture";
 
 export function Header({
   connected,
@@ -28,6 +30,8 @@ export function Header({
   phraseSupported,
   hostManaged,
   wakePhrase,
+  captureCaps,
+  onSetCaptureMode,
   onShowWelcome,
   onSetupRemote,
 }: {
@@ -57,6 +61,10 @@ export function Header({
   // phrase activation rides the host mic (kernel-side wake + STT) regardless of
   // browser SpeechRecognition support; otherwise it falls back to the browser.
   wakePhrase: string;
+  // Mounted capture gates (cowork/notetaker) — rendered as first-class toggles
+  // next to voice; absent capabilities render nothing.
+  captureCaps: SendCapability[];
+  onSetCaptureMode: (flag: string, mode: SendMode) => void;
   onShowWelcome: () => void;
   onSetupRemote: () => void;
 }) {
@@ -152,6 +160,23 @@ export function Header({
           <Moon size={15} aria-hidden="true" />
         )}
       </button>
+      {captureCaps.map((cap) => {
+        const copy = CAPTURE_COPY[cap.flag];
+        const name = copy?.name ?? cap.channel;
+        const on = cap.mode === "yes";
+        return (
+          <button
+            key={cap.flag}
+            className="ghost-button capture-toggle"
+            type="button"
+            onClick={() => onSetCaptureMode(cap.flag, on ? "no" : "yes")}
+            aria-pressed={on}
+            title={on ? (copy?.onHint ?? `${name} on`) : (copy?.offHint ?? `${name} off`)}
+          >
+            <span className="ghost-label">{`${name} ${on ? "on" : "off"}`}</span>
+          </button>
+        );
+      })}
       <div className="voice-split" ref={popoverRef}>
         <button
           className="ghost-button voice-toggle"

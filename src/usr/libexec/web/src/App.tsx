@@ -23,6 +23,7 @@ import {
 import { ServerSpeechBackend, SpeechQueue, type VoiceEngine } from "./speech";
 import { DEFAULT_WAKE_PHRASE, speechRecognitionSupported, usePhraseActivation } from "./voiceActivation";
 import { deriveStatus } from "./status";
+import { CAPTURE_FLAGS } from "./capture";
 import * as api from "./api";
 import { onUnauthorized, setAuthToken, withTokenParam } from "./auth";
 import { LoginGate } from "./components/LoginGate";
@@ -641,6 +642,11 @@ export function App() {
     api.setSendMode(flag, mode);
   }, []);
 
+  // Capture gates (cowork/notetaker) render as header/mobile-sheet toggles;
+  // only the send channels stay in the sidebar permissions rows.
+  const captureCaps = sendCaps.filter((c) => CAPTURE_FLAGS.has(c.flag));
+  const channelCaps = sendCaps.filter((c) => !CAPTURE_FLAGS.has(c.flag));
+
   const handleInterrupt = useCallback(() => {
     const pid = activePidRef.current ?? 1;
     api.interrupt(pid);
@@ -894,6 +900,8 @@ export function App() {
         phraseSupported={phraseSupported}
         hostManaged={voiceInstalled}
         wakePhrase={DEFAULT_WAKE_PHRASE}
+        captureCaps={captureCaps}
+        onSetCaptureMode={onSetSendMode}
         onShowWelcome={() => setWelcomeOpen(true)}
         onSetupRemote={handleSetupRemote}
       />
@@ -927,6 +935,8 @@ export function App() {
         phraseSupported={phraseSupported}
         hostManaged={voiceInstalled}
         wakePhrase={DEFAULT_WAKE_PHRASE}
+        captureCaps={captureCaps}
+        onSetCaptureMode={onSetSendMode}
         onShowWelcome={() => setWelcomeOpen(true)}
         onSetupRemote={handleSetupRemote}
         onClear={handleClearContext}
@@ -983,7 +993,7 @@ export function App() {
               procs={procs}
               events={events}
               logLines={logLines}
-              sendCaps={sendCaps}
+              sendCaps={channelCaps}
               onSetSendMode={onSetSendMode}
             />
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { HelpCircle, Menu, Moon, Smartphone, Sun, X } from "lucide-react";
-import type { FleetMember, ProcRow } from "../types";
+import type { FleetMember, ProcRow, SendCapability, SendMode } from "../types";
+import { CAPTURE_COPY } from "../capture";
 import { paiColor } from "../palette";
 import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
@@ -36,6 +37,8 @@ export function MobileMenu({
   phraseSupported,
   hostManaged,
   wakePhrase,
+  captureCaps,
+  onSetCaptureMode,
   onShowWelcome,
   onSetupRemote,
   onClear,
@@ -68,6 +71,10 @@ export function MobileMenu({
   phraseSupported: boolean;
   hostManaged?: boolean;
   wakePhrase: string;
+  // Capture gates (cowork/notetaker) — the desktop header is hidden on phones,
+  // so the sheet is the only place these toggles exist on mobile.
+  captureCaps: SendCapability[];
+  onSetCaptureMode: (flag: string, mode: SendMode) => void;
   onShowWelcome: () => void;
   onSetupRemote: () => void;
   onClear: () => void;
@@ -203,6 +210,36 @@ export function MobileMenu({
                 showHead={false}
               />
             </section>
+
+            {captureCaps.length > 0 && (
+              <section className="mobile-sheet-group">
+                <h2 className="mobile-sheet-heading">Modes</h2>
+                {captureCaps.map((cap) => {
+                  const copy = CAPTURE_COPY[cap.flag];
+                  const on = cap.mode === "yes";
+                  return (
+                    <button
+                      key={cap.flag}
+                      type="button"
+                      className="voice-switch"
+                      role="switch"
+                      aria-checked={on}
+                      onClick={() => onSetCaptureMode(cap.flag, on ? "no" : "yes")}
+                    >
+                      <span className="voice-switch-copy">
+                        <span className="voice-switch-name">{cap.channel}</span>
+                        <span className="voice-switch-blurb">
+                          {on ? (copy?.onHint ?? "On") : (copy?.offHint ?? "Off")}
+                        </span>
+                      </span>
+                      <span className="voice-switch-track" aria-hidden="true">
+                        <span className="voice-switch-thumb" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </section>
+            )}
 
             <section className="mobile-sheet-group">
               <h2 className="mobile-sheet-heading">System</h2>
