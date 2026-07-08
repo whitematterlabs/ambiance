@@ -28,6 +28,49 @@ RELEASE_BASE="${PAI_RELEASE_BASE:-https://github.com/whitematterlabs/pai/release
 interactive=0
 if [ -t 1 ] && [ -r /dev/tty ]; then interactive=1; fi
 
+# --- Full Disk Access (macOS) --------------------------------------------------
+# Asked for up front because the driver setup hooks at the end of this install
+# (email archive backfill, iMessage history) read TCC-protected files (Mail's
+# Envelope Index, Messages' chat.db). Without FDA those hooks bail with a
+# printed hint that scrolls away, and the archives start at install day.
+# macOS has no programmatic FDA prompt — the owner must toggle the terminal
+# app on in System Settings — so deep-link the pane and wait for the toggle.
+# FDA is granted to the terminal app and inherited by everything it spawns,
+# including the kernel, so this one grant covers the whole runtime.
+_fda_ok() {
+  # access(2) lies under TCC, so probe by actually reading a byte of the
+  # user-level TCC db — it always exists and is unreadable without FDA.
+  head -c1 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" >/dev/null 2>&1
+}
+if [ "$(uname)" = "Darwin" ] && [ "$interactive" = "1" ] && ! _fda_ok; then
+  TERM_APP="${TERM_PROGRAM:-your terminal}"
+  echo "==> Full Disk Access"
+  echo "    PAI builds on-disk archives of your mail and messages. That needs"
+  echo "    Full Disk Access for ${TERM_APP}, and granting it now lets the"
+  echo "    history backfill run automatically at the end of this install."
+  echo "    Opening: System Settings → Privacy & Security → Full Disk Access"
+  echo "    — toggle ${TERM_APP} ON."
+  open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+  while true; do
+    printf "    Press Enter once granted (or 's' to skip): "
+    IFS= read -r _fda_ans < /dev/tty || _fda_ans="s"
+    case "$_fda_ans" in
+      s|S)
+        echo "    skipping — mail/message history will start at install day."
+        echo "    Grant FDA later, then run:"
+        echo "      cd \"$PAI_ROOT\" && usr/bin/python -m drivers.email.macmail.backfill"
+        break
+        ;;
+    esac
+    if _fda_ok; then
+      echo "    Full Disk Access: granted."
+      break
+    fi
+    echo "    Still not readable. If you did toggle ${TERM_APP} on, quit it"
+    echo "    entirely, reopen it, and re-run this installer — it is safe to re-run."
+  done
+fi
+
 # --- uv ----------------------------------------------------------------------
 # Install the uv static binary if it isn't already reachable. uv drives the
 # whole Python provisioning chain (venv + lockfile sync).
