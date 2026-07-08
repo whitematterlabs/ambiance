@@ -161,8 +161,45 @@ PROVIDERS: dict[str, ProviderSpec] = {
         via_proxy=True,
         proxy_prefix="openai",
     ),
+    # OpenRouter is OpenAI-wire upstream, so it also routes through the
+    # LiteLLM proxy. Its model ids are "vendor/model" slugs (the vendor prefix
+    # is part of the id — see _resolve's self-prefix rule). The default is a
+    # free model on purpose: it's the zero-cost way to try PAI.
+    "openrouter": ProviderSpec(
+        f"http://127.0.0.1:{PROXY_PORT}",
+        "OPENROUTER_API_KEY",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        {},
+        via_proxy=True,
+        proxy_prefix="openrouter",
+    ),
 }
 DEFAULT_PROVIDER = "anthropic"
+
+
+@dataclass(frozen=True)
+class CatalogEntry:
+    """One curated row in the web console's model picker."""
+
+    provider: str
+    model: str
+    label: str
+    tag: Optional[str] = None
+
+
+# Curated provider+model combos the console offers one-click. Single source of
+# truth — the web backend (pai_web/actions.models_state) imports this. Any
+# model id outside the catalog still works via the picker's custom-model row.
+CATALOG: tuple[CatalogEntry, ...] = (
+    CatalogEntry("deepseek", "deepseek-v4-pro", "DeepSeek V4-Pro"),
+    CatalogEntry("anthropic", "claude-opus-4-8", "Claude Opus 4.8"),
+    CatalogEntry("anthropic", "claude-sonnet-4-6", "Claude Sonnet 4-6"),
+    CatalogEntry("openai", "gpt-5.5", "ChatGPT-5.5"),
+    CatalogEntry("zai", "glm-5.2", "GLM 5.2"),
+    CatalogEntry("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free", "Nemotron 3 Ultra (free)", "free"),
+    CatalogEntry("openrouter", "qwen/qwen3-coder:free", "Qwen3 Coder (free)", "free"),
+    CatalogEntry("openrouter", "openai/gpt-oss-120b:free", "GPT-OSS 120B (free)", "free"),
+)
 
 # provider_key -> AsyncAnthropic client (one per provider).
 _clients: dict[str, AsyncAnthropic] = {}
@@ -174,10 +211,12 @@ def _resolve(provider: Optional[str], model: Optional[str]) -> tuple[AsyncAnthro
     Both args may be None: provider falls back to DEFAULT_PROVIDER; model
     falls back to the provider's default. Unknown providers raise.
 
-    Model ids may carry an OpenRouter-style `provider/` prefix
-    (e.g. `anthropic/claude-opus-4-7`). The prefix is informational —
-    routing is decided by the `provider` field — so we split it off
-    before sending to the API."""
+    Model ids may carry a self-referential `provider/` prefix that is
+    stripped and re-namespaced for wire-form stability. For example, a
+    wire-form model id from config.yaml like `openai/gpt-5.5` is normalized
+    by stripping the `openai/` prefix and then re-adding the proxy namespace.
+    Any non-self prefix (e.g., OpenRouter's `vendor/model` slugs or a foreign
+    prefix sent to a different provider) passes through intact."""
     key = provider or DEFAULT_PROVIDER
     if key not in PROVIDERS:
         raise ValueError(f"unknown provider: {key!r}")
@@ -186,9 +225,14 @@ def _resolve(provider: Optional[str], model: Optional[str]) -> tuple[AsyncAnthro
     api_key_env = spec.api_key_env
     default_model = spec.default_model
     extra_body = spec.extra_body
-    # Normalize any incoming OpenRouter-style prefix to a bare model id.
+    # Strip only a self-referential prefix (e.g. "anthropic/claude-…" sent to
+    # the anthropic provider, or the wire form "openai/gpt-5.5" round-tripping
+    # from config). Any other slash is part of the model id — OpenRouter slugs
+    # are "vendor/model" and must reach the proxy intact.
     if model and "/" in model:
-        model = model.split("/", 1)[1]
+        head, rest = model.split("/", 1)
+        if head == key or head == spec.proxy_prefix:
+            model = rest
     client = _clients.get(key)
     if client is None:
         api_key = os.environ.get(api_key_env)

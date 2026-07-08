@@ -79,3 +79,21 @@ def test_write_config_emits_api_base_when_set(monkeypatch, tmp_path):
             },
         }
     ]
+
+
+def test_write_config_emits_openrouter_row(monkeypatch, tmp_path):
+    monkeypatch.setattr(paths, "PAI_ROOT", tmp_path)
+    monkeypatch.setattr(lp.C, "load_config", lambda: {"pai": {"provider": "openrouter", "model": "moonshotai/kimi-k2:free"}})
+    cfg_path = lp._write_config()
+    cfg = yaml.safe_load(cfg_path.read_text())
+    rows = {r["model_name"]: r["litellm_params"] for r in cfg["model_list"]}
+    assert "openrouter/*" in rows
+    assert rows["openrouter/*"]["api_key"] == "os.environ/OPENROUTER_API_KEY"
+
+
+def test_fleet_needs_proxy_openrouter_member(monkeypatch):
+    monkeypatch.setattr(
+        lp.C, "load_config",
+        lambda: {"pai": {"provider": "openrouter", "model": "moonshotai/kimi-k2:free"}},
+    )
+    assert lp.fleet_needs_proxy() is True
