@@ -28,6 +28,9 @@ dependencies = [
     "watchdog>=6.0.0",
     "pytest>=8.0",
     "pytest-timeout>=2.3",
+    "pyobjc-framework-applicationservices>=12.2.1",
+    "pyobjc-framework-fsevents>=12.2.1",
+    "pyobjc-framework-coreaudio>=12.2.1",
 ]
 
 [project.scripts]
