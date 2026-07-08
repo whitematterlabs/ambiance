@@ -662,13 +662,20 @@ pais:
 """,
     )
     flags = C.capability_flags()
-    assert flags == {"email_send": False, "imessage_send": False, "whatsapp_send": False}
+    # Send flags fail closed when absent; cowork is the deliberate exception
+    # (capture gate, ships on-by-default per its spec).
+    assert flags == {
+        "email_send": False, "imessage_send": False, "whatsapp_send": False,
+        "cowork": True, "notetaker": False,
+    }
 
 
 def test_capability_flags_missing_file_is_deny(repo_root):
-    # No config written at all → deny, never raises.
+    # No config written at all → deny, never raises. Even default-yes flags
+    # fail closed here: no readable config means no grants of any kind.
     assert C.capability_flags() == {
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
+        "cowork": False, "notetaker": False,
     }
 
 
@@ -779,7 +786,10 @@ pais:
 """,
     )
     modes = C.capability_modes()
-    assert modes == {"email_send": "ask", "imessage_send": "yes", "whatsapp_send": "no"}
+    assert modes == {
+        "email_send": "ask", "imessage_send": "yes", "whatsapp_send": "no",
+        "cowork": "yes", "notetaker": "no",
+    }
 
 
 def test_capability_modes_legacy_bools_map(repo_root):
@@ -798,6 +808,7 @@ pais:
     )
     assert C.capability_modes() == {
         "email_send": "yes", "imessage_send": "no", "whatsapp_send": "no",
+        "cowork": "yes", "notetaker": "no",
     }
 
 
@@ -816,6 +827,7 @@ pais:
     )
     assert C.capability_modes() == {
         "email_send": "no", "imessage_send": "no", "whatsapp_send": "no",
+        "cowork": "yes", "notetaker": "no",
     }
 
 
@@ -834,7 +846,10 @@ pais:
 """,
     )
     flags = C.capability_flags()
-    assert flags == {"email_send": False, "imessage_send": False, "whatsapp_send": False}
+    assert flags == {
+        "email_send": False, "imessage_send": False, "whatsapp_send": False,
+        "cowork": True, "notetaker": False,
+    }
 
 
 def test_project_capabilities_ask_keeps_freeze(repo_root, tmp_path, monkeypatch):
@@ -911,6 +926,124 @@ pais:
     )
     C.project_capabilities()
     assert not wa_freeze.exists()
+
+
+# ----- capabilities: capture gates (cowork / notetaker) -----
+
+
+def test_cowork_defaults_yes_when_key_absent(repo_root):
+    # capabilities block exists but carries neither capture key: cowork is
+    # on-by-default (its spec's deliberate exception), notetaker fails closed.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  email_send: no
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    modes = C.capability_modes()
+    assert modes["cowork"] == "yes"
+    assert modes["notetaker"] == "no"
+
+
+def test_capture_flag_explicit_values_respected(repo_root):
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  cowork: no
+  notetaker: yes
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    modes = C.capability_modes()
+    assert modes["cowork"] == "no"
+    assert modes["notetaker"] == "yes"
+
+
+def test_capture_flag_ask_clamps_to_no(repo_root):
+    # Capture flags are two-state; "ask" is not a capture mode and must fail
+    # closed rather than half-grant.
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  cowork: ask
+  notetaker: ask
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    modes = C.capability_modes()
+    assert modes["cowork"] == "no"
+    assert modes["notetaker"] == "no"
+
+
+def test_set_capability_mode_rejects_ask_for_capture_flags(repo_root):
+    _write_config(
+        repo_root,
+        """
+capabilities: {}
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    with pytest.raises(ValueError):
+        C.set_capability_mode("cowork", "ask")
+    with pytest.raises(ValueError):
+        C.set_capability_mode("notetaker", "ask")
+    assert C.set_capability_mode("cowork", "no") == "no"
+    assert C.set_capability_mode("notetaker", "yes") == "yes"
+
+
+def test_project_capabilities_capture_freeze(repo_root, tmp_path, monkeypatch):
+    # cowork absent (default yes) → no freeze; notetaker absent (default no)
+    # → capture.freeze written. Flipping cowork off writes its freeze too.
+    monkeypatch.setattr(PA, "PAI_ROOT", tmp_path, raising=True)
+    cowork_freeze = PA.sys_drivers("cowork") / "capture.freeze"
+    notetaker_freeze = PA.sys_drivers("notetaker") / "capture.freeze"
+
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert not cowork_freeze.exists()
+    assert notetaker_freeze.exists()
+    assert "notetaker=no" in notetaker_freeze.read_text()
+
+    _write_config(
+        repo_root,
+        """
+capabilities:
+  cowork: no
+  notetaker: yes
+pais:
+  - name: root
+    pid: 1
+    description: km
+""",
+    )
+    C.project_capabilities()
+    assert cowork_freeze.exists()
+    assert "cowork=no" in cowork_freeze.read_text()
+    assert not notetaker_freeze.exists()
 
 
 # ----- set_capability_mode (sidebar toggle writer) -----

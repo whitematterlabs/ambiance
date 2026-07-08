@@ -67,6 +67,21 @@ CAPABILITY_SPECS: dict[str, dict] = {
     "whatsapp_send": {
         "driver": "whatsapp", "freeze": "outbound.freeze", "mounts": {"whatsapp"},
     },
+    # Ambient-capture gates, not send freezes: the freeze file gates whether
+    # the driver captures at all (presence = capture disabled). `default` is
+    # the mode when the key is absent from config.yaml — send flags stay
+    # fail-closed, cowork ships on-by-default per its spec. `modes` restricts
+    # the tri-state: "ask" is meaningless for capture (a capture either
+    # happens or it doesn't), so these are two-state and an out-of-range mode
+    # clamps to `no`.
+    "cowork": {
+        "driver": "cowork", "freeze": "capture.freeze", "mounts": {"cowork"},
+        "default": "yes", "modes": ("no", "yes"),
+    },
+    "notetaker": {
+        "driver": "notetaker", "freeze": "capture.freeze", "mounts": {"notetaker"},
+        "default": "no", "modes": ("no", "yes"),
+    },
 }
 
 # Fields a `dependencies:` entry can carry (each entry materializes a persub
@@ -511,9 +526,12 @@ def _normalize_capability_mode(value) -> str:
 
 def capability_modes(path: Path | None = None) -> dict[str, str]:
     """Read the top-level `capabilities:` map as a mode (no/ask/yes) per
-    capability. A missing key, missing file, parse error, or unrecognized value
-    all resolve to `no` — sending must be an explicit, well-formed, on-disk
-    grant, never the result of an absent, broken, or typo'd config."""
+    capability. A missing key resolves to the flag's spec `default` ("no"
+    unless the spec says otherwise — cowork is the deliberate default-yes
+    exception); a missing file, parse error, or unrecognized value resolves
+    to `no` — a grant must come from a well-formed, readable config, never
+    from a broken or typo'd one. A mode outside the flag's allowed `modes`
+    (e.g. "ask" on a two-state capture gate) clamps to `no`."""
     p = path or CONFIG_PATH
     try:
         data = _load_yaml(p)
@@ -521,7 +539,16 @@ def capability_modes(path: Path | None = None) -> dict[str, str]:
         return {k: "no" for k in CAPABILITY_SPECS}
     caps = data.get("capabilities") if isinstance(data, dict) else None
     caps = caps if isinstance(caps, dict) else {}
-    return {k: _normalize_capability_mode(caps.get(k)) for k in CAPABILITY_SPECS}
+    out: dict[str, str] = {}
+    for k, spec in CAPABILITY_SPECS.items():
+        if k in caps:
+            mode = _normalize_capability_mode(caps.get(k))
+        else:
+            mode = spec.get("default", "no")
+        if mode not in spec.get("modes", CAPABILITY_MODES):
+            mode = "no"
+        out[k] = mode
+    return out
 
 
 def set_capability_mode(flag: str, mode: str, path: Path | None = None) -> str:
@@ -536,8 +563,9 @@ def set_capability_mode(flag: str, mode: str, path: Path | None = None) -> str:
     `kernel:reload_config` so `project_capabilities` re-projects the freeze."""
     if flag not in CAPABILITY_SPECS:
         raise ValueError(f"unknown send capability: {flag!r}")
-    if mode not in CAPABILITY_MODES:
-        raise ValueError(f"invalid send mode: {mode!r} (want one of {CAPABILITY_MODES})")
+    allowed = CAPABILITY_SPECS[flag].get("modes", CAPABILITY_MODES)
+    if mode not in allowed:
+        raise ValueError(f"capability {flag!r} accepts {allowed}, got {mode!r}")
     p = path or CONFIG_PATH
     data = _load_yaml(p) if p.exists() else {}
     caps = data.get("capabilities")
