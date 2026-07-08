@@ -1127,3 +1127,61 @@ pais:
         C.set_capability_mode("email_send", "maybe")
     # The file is untouched by the rejected write.
     assert yaml.safe_load(path.read_text())["capabilities"] == {"email_send": "ask"}
+
+
+# ----- set_pai_model (per-PAI provider/model mutation) -----
+
+
+def test_set_pai_model_rewrites_only_target(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "capabilities:\n"
+        "  email_send: ask\n"
+        "pais:\n"
+        "- name: root\n"
+        "  provider: deepseek\n"
+        "  model: deepseek-v4-pro\n"
+        "- name: pai\n"
+        "  provider: deepseek\n"
+        "  model: deepseek-v4-pro\n"
+        "  fallback: true\n"
+    )
+    out = C.set_pai_model("pai", "openrouter", "moonshotai/kimi-k2:free", path=cfg)
+    assert out == {"name": "pai", "provider": "openrouter", "model": "moonshotai/kimi-k2:free"}
+    data = yaml.safe_load(cfg.read_text())
+    by_name = {e["name"]: e for e in data["pais"]}
+    assert by_name["pai"]["provider"] == "openrouter"
+    assert by_name["pai"]["model"] == "moonshotai/kimi-k2:free"
+    assert by_name["pai"]["fallback"] is True          # untouched siblings keys
+    assert by_name["root"]["provider"] == "deepseek"   # untouched sibling entry
+    assert data["capabilities"] == {"email_send": "ask"}  # untouched other sections
+
+
+def test_set_pai_model_unknown_provider(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("pais:\n- name: pai\n")
+    with pytest.raises(ValueError, match="unknown provider"):
+        C.set_pai_model("pai", "grok", "grok-5", path=cfg)
+
+
+def test_set_pai_model_unknown_pai(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("pais:\n- name: pai\n")
+    with pytest.raises(ValueError, match="unknown pai"):
+        C.set_pai_model("ghost", "anthropic", "claude-opus-4-8", path=cfg)
+
+
+def test_set_pai_model_rejects_empty_model(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("pais:\n- name: pai\n")
+    with pytest.raises(ValueError, match="model"):
+        C.set_pai_model("pai", "anthropic", "   ", path=cfg)
+
+
+def test_set_pai_model_malformed_yaml_leaves_file_untouched(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("pais: [unclosed\n")
+    before = cfg.read_text()
+    with pytest.raises(Exception):
+        C.set_pai_model("pai", "anthropic", "claude-opus-4-8", path=cfg)
+    assert cfg.read_text() == before

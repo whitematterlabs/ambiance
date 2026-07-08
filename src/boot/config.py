@@ -525,6 +525,40 @@ def set_capability_mode(flag: str, mode: str, path: Path | None = None) -> str:
     return mode
 
 
+def set_pai_model(name: str, provider: str, model: str, path: Path | None = None) -> dict[str, str]:
+    """Write `provider:`/`model:` on one fleet entry and return them.
+
+    Strict like set_capability_mode: an unknown provider or absent PAI raises
+    ValueError (the web surface maps it to a 400). Full-document round-trip via
+    the same yaml path paiadd uses — comments don't survive, which is the trade
+    the fleet block already lives with. Atomic (tmp + rename); on any failure
+    the file is untouched. The caller emits `kernel:reload_config`.
+    """
+    if provider not in L.PROVIDERS:
+        known = ", ".join(sorted(L.PROVIDERS))
+        raise ValueError(f"unknown provider {provider!r} (known: {known})")
+    model = model.strip()
+    if not model:
+        raise ValueError("model must be non-empty")
+    p = path or CONFIG_PATH
+    data = _load_yaml(p) if p.exists() else {}
+    pais = data.get("pais") if isinstance(data, dict) else None
+    entry = None
+    if isinstance(pais, list):
+        entry = next(
+            (e for e in pais if isinstance(e, dict) and e.get("name") == name), None
+        )
+    if entry is None:
+        raise ValueError(f"unknown pai: {name!r}")
+    entry["provider"] = provider
+    entry["model"] = model
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.rename(p)
+    return {"name": name, "provider": provider, "model": model}
+
+
 def capability_flags(path: Path | None = None) -> dict[str, bool]:
     """Back-compat predicate: True iff the capability lets the PAI send
     *directly and autonomously* (mode `yes`). Both `no` and `ask` are
