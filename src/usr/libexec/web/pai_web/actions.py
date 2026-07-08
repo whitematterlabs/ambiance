@@ -799,11 +799,13 @@ def reject_action(ident: str, reason: str = "") -> dict:
 # `config.project_capabilities` — the exact mechanism a hand-edited config uses,
 # so the sidebar and the file can never mean different things.
 
-# Human labels for the send capabilities, keyed by their config flag.
+# Human labels for the capabilities, keyed by their config flag.
 SEND_CHANNEL_LABELS = {
     "email_send": "Email",
     "imessage_send": "iMessage",
     "whatsapp_send": "WhatsApp",
+    "cowork": "Cowork Mode",
+    "notetaker": "Notetaker",
 }
 
 
@@ -828,10 +830,12 @@ def _mounted_driver_union() -> set[str]:
 
 
 def list_send_capabilities() -> list[dict]:
-    """One row per mounted send channel: `{flag, channel, mode}`.
+    """One row per mounted capability: `{flag, channel, mode, modes}`.
 
     Channels whose driver isn't mounted anywhere are omitted (no dead toggles).
-    `mode` is the live config value (no/ask/yes), normalized on read."""
+    `mode` is the live config value, normalized on read; `modes` is the flag's
+    allowed set (capture gates are two-state, sends are no/ask/yes) so the
+    frontend renders only real choices."""
     mounted = _mounted_driver_union()
     modes = config.capability_modes()
     out: list[dict] = []
@@ -843,6 +847,7 @@ def list_send_capabilities() -> list[dict]:
                 "flag": flag,
                 "channel": SEND_CHANNEL_LABELS.get(flag, flag),
                 "mode": modes.get(flag, "no"),
+                "modes": list(spec.get("modes", config.CAPABILITY_MODES)),
             }
         )
     return out

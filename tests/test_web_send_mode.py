@@ -57,12 +57,15 @@ def test_set_send_mode_rejects_unknown_flag(repo_root):
         actions.set_send_mode("sms_send", "yes")
 
 
+_SEND_MODES = ["no", "ask", "yes"]
+
+
 def test_list_send_capabilities_filters_unmounted(repo_root, monkeypatch):
     _write_config(repo_root)
     # Only the email driver is mounted → only Email shows, at its live mode.
     monkeypatch.setattr(actions, "_mounted_driver_union", lambda: {"email"})
     assert actions.list_send_capabilities() == [
-        {"flag": "email_send", "channel": "Email", "mode": "no"},
+        {"flag": "email_send", "channel": "Email", "mode": "no", "modes": _SEND_MODES},
     ]
 
 
@@ -78,6 +81,16 @@ def test_list_send_capabilities_reports_both_channels(repo_root, monkeypatch):
         actions, "_mounted_driver_union", lambda: {"email", "imessage"}
     )
     assert actions.list_send_capabilities() == [
-        {"flag": "email_send", "channel": "Email", "mode": "no"},
-        {"flag": "imessage_send", "channel": "iMessage", "mode": "ask"},
+        {"flag": "email_send", "channel": "Email", "mode": "no", "modes": _SEND_MODES},
+        {"flag": "imessage_send", "channel": "iMessage", "mode": "ask", "modes": _SEND_MODES},
+    ]
+
+
+def test_list_send_capabilities_capture_gate_row(repo_root, monkeypatch):
+    # A capture gate is two-state and defaults on (cowork) — the row must say
+    # so, so the frontend renders a two-button toggle, not a dead "Ask".
+    _write_config(repo_root)
+    monkeypatch.setattr(actions, "_mounted_driver_union", lambda: {"cowork"})
+    assert actions.list_send_capabilities() == [
+        {"flag": "cowork", "channel": "Cowork Mode", "mode": "yes", "modes": ["no", "yes"]},
     ]

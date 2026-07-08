@@ -67,13 +67,16 @@ export interface PendingApproval {
   body?: string;
 }
 
-// One mounted send channel and its current tri-state permission. Drives the
-// sidebar's Send permissions control; only channels a PAI can actually use ship.
+// One mounted capability and its current permission. Drives the sidebar's
+// Permissions control; only channels a PAI can actually use ship. `modes` is
+// the flag's allowed set — send channels are no/ask/yes, capture gates
+// (Cowork Mode, Notetaker) are two-state no/yes.
 export type SendMode = "no" | "ask" | "yes";
 export interface SendCapability {
   flag: string;
   channel: string;
   mode: SendMode;
+  modes?: SendMode[];
 }
 
 // Build-skew status: which build the kernel vs this console is running, and

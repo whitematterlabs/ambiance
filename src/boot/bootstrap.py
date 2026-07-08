@@ -642,6 +642,42 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "and never delivered. Don't attempt sends or claim one happened."
         ),
     },
+    # Capture gates are two-state (no/yes) — no "ask" prose.
+    "cowork": {
+        "yes": (
+            "Cowork Mode — ON. You receive live events for the owner's window "
+            "focus (app, title, open URL/file, idle seconds), clipboard copies, "
+            "and file activity across their home folder. The activity logs are "
+            "at sys/drivers/cowork/window_activity.ndjson, clipboard.ndjson, "
+            "and file_activity.ndjson — grep them to answer questions like "
+            "\"what was I doing at 2pm\". React to an activity event only when "
+            "you can be genuinely useful; most switches deserve silence."
+        ),
+        "no": (
+            "Cowork Mode — OFF. No window, clipboard, or file activity is being "
+            "captured; you cannot see what the owner is doing on screen. Old "
+            "sys/drivers/cowork/*.ndjson lines may exist from when it was on."
+        ),
+    },
+    "notetaker": {
+        "yes": (
+            "Notetaker — ENABLED. Only when the owner explicitly asks you to "
+            "take notes on a call: write `action: start` (optionally "
+            "`cloud: true` for cloud transcription) as YAML to a new file under "
+            "sys/drivers/notetaker/commands/ and announce that recording has "
+            "started; write `action: stop` when they end it. You'll receive "
+            "notetaker:transcript_ready with the transcript path — read it and "
+            "write the summary + action items to notes/calls/<date>-<slug>.md "
+            "in your home. Never start recording unprompted; disclosing the "
+            "recording to other participants is the owner's responsibility, "
+            "but never let the owner be unaware you are recording."
+        ),
+        "no": (
+            "Notetaker — DISABLED. You cannot record calls. If the owner asks "
+            "for call notes, tell them to enable the Notetaker capability in "
+            "the console first."
+        ),
+    },
 }
 
 
