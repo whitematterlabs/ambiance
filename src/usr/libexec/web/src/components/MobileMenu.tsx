@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HelpCircle, Menu, Moon, Smartphone, Sun, X } from "lucide-react";
+import { HelpCircle, Menu, Mic, Moon, Smartphone, Sun, X } from "lucide-react";
 import type { FleetMember, ProcRow, SendCapability, SendMode } from "../types";
 import { CAPTURE_COPY } from "../capture";
 import { paiColor } from "../palette";
@@ -102,6 +102,20 @@ export function MobileMenu({
         <Logo className="brand-logo" />
         <span className="mobile-bar-title">{activeLabel}</span>
       </div>
+      {phraseActivation && (
+        // Hot-mic honesty on the phone too: visible whenever the wake-word
+        // listener is live, tap to turn it off.
+        <button
+          className="ghost-button mic-indicator mobile-bar-mic"
+          type="button"
+          onClick={onTogglePhraseActivation}
+          title={`${hostManaged ? "The host mic" : "This browser's mic"} is listening for "${wakePhrase}" — tap to turn it off`}
+          aria-label="Microphone is listening — turn off"
+        >
+          <Mic size={14} aria-hidden="true" />
+          <span className="ghost-label">Mic on</span>
+        </button>
+      )}
       <button
         className="mobile-bar-menu"
         type="button"

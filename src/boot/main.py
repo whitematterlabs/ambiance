@@ -942,6 +942,13 @@ def _make_factory(module_path: str, attr: str):
     return factory
 
 
+# Per-slug default for the /proc `active:` flag, from the manifest process
+# entry's `default_active:` (absent → true). Lets a privacy-sensitive driver
+# (e.g. the voice host-mic listener) install dark: its proc entry is created
+# stopped and nothing runs until paictl/the web console flips it on.
+_driver_default_active: dict[str, bool] = {}
+
+
 def _discover_driver_specs() -> tuple[tuple[str, object], ...]:
     """Walk every events.yaml under /usr/lib/drivers/ (any depth) and
     collect processes:. Sub-driver namespaces like email/macmail/ are
@@ -971,6 +978,7 @@ def _discover_driver_specs() -> tuple[tuple[str, object], ...]:
             slug = proc["slug"]
             module = proc["module"]
             entrypoint = proc.get("entrypoint", "run")
+            _driver_default_active[slug] = proc.get("default_active", True) is not False
             specs.append((slug, _make_factory(module, entrypoint)))
     return tuple(specs)
 
@@ -981,11 +989,12 @@ _driver_tasks: dict[str, asyncio.Task] = {}
 
 
 def _driver_active(slug: str) -> bool:
-    """Read `active` from /proc/<slug>/spec.yaml. Missing proc → True."""
+    """Read `active` from /proc/<slug>/spec.yaml. Missing proc → the
+    manifest's `default_active` (absent → True)."""
     try:
         spec = P.read_spec(slug)
     except P.ProcessNotFound:
-        return True
+        return _driver_default_active.get(slug, True)
     val = spec.get("active", True)
     return bool(val) if isinstance(val, bool) else True
 
@@ -1065,6 +1074,14 @@ async def _reconcile_drivers() -> None:
                 continue
             _driver_tasks[slug] = task
             print(f"[kernel] driver started: {slug}", flush=True)
+        elif not active and not running:
+            # A default-off driver that has never started still needs its
+            # /proc entry: paictl start / the web toggle flip `active:`
+            # there and error out on a missing proc.
+            proc_dir = P.PROC_DIR / slug
+            if not proc_dir.exists():
+                P.spawn(slug, {"kind": "driver", "active": False})
+                (proc_dir / "status").write_text("stopped\n")
         elif not active and running:
             task = _driver_tasks.pop(slug)
             task.cancel()

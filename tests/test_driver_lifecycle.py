@@ -69,6 +69,86 @@ def test_driver_active_helper(proc_root: Path) -> None:
     assert M._driver_active("imessage-in") is False
 
 
+def test_driver_default_active_false(proc_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A manifest `default_active: false` driver (e.g. the voice host-mic
+    listener) must NOT start on reconcile — but its /proc entry is still
+    materialized (stopped) so paictl/the web toggle have a flag to flip."""
+    started: list[str] = []
+
+    def factory():
+        async def coro() -> None:
+            started.append("voice-in")
+            await asyncio.Event().wait()
+        return coro()
+
+    monkeypatch.setattr(
+        M,
+        "_discover_driver_specs",
+        lambda: (("voice-in", factory),),
+        raising=True,
+    )
+    monkeypatch.setitem(M._driver_default_active, "voice-in", False)
+    M._driver_tasks.clear()
+
+    async def scenario() -> None:
+        # Fresh install + boot: nothing runs, but the proc entry exists,
+        # stopped, with active: false.
+        await M._reconcile_drivers()
+        await asyncio.sleep(0)
+        assert "voice-in" not in M._driver_tasks
+        assert started == []
+        spec = _spec(proc_root, "voice-in")
+        assert spec["kind"] == "driver"
+        assert spec["active"] is False
+        assert P.read_status("voice-in") == "stopped"
+
+        # Owner turns it on (paictl start / web toggle): it runs.
+        _write_active(proc_root, "voice-in", True)
+        await M._reconcile_drivers()
+        await asyncio.sleep(0)
+        assert "voice-in" in M._driver_tasks
+        assert started == ["voice-in"]
+
+        # Kernel restart with the flag still on: stays on (owner intent wins
+        # over the manifest default once the flag exists).
+        assert M._driver_active("voice-in") is True
+
+        # Cleanup.
+        for t in M._driver_tasks.values():
+            t.cancel()
+        await asyncio.gather(*M._driver_tasks.values(), return_exceptions=True)
+        M._driver_tasks.clear()
+
+    asyncio.run(scenario())
+
+
+def test_driver_default_active_parses_from_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`default_active: false` in a driver events.yaml lands in the defaults
+    map; drivers without the key stay default-on."""
+    drivers = tmp_path / "drivers"
+    (drivers / "voice").mkdir(parents=True)
+    (drivers / "voice" / "events.yaml").write_text(
+        "driver: voice\n"
+        "processes:\n"
+        "  - slug: voice-in\n"
+        "    module: drivers.voice.inbound\n"
+        "    default_active: false\n"
+    )
+    (drivers / "imessage").mkdir()
+    (drivers / "imessage" / "events.yaml").write_text(
+        "driver: imessage\n"
+        "processes:\n"
+        "  - slug: imessage-in\n"
+        "    module: drivers.imessage.inbound\n"
+    )
+    monkeypatch.setattr(M.paths, "usr_lib_drivers", lambda: drivers, raising=True)
+    M._discover_driver_specs()
+    assert M._driver_default_active["voice-in"] is False
+    assert M._driver_default_active["imessage-in"] is True
+
+
 def test_reconcile_spawns_and_cancels(
     proc_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

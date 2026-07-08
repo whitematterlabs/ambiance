@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HelpCircle, Loader, Moon, Pause, Play, Smartphone, Sun } from "lucide-react";
+import { HelpCircle, Loader, Mic, Moon, Pause, Play, Smartphone, Sun } from "lucide-react";
 import { Logo } from "./Logo";
 import { VoiceSettings } from "./VoiceSettings";
 import type { VoiceEngine } from "../speech";
@@ -177,13 +177,33 @@ export function Header({
           </button>
         );
       })}
+      {phraseActivation && (
+        // A hot mic is never implicit: whenever phrase activation is
+        // listening (host driver or browser fallback), this indicator is
+        // visible regardless of the read-aloud "Voice" toggle next to it.
+        // One click turns the listener off.
+        <button
+          className="ghost-button mic-indicator"
+          type="button"
+          onClick={onTogglePhraseActivation}
+          title={`${hostManaged ? "The host mic" : "This browser's mic"} is listening for "${wakePhrase}" — click to turn it off`}
+          aria-label="Microphone is listening — turn off"
+        >
+          <Mic size={15} aria-hidden="true" />
+          <span className="ghost-label">Mic on</span>
+        </button>
+      )}
       <div className="voice-split" ref={popoverRef}>
         <button
           className="ghost-button voice-toggle"
           type="button"
           onClick={onToggleVoice}
           aria-pressed={voiceEnabled}
-          title={voiceEnabled ? "Voice on — reading replies aloud" : "Voice off"}
+          title={
+            voiceEnabled
+              ? "Voice on — reading replies aloud"
+              : "Voice off — replies aren't read aloud (mic listening is separate — see voice settings)"
+          }
         >
           <span className="ghost-label">{voiceEnabled ? "Voice on" : "Voice off"}</span>
         </button>

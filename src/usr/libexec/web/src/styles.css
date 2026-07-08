@@ -2078,6 +2078,27 @@ button {
   50% { opacity: 0.55; }
 }
 
+/* Hot-mic indicator (header + mobile bar): shown whenever phrase activation
+   is listening, independent of the read-aloud Voice toggle. Same red as the
+   notetaker recording pill — the mic is never on silently. */
+.mic-indicator {
+  gap: 6px;
+  color: #fff;
+  border-color: #c62828;
+  background: #c62828;
+}
+
+.mic-indicator:hover,
+.mic-indicator:focus-visible {
+  color: #fff;
+  border-color: #a51f1f;
+  background: #a51f1f;
+}
+
+.mic-indicator > svg {
+  animation: recording-pulse 1.6s ease-in-out infinite;
+}
+
 .composer {
   display: flex;
   flex-direction: column;
@@ -3845,6 +3866,12 @@ button {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .mobile-bar-mic {
+    min-height: 30px;
+    padding: 0 10px;
+    flex: 0 0 auto;
   }
 
   .mobile-bar-menu {
