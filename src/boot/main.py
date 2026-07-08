@@ -925,7 +925,9 @@ async def _handle_reload_config(event: dict | None = None) -> None:
 #
 # Built dynamically by walking /usr/lib/drivers/<name>/events.yaml for a
 # `processes:` section. Drivers without runnable processes (libraries
-# like contacts/messages) are skipped.
+# like contacts/messages) are skipped. Discovery is re-run on every
+# reconcile (boot + each kernel:reload_config), so `paiman install`/
+# `remove` of a driver takes effect live — no kernel re-exec.
 def _make_factory(module_path: str, attr: str):
     def factory():
         import importlib
@@ -940,21 +942,31 @@ def _make_factory(module_path: str, attr: str):
 # stopped and nothing runs until paictl/the web console flips it on.
 _driver_default_active: dict[str, bool] = {}
 
+# Per-slug manifest identity (module, entrypoint) as of the last discovery.
+# Compared against `_driver_started_with` in _reconcile_drivers so a
+# reinstall that changes a process's module/entrypoint restarts the running
+# task with the new spec instead of leaving the old coroutine live.
+_driver_spec_identity: dict[str, tuple[str, str]] = {}
+
 
 def _discover_driver_specs() -> tuple[tuple[str, object], ...]:
     """Walk every events.yaml under /usr/lib/drivers/ (any depth) and
     collect processes:. Sub-driver namespaces like email/macmail/ are
     supported by recursing through symlinks (paiman installs each
-    driver as a symlink to /opt/paiman/<name>/)."""
+    driver as a symlink to /opt/paiman/<name>/).
+
+    Re-runnable: refreshes `_driver_default_active` and
+    `_driver_spec_identity` for every discovered slug and prunes entries
+    whose manifests are gone (driver uninstalled)."""
     import os
     specs: list[tuple[str, object]] = []
+    seen: set[str] = set()
     drivers_dir = paths.usr_lib_drivers()
-    if not drivers_dir.is_dir():
-        return ()
     found: list[Path] = []
-    for root, _dirs, files in os.walk(drivers_dir, followlinks=True):
-        if "events.yaml" in files:
-            found.append(Path(root) / "events.yaml")
+    if drivers_dir.is_dir():
+        for root, _dirs, files in os.walk(drivers_dir, followlinks=True):
+            if "events.yaml" in files:
+                found.append(Path(root) / "events.yaml")
     for events_path in sorted(found):
         try:
             with events_path.open() as f:
@@ -970,14 +982,27 @@ def _discover_driver_specs() -> tuple[tuple[str, object], ...]:
             slug = proc["slug"]
             module = proc["module"]
             entrypoint = proc.get("entrypoint", "run")
+            seen.add(slug)
             _driver_default_active[slug] = proc.get("default_active", True) is not False
+            _driver_spec_identity[slug] = (module, entrypoint)
             specs.append((slug, _make_factory(module, entrypoint)))
+    for stale in set(_driver_default_active) - seen:
+        del _driver_default_active[stale]
+    for stale in set(_driver_spec_identity) - seen:
+        del _driver_spec_identity[stale]
     return tuple(specs)
 
 
+# Boot-time snapshot, kept for import compatibility. The live registry is
+# whatever _discover_driver_specs() returns *now* — _reconcile_drivers
+# re-discovers on every call, so don't read this for current state.
 DRIVER_SPECS: tuple[tuple[str, object], ...] = _discover_driver_specs()
 
 _driver_tasks: dict[str, asyncio.Task] = {}
+
+# (module, entrypoint) each running task in _driver_tasks was started with —
+# None when unknown (task predates discovery, or discovery was monkeypatched).
+_driver_started_with: dict[str, tuple[str, str] | None] = {}
 
 
 def _driver_active(slug: str) -> bool:
@@ -1018,7 +1043,11 @@ async def _reconcile_drivers() -> None:
     `kernel:reload_config` event — never on a timer.
 
     Re-discovers /usr/lib/drivers/ each call so paiman install/remove takes
-    effect on reload without a kernel restart.
+    effect on reload without a kernel restart: a new manifest spawns (subject
+    to `default_active` / the /proc `active:` flag), a vanished manifest
+    cancels the running task, and a changed spec (module/entrypoint) restarts
+    the task with the new factory. Unchanged specs are left alone — no task
+    churn on back-to-back reloads.
 
     Done-task cleanup: a driver task that exited on its own (crash, clean
     return, or cancellation that wasn't awaited here because the reload
@@ -1042,10 +1071,31 @@ async def _reconcile_drivers() -> None:
             except (asyncio.CancelledError, Exception):
                 pass
             del _driver_tasks[slug]
+            _driver_started_with.pop(slug, None)
 
     for slug, factory in specs:
         active = _driver_active(slug)
         running = slug in _driver_tasks  # already filtered to live tasks above
+        if active and running:
+            # Spec skew check: the task was started from an older manifest.
+            # `.get(slug, want)` — an unknown started-with identity (e.g.
+            # discovery monkeypatched in tests) is treated as unchanged.
+            want = _driver_spec_identity.get(slug)
+            have = _driver_started_with.get(slug, want)
+            if want != have:
+                task = _driver_tasks.pop(slug)
+                _driver_started_with.pop(slug, None)
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                print(
+                    f"[kernel] driver spec changed, restarting: {slug} "
+                    f"({have} → {want})",
+                    flush=True,
+                )
+                running = False
         if active and not running:
             try:
                 task = asyncio.create_task(
@@ -1065,6 +1115,7 @@ async def _reconcile_drivers() -> None:
                     pass
                 continue
             _driver_tasks[slug] = task
+            _driver_started_with[slug] = _driver_spec_identity.get(slug)
             print(f"[kernel] driver started: {slug}", flush=True)
         elif not active and not running:
             # A default-off driver that has never started still needs its
@@ -1076,6 +1127,7 @@ async def _reconcile_drivers() -> None:
                 (proc_dir / "status").write_text("stopped\n")
         elif not active and running:
             task = _driver_tasks.pop(slug)
+            _driver_started_with.pop(slug, None)
             task.cancel()
             # Drop the lock-equivalent (the dict entry) before awaiting so
             # if *this* reconcile is itself cancelled mid-await, the next
@@ -1089,6 +1141,7 @@ async def _reconcile_drivers() -> None:
         if slug in known or slug == "proc-watcher":
             continue
         task = _driver_tasks.pop(slug)
+        _driver_started_with.pop(slug, None)
         task.cancel()
         try:
             await task
@@ -1230,6 +1283,7 @@ async def run() -> None:
             except (asyncio.CancelledError, Exception):
                 pass
         _driver_tasks.clear()
+        _driver_started_with.clear()
         watcher.stop()
         try:
             remaining = P.list_procs(status_filter="running")

@@ -49,16 +49,26 @@ user-editable config.
 
 ### Discovery: `DRIVER_SPECS`
 
-At kernel boot, `_discover_driver_specs()` walks every `events.yaml`
-under `/usr/lib/drivers/` (recursing through symlinks to support
-sub-driver namespaces like `email/macmail/`). For each manifest with a
+`_discover_driver_specs()` walks every `events.yaml` under
+`/usr/lib/drivers/` (recursing through symlinks to support sub-driver
+namespaces like `email/macmail/`). For each manifest with a
 `processes:` section, it records `(slug, factory)` where `factory()`
 imports the module and calls the named entrypoint to return a coroutine.
-The result is the module-level `DRIVER_SPECS` tuple.
+The module-level `DRIVER_SPECS` tuple is only a boot-time snapshot of
+this walk, kept for import compatibility — don't read it for current
+state.
 
-`paiman install` and `paiman remove` change the on-disk set;
-`_reconcile_drivers()` re-discovers on every call, so install/remove
-takes effect on `kernel:reload_config` without a kernel restart.
+`paiman install` and `paiman remove` change the on-disk set and emit
+`kernel:reload_config` themselves; `_reconcile_drivers()` re-discovers
+on every call (boot + each reload event, never on a timer), so
+install/remove takes effect without a kernel restart. The diff against
+the running task set is: new manifest → spawn (subject to
+`default_active` and the `/proc` `active:` flag); manifest gone →
+cancel the task; manifest changed (`module`/`entrypoint`) → restart the
+task with the new spec; unchanged → untouched, no churn. Note this
+covers *manifest* changes only — editing a driver's Python in place
+still needs `sbin/reboot`, because the kernel process caches imported
+modules.
 
 ### The runtime contract
 

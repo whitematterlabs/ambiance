@@ -8,6 +8,8 @@ spawn/cancel."""
 from __future__ import annotations
 
 import asyncio
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -194,6 +196,129 @@ def test_reconcile_spawns_and_cancels(
         await asyncio.sleep(0)
         assert "imessage-in" in M._driver_tasks
         assert started == ["imessage-in", "imessage-in"]
+
+        # Cleanup.
+        for t in M._driver_tasks.values():
+            t.cancel()
+        await asyncio.gather(*M._driver_tasks.values(), return_exceptions=True)
+        M._driver_tasks.clear()
+
+    asyncio.run(scenario())
+
+
+def test_reconcile_picks_up_installed_and_removed_driver(
+    proc_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """paiman install → kernel:reload_config → the new driver's task starts
+    without a kernel re-exec; paiman remove → reload → the task stops and
+    its registration is dropped."""
+    current: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        M, "_discover_driver_specs", lambda: tuple(current), raising=True
+    )
+    M._driver_tasks.clear()
+
+    started: list[str] = []
+    cancelled: list[str] = []
+
+    def factory():
+        async def coro() -> None:
+            started.append("newdrv-in")
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append("newdrv-in")
+                raise
+        return coro()
+
+    async def scenario() -> None:
+        # Before install: reload reconciles to an empty set.
+        await M._reconcile_drivers()
+        assert M._driver_tasks == {}
+
+        # paiman install drops the manifest, then emits reload_config.
+        current.append(("newdrv-in", factory))
+        await M._reconcile_drivers()
+        await asyncio.sleep(0)
+        assert "newdrv-in" in M._driver_tasks
+        assert started == ["newdrv-in"]
+        assert P.read_status("newdrv-in") == "running"
+
+        # Unchanged manifest → no churn on a back-to-back reload.
+        task = M._driver_tasks["newdrv-in"]
+        await M._reconcile_drivers()
+        assert M._driver_tasks["newdrv-in"] is task
+        assert started == ["newdrv-in"]
+
+        # paiman remove deletes the manifest, then emits reload_config.
+        current.clear()
+        await M._reconcile_drivers()
+        assert "newdrv-in" not in M._driver_tasks
+        assert "newdrv-in" not in M._driver_started_with
+        assert cancelled == ["newdrv-in"]
+
+    asyncio.run(scenario())
+
+
+def test_reconcile_restarts_driver_on_spec_change(
+    proc_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reinstall that changes a process's module (or entrypoint) in
+    events.yaml restarts the running task with the new spec on the next
+    reload; an unchanged manifest leaves the task untouched. Exercises the
+    real manifest walk end-to-end."""
+    drivers = tmp_path / "drivers"
+    (drivers / "foo").mkdir(parents=True)
+    manifest = drivers / "foo" / "events.yaml"
+    manifest.write_text(
+        "driver: foo\nprocesses:\n  - slug: foo-in\n    module: fake_foo_a\n"
+    )
+
+    runs: list[str] = []
+
+    def make_mod(name: str) -> types.ModuleType:
+        mod = types.ModuleType(name)
+
+        async def run() -> None:
+            runs.append(name)
+            await asyncio.Event().wait()
+
+        mod.run = run
+        return mod
+
+    monkeypatch.setitem(sys.modules, "fake_foo_a", make_mod("fake_foo_a"))
+    monkeypatch.setitem(sys.modules, "fake_foo_b", make_mod("fake_foo_b"))
+    monkeypatch.setattr(M.paths, "usr_lib_drivers", lambda: drivers, raising=True)
+    # Isolate the discovery side-tables so the real walk (which prunes
+    # slugs it doesn't find) can't disturb other tests' globals.
+    monkeypatch.setattr(M, "_driver_default_active", {}, raising=True)
+    monkeypatch.setattr(M, "_driver_spec_identity", {}, raising=True)
+    monkeypatch.setattr(M, "_driver_started_with", {}, raising=True)
+    M._driver_tasks.clear()
+
+    async def scenario() -> None:
+        await M._reconcile_drivers()
+        await asyncio.sleep(0)
+        assert runs == ["fake_foo_a"]
+        t1 = M._driver_tasks["foo-in"]
+
+        # Same manifest → same task object, no restart.
+        await M._reconcile_drivers()
+        assert M._driver_tasks["foo-in"] is t1
+        assert runs == ["fake_foo_a"]
+
+        # Reinstall flips the module → reload restarts with the new spec.
+        manifest.write_text(
+            "driver: foo\nprocesses:\n  - slug: foo-in\n    module: fake_foo_b\n"
+        )
+        await M._reconcile_drivers()
+        await asyncio.sleep(0)
+        t2 = M._driver_tasks["foo-in"]
+        assert t2 is not t1
+        assert t1.done()
+        assert runs == ["fake_foo_a", "fake_foo_b"]
+        assert P.read_status("foo-in") == "running"
+        assert M._driver_started_with["foo-in"] == ("fake_foo_b", "run")
 
         # Cleanup.
         for t in M._driver_tasks.values():

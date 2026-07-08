@@ -278,10 +278,11 @@ removed; do not declare `dependencies:` in bundles.
    (`--no-reload`, which `paisetup` passes, suppresses only the kernel
    reload in step 8, not hooks).
 7. **Audit log.** Append a line to `/var/lib/paiman/log.md`.
-8. **Maybe reload.** If any installed bundle is a `skill` or `prompt`,
-   emit `kernel:reload_config` so running PAIs re-stitch their homes
-   and prompt blocks without a reboot. `driver`/`pai` installs do not
-   reload — the user runs `paictl`/`paiadd` next, which reload anyway.
+8. **Maybe reload.** If any installed bundle is a `skill`, `prompt`, or
+   `driver`, emit `kernel:reload_config`: running PAIs re-stitch their
+   homes and prompt blocks, and the kernel rescans driver manifests so a
+   newly installed driver starts live — no reboot, no `paictl` needed.
+   `pai` installs don't reload (the user runs `paiadd` next, which does).
    `bin`/`lib` are picked up via `PATH`/`sys.path` on the next turn.
 
 ## Remove flow
@@ -292,6 +293,9 @@ removed; do not declare `dependencies:` in bundles.
 3. Unlink the activation symlink for the kind.
 4. `rmtree` the bundle dir.
 5. Append audit log entry.
+6. For `skill`/`prompt`/`driver`, emit `kernel:reload_config` — the
+   kernel's driver rescan stops a removed driver's task immediately, and
+   PAI homes re-stitch without the dangling links.
 
 ## Bootstrap flow — `install.sh` → `paifs-init` → `paisetup`
 

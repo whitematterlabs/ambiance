@@ -268,6 +268,33 @@ def test_remove(fhs_root: Path) -> None:
     assert not (fhs_root / "usr" / "lib" / "skills" / "testskill").exists()
 
 
+def test_driver_install_and_remove_emit_reload(
+    fhs_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Driver install AND remove each emit kernel:reload_config — the
+    kernel rescans driver manifests on that event, so install→live and
+    remove→stopped work without a kernel re-exec."""
+    from boot import processes as Pr
+
+    calls: list[dict] = []
+    monkeypatch.setattr(Pr, "emit_event", lambda payload, *a, **k: calls.append(payload))
+
+    assert paiman.main(["install", str(FIXTURES / "testdriver")]) == 0
+    assert len(calls) == 1
+    assert calls[0]["kind"] == "kernel:reload_config"
+    assert calls[0]["action"] == "install"
+
+    assert paiman.main(["remove", "testdriver"]) == 0
+    assert len(calls) == 2
+    assert calls[1]["kind"] == "kernel:reload_config"
+    assert calls[1] == {
+        "kind": "kernel:reload_config",
+        "source": "paiman",
+        "action": "remove",
+        "name": "testdriver",
+    }
+
+
 def test_remove_driver_removes_driver_skill(fhs_root: Path) -> None:
     paiman.main(["install", str(FIXTURES / "testdriver")])
     assert paiman.main(["remove", "testdriver"]) == 0
