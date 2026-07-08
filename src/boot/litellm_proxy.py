@@ -60,36 +60,19 @@ def _provider_is_proxied(provider: str | None) -> bool:
 
 
 def _proxied_providers(config: dict[str, dict] | None = None) -> set[str]:
-    """Set of provider keys in the fleet (incl. dependency persubs) that route
-    through the proxy. Mirrors config._reconcile_persubs' provider chain
-    (dep override → bundle → parent)."""
+    """Set of provider keys in the fleet that route through the proxy."""
     if config is None:
         config = C.load_config()
     found: set[str] = set()
-    for parent_spec in config.values():
-        parent_provider = parent_spec.get("provider")
-        if _provider_is_proxied(parent_provider):
-            found.add(parent_provider or L.DEFAULT_PROVIDER)
-        for dep in parent_spec.get("dependencies") or []:
-            bundle: dict = {}
-            pkg = dep.get("package")
-            if pkg:
-                try:
-                    bundle = C.resolve_subagent_package(pkg)
-                except Exception:
-                    bundle = {}
-            provider = (
-                dep.get("provider")
-                or bundle.get("provider")
-                or parent_spec.get("provider")
-            )
-            if _provider_is_proxied(provider):
-                found.add(provider or L.DEFAULT_PROVIDER)
+    for spec in config.values():
+        provider = spec.get("provider")
+        if _provider_is_proxied(provider):
+            found.add(provider or L.DEFAULT_PROVIDER)
     return found
 
 
 def fleet_needs_proxy(config: dict[str, dict] | None = None) -> bool:
-    """Does any fleet member — or any dependency persub — use a proxied provider?"""
+    """Does any fleet member use a proxied provider?"""
     return bool(_proxied_providers(config))
 
 

@@ -25,29 +25,6 @@ def test_fleet_needs_proxy_all_anthropic_deepseek():
     assert lp.fleet_needs_proxy(cfg) is False
 
 
-def test_fleet_needs_proxy_openai_on_dependency():
-    # An openai provider that surfaces only on a dependency persub must still
-    # be detected (dep override beats the anthropic parent).
-    cfg = {
-        "root": {
-            "provider": "anthropic",
-            "dependencies": [{"name": "gpt-helper", "provider": "openai"}],
-        }
-    }
-    assert lp.fleet_needs_proxy(cfg) is True
-
-
-def test_fleet_needs_proxy_dependency_inherits_anthropic():
-    # A dep with no provider inherits its anthropic parent -> no proxy needed.
-    cfg = {
-        "root": {
-            "provider": "anthropic",
-            "dependencies": [{"name": "helper"}],
-        }
-    }
-    assert lp.fleet_needs_proxy(cfg) is False
-
-
 def _openai_fleet():
     return {"pai": {"provider": "openai", "model": "gpt-5.5"}}
 

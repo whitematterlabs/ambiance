@@ -221,8 +221,8 @@ def cmd_spawn(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-    if not args.persistent and not prompt:
-        print("error: --prompt is required (omit only with --persistent)", file=sys.stderr)
+    if not prompt:
+        print("error: --prompt is required", file=sys.stderr)
         return 1
     bundle: dict = {}
     if args.package:
@@ -250,24 +250,10 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         print(f"error: could not resolve provider/model (got {provider!r}/{model!r})", file=sys.stderr)
         return 1
 
-    if args.persistent:
-        # Persubs are deterministic singletons under their parent: no date
-        # suffix, namespaced under the parent's slug so two parents can each
-        # have a `memory` child without colliding.
-        parent_slug = os.environ.get("PAI_SLUG")
-        if not parent_slug:
-            print("error: $PAI_SLUG not set — required for --persistent", file=sys.stderr)
-            return 1
-        final_slug = f"{parent_slug}.{args.slug}"
-    else:
-        final_slug = _allocate_slug(args.slug)
+    final_slug = _allocate_slug(args.slug)
 
     child_pid = P.alloc_pai_pid()
-    description = (
-        prompt
-        or (bundle.get("description") if bundle else None)
-        or f"persub: {args.slug}"
-    )[:80]
+    description = prompt[:80]
     spec = {
         "kind": "pai",
         "pid": child_pid,
@@ -279,8 +265,6 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     }
     if args.package:
         spec["package"] = args.package
-    if args.persistent:
-        spec["persub"] = True
     if args.suicide_allowed == "no":
         # Only the deviation is stored; absent means the default (child may
         # end itself). Enforced in _ensure_can_finish and by the kernel's
@@ -307,25 +291,17 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     # Reconcile handles fleet members; this is the equivalent for subagents.
     S.stitch_home(final_slug)
 
-    if not args.persistent:
-        # Kickoff is just the parent's first IPC to the newborn child — same
-        # event kind any peer would use. Persubs have no kickoff: they boot
-        # idle and wait for the parent to message them.
-        P.emit_event({
-            "source": "subagent",
-            "kind": "pai_message",
-            "target_pid": child_pid,
-            "sender_pid": parent_pid,
-            "text": prompt,
-        })
+    # Kickoff is just the parent's first IPC to the newborn child — same
+    # event kind any peer would use.
+    P.emit_event({
+        "source": "subagent",
+        "kind": "pai_message",
+        "target_pid": child_pid,
+        "sender_pid": parent_pid,
+        "text": prompt,
+    })
 
-    if args.persistent:
-        print(
-            f"{final_slug} (pid {child_pid}) — persistent subagent, booted idle. "
-            f"Message it with `bin/send-message --to {child_pid} --content ...`; "
-            f"it replies as a 'subagent response' message you'll be woken for."
-        )
-    elif args.suicide_allowed == "no":
+    if args.suicide_allowed == "no":
         print(
             f"{final_slug} (pid {child_pid}) — running, cannot end itself "
             f"(--suicide-allowed no). Its results arrive as 'subagent response' "
@@ -407,13 +383,6 @@ def _ensure_can_finish(slug: str) -> bool:
         own_spec = P.read_spec(slug)
     except P.ProcessNotFound:
         print(f"error: own proc {slug!r} not found", file=sys.stderr)
-        return False
-    if own_spec.get("persub"):
-        print(
-            f"error: {slug!r} is a persistent subagent and cannot finish itself; "
-            f"reply with `bin/subagent reply --content ...` and wait for the parent",
-            file=sys.stderr,
-        )
         return False
     if own_spec.get("suicide_allowed") is False:
         print(
@@ -699,13 +668,6 @@ def cmd_kill(args: argparse.Namespace) -> int:
     if spec.get("kind") != "pai" or "parent" not in spec:
         print(f"error: {args.slug!r} is not a subagent", file=sys.stderr)
         return 1
-    if spec.get("persub"):
-        print(
-            f"error: {args.slug!r} is a persistent subagent and cannot be killed; "
-            f"remove it from /etc/config.yaml `dependencies:` and reload",
-            file=sys.stderr,
-        )
-        return 1
     if parent_pid != int(spec["parent"]):
         print(
             f"error: {args.slug!r} can only be aborted by its parent (pid {spec['parent']}); "
@@ -782,12 +744,12 @@ def main(argv: list[str] | None = None) -> int:
             "`bin/subagent kill` to abort a child early."
         ),
     )
-    sp.add_argument("--slug", required=True, help="base slug (date is auto-appended unless --persistent)")
+    sp.add_argument("--slug", required=True, help="base slug (date is auto-appended)")
     sp.add_argument(
         "--prompt",
         help=(
-            "task for the subagent (required for ephemeral; optional for "
-            "--persistent). Use single quotes if it contains dollar amounts."
+            "task for the subagent (required). Use single quotes if it "
+            "contains dollar amounts."
         ),
     )
     sp.add_argument(
@@ -796,20 +758,11 @@ def main(argv: list[str] | None = None) -> int:
         help="provider/model-tag (overrides --package; default: inherit the spawning PAI's model / fleet default)",
     )
     sp.add_argument(
-        "--persistent",
-        action="store_true",
-        help=(
-            "spawn as a persub (persistent subagent): deterministic slug "
-            "<parent>.<name>, no kickoff prompt, cannot be resolved by `kill`"
-        ),
-    )
-    sp.add_argument(
         "--package",
         default=None,
         help=(
             "name of a /usr/lib/subagents/<name>/ bundle to pull "
-            "prompt/provider/model from; works for ephemeral and persistent "
-            "subagents"
+            "prompt/provider/model from"
         ),
     )
     sp.add_argument(

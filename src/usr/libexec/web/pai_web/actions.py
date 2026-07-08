@@ -646,8 +646,7 @@ def kill_subagent(name: str) -> dict:
     the tab once the proc disappears.
 
     Unlike the CLI path there is no parent-pid gate: the owner is allowed to
-    abort any subagent. Persistent (`persub`) subagents are refused — they're
-    declared in /etc/config.yaml and re-spawn, so killing them is meaningless.
+    abort any subagent.
     """
     from boot import processes as P
 
@@ -660,8 +659,6 @@ def kill_subagent(name: str) -> dict:
         raise ValueError(f"no proc named {name!r}")
     if spec.get("kind") != "pai" or "parent" not in spec:
         raise ValueError(f"{name!r} is not a subagent")
-    if spec.get("persub"):
-        raise ValueError(f"{name!r} is a persistent subagent and cannot be killed")
     pid = spec.get("pid")
     if isinstance(pid, int):
         interrupt(pid)

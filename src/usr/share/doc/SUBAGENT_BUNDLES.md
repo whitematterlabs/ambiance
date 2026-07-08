@@ -1,18 +1,18 @@
 # Subagent bundles
 
-A **subagent bundle** is a reusable specialist template at `/usr/lib/subagents/<name>/`. It ships a role prompt and provider/model defaults that any parent PAI can pull into a `dependencies:` entry by name. One bundle, many parents.
+A **subagent bundle** is a reusable specialist template at `/usr/lib/subagents/<name>/`. It ships a role prompt and provider/model defaults that any parent PAI can pull in with `subagent spawn --package <name>`. One bundle, many parents.
 
-This is the persub side of the same bundle system that fleet PAIs use at `/usr/lib/pais/<name>/`. Both kinds are scaffolded by `paiman`, listed by `paiman list`, inspected by `paiman show <name>`.
+This is the subagent side of the same bundle system that fleet PAIs use at `/usr/lib/pais/<name>/`. Both kinds are scaffolded by `paiman`, listed by `paiman list`, inspected by `paiman show <name>`.
 
-## Why bundles vs inline deps
+## Why bundles
 
-A `dependencies:` entry can be **inline** (every field handwritten on the parent) or **bundled** (`package: <name>` pulls defaults from `/usr/lib/subagents/<name>/`). Reach for a bundle when:
+A subagent can be spawned **bare** (just `--slug` + `--prompt`) or **bundled** (`--package <name>` pulls defaults from `/usr/lib/subagents/<name>/`). Reach for a bundle when:
 
-- The same specialist will live under more than one parent.
+- The same specialist will be spawned by more than one parent.
 - The role prompt is non-trivial (more than a few lines).
-- You want `paiman list` to advertise the role to operators or skills.
+- You want `paiman list` / `subagent list` to advertise the role to operators or skills.
 
-Inline is fine for one-off children that won't be reused.
+Bare spawns are fine for one-off children that won't be reused.
 
 ## Bundle layout
 
@@ -26,7 +26,7 @@ Inline is fine for one-off children that won't be reused.
 
 ```yaml
 kind: subagent
-description: long-lived knowledge curator for the parent PAI
+description: knowledge curator specialist for a parent PAI
 prompt: usr/lib/subagents/memory/prompt.md
 provider: deepseek
 model: deepseek-v4-pro
@@ -47,43 +47,30 @@ $EDITOR /usr/lib/subagents/memory/prompt.md
 $EDITOR /usr/lib/subagents/memory/package.yaml      # set description, provider, model
 ```
 
-### Use it from config
-
-```yaml
-- name: pai
-  pid: 2
-  dependencies:
-  - name: memory
-    description: long-lived knowledge curator for the parent
-    package: memory
-```
-
-`sbin/reboot` — `_reconcile_persubs` resolves the bundle and spawns `/proc/pai.memory/`.
-
-### Use it ad-hoc from a parent's turn
+### Use it from a parent's turn
 
 ```sh
-bin/subagent spawn --persistent --slug memory --package memory
+bin/subagent spawn --slug memory-sweep --package memory --prompt '...'
 ```
 
-Same resolution: `--package` pulls defaults; `--model provider/tag` overrides; absent both, `DEFAULT_MODEL` is used. Ad-hoc persubs do **not** persist across reboots — promote them to `dependencies:` for that.
+`--package` pulls defaults; `--model provider/tag` overrides; absent both, the spawning PAI's model (then the fleet default) is inherited. Subagents do **not** persist across reboots.
 
 ## Resolution chain
 
-For `prompt`, `provider`, `model` (highest wins):
+For `provider`, `model` (highest wins):
 
-1. Inline override on the dep entry (or `--model` / `--prompt` on the CLI).
+1. `--model` on the CLI.
 2. Bundle's `package.yaml`.
-3. Parent PAI's value.
-4. (Model only) `DEFAULT_MODEL = deepseek/deepseek-v4-pro`.
+3. Inherited: spawning PAI's spec → fleet default → `DEFAULT_MODEL = deepseek/deepseek-v4-pro`.
 
-`description` is required at the call site (dep entry or `--prompt`) — bundles only contribute a catalog blurb.
+The bundle's `prompt`/`prompt_dir` become the child's role prompt; `--prompt` is the task itself.
 
 ## Inspect
 
 ```sh
 paiman list                  # all bundles, grouped by type
 paiman show memory           # print resolved package.yaml
+subagent list                # installed subagent bundles + descriptions
 ls /usr/lib/subagents/       # raw view
 ```
 
@@ -98,4 +85,3 @@ ls /usr/lib/subagents/       # raw view
 - `src/bin/paiman.py` — `init` / `list` / `show`.
 - `src/bin/subagent.py` — `spawn --package`.
 - Skill: `manage-subagent-bundles` — operator workflow for authoring/installing.
-- Skill: `manage-dependencies` — wiring a bundle into a parent's config.

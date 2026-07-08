@@ -601,28 +601,6 @@ def test_subagent_response_event_routes_result_context(
     ]
 
 
-def test_persub_reply_done_is_rejected_without_event(
-    live_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    P.spawn_pai(pid=1, slug="root", description="parent")
-    P.spawn_pai(
-        pid=5,
-        slug="root.computer-use",
-        description="macOS UI operator",
-        parent=1,
-        extra={"persistent": True, "persub": True},
-    )
-
-    monkeypatch.setenv("PAI_PID", "5")
-    monkeypatch.setenv("PAI_PARENT", "1")
-    monkeypatch.setenv("PAI_SLUG", "root.computer-use")
-    rc = sub_bin.main(["reply", "--done", "--content", "final answer"])
-
-    assert rc == 1
-    assert P.read_status("root.computer-use") == "running"
-    assert not list(P.EVENTS_DIR.iterdir())
-
-
 def test_owner_interrupt_cascades_to_ad_hoc_subagents(
     live_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -631,8 +609,8 @@ def test_owner_interrupt_cascades_to_ad_hoc_subagents(
     Regression for 2026-07-03: a `browse` subagent kept hammering LinkedIn
     after the owner tried to stop PAI, because `interrupt` cancelled only the
     parent's own nudge task and never reached the child proc. The owner's stop
-    button must reach delegated work — recursively — while leaving long-lived
-    `persub` singletons alone.
+    button must reach delegated work — recursively — while leaving declared
+    services (`run`/`schedule`) alone.
     """
     import contextlib
     from collections import defaultdict
@@ -645,9 +623,9 @@ def test_owner_interrupt_cascades_to_ad_hoc_subagents(
                 extra={"persistent": True})
     P.spawn_pai(pid=9, slug="scout-x.deep", description="grandchild", parent=7,
                 extra={"persistent": True})
-    # A persub sibling that is long-lived by design and must survive.
-    P.spawn_pai(pid=5, slug="root.computer-use", description="persub", parent=1,
-                extra={"persistent": True, "persub": True})
+    # A declared-service sibling that is long-lived by design and must survive.
+    P.spawn_pai(pid=5, slug="root.watcher", description="service", parent=1,
+                extra={"persistent": True, "run": "worker"})
 
     for e in P.EVENTS_DIR.iterdir():
         e.unlink()
@@ -695,9 +673,9 @@ def test_owner_interrupt_cascades_to_ad_hoc_subagents(
     assert "scout-x" not in procs
     assert "scout-x.deep" not in procs
 
-    # The persub singleton is untouched.
-    assert "root.computer-use" in procs
-    assert P.read_status("root.computer-use") == "running"
+    # The declared service is untouched.
+    assert "root.watcher" in procs
+    assert P.read_status("root.watcher") == "running"
 
 
 def test_spawn_package_resolves_bundle_prompt(

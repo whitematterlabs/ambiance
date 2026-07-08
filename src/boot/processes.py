@@ -175,15 +175,14 @@ def resolve(slug: str, new_status: str, notify_parent: bool = True) -> None:
         except ProcessNotFound:
             spec = {}
 
-    # Ephemeral subagents (kind: pai with a parent, not persub) are
-    # self-contained — once resolved there's nothing to keep. Delete the
-    # proc dir so they don't accumulate as zombies. Cron services spawned
-    # with --parent must NOT match here: their proc dir has to survive
-    # shutdown so rebuild_from_proc can re-arm the timer on next boot.
+    # Subagents (kind: pai with a parent) are self-contained — once
+    # resolved there's nothing to keep. Delete the proc dir so they don't
+    # accumulate as zombies. Cron services spawned with --parent must NOT
+    # match here: their proc dir has to survive shutdown so
+    # rebuild_from_proc can re-arm the timer on next boot.
     if (
         spec.get("kind") == "pai"
         and "parent" in spec
-        and not spec.get("persub")
         and new_status in TERMINAL_STATUSES
     ):
         try:
@@ -381,16 +380,16 @@ def read_pai_pid(slug: str) -> int | None:
 def ad_hoc_children(parent_pid: int) -> list[tuple[str, int]]:
     """(slug, pid) for every active ad-hoc subagent whose parent is `parent_pid`.
 
-    Ad-hoc = kind:pai with a `parent`, no `persub`/`run`/`schedule` — a one-shot
+    Ad-hoc = kind:pai with a `parent`, no `run`/`schedule` — a one-shot
     child a PAI spawned for a single task. This is the work an owner interrupt
     should reach: cancelling the parent must also stop what the parent delegated.
-    Persistent subagents (`persub`) and declared services (`run`/`schedule`) are
-    long-lived by design and are deliberately left alone."""
+    Declared services (`run`/`schedule`) are long-lived by design and are
+    deliberately left alone."""
     out: list[tuple[str, int]] = []
     for slug, spec in _iter_pai_specs():
         if spec.get("parent") != parent_pid:
             continue
-        if spec.get("persub") or "run" in spec or "schedule" in spec:
+        if "run" in spec or "schedule" in spec:
             continue
         pid = spec.get("pid")
         if not isinstance(pid, int):

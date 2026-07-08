@@ -777,11 +777,10 @@ _RELOAD_DRAIN_TIMEOUT = 5.0
 
 
 def _is_ad_hoc_subagent_spec(spec: dict) -> bool:
-    """A parent-owned one-shot PAI child, not a declared persistent subagent."""
+    """A parent-owned one-shot PAI child, not a declared service."""
     return (
         spec.get("kind") == "pai"
         and "parent" in spec
-        and not spec.get("persub")
         and "run" not in spec
         and "schedule" not in spec
     )
@@ -902,18 +901,11 @@ async def _handle_reload_config(event: dict | None = None) -> None:
             # skills/prompts surface without a reboot. Mirrors the boot-time
             # loop in phases/reconcile.py — idempotent, heals broken links.
             from . import stitch
-            from . import processes as _P
             for slug in C.load_config():
                 try:
                     stitch.stitch_home(slug)
                 except Exception as e:
                     print(f"[kernel] reload_config: stitch {slug} failed: {e!r}", flush=True)
-            for slug, spec in _P._iter_pai_specs():
-                if spec.get("persub"):
-                    try:
-                        stitch.stitch_home(slug)
-                    except Exception as e:
-                        print(f"[kernel] reload_config: stitch persub {slug} failed: {e!r}", flush=True)
             # Start/stop the LiteLLM proxy if adding/removing a proxied PAI
             # changed whether the fleet needs it — no reboot required.
             await litellm_proxy.reconcile()

@@ -101,7 +101,6 @@ def _is_stale_ad_hoc_subagent(proc: Path, spec: dict) -> bool:
         status == "running"
         and spec.get("kind") == "pai"
         and "parent" in spec
-        and not spec.get("persub")
         and "run" not in spec
         and "schedule" not in spec
     )
