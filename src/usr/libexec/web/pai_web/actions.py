@@ -27,6 +27,7 @@ from bin import paiclone
 from bin import paictl
 from bin import paidel
 from boot import config
+from boot import llm
 from boot import paths
 from boot.init import check_layout
 from boot.paths import PAI_ROOT
@@ -309,10 +310,11 @@ def _run_macos_audio_command(
         raise RuntimeError(message) from e
 
 
-# ── ElevenLabs API key (web-managed) ─────────────────────────────────────────
-# The key lives in $PAI_ROOT/.env(.local) — the same files boot loads at kernel
+# ── API keys (web-managed) ──────────────────────────────────────────────────
+# Keys live in $PAI_ROOT/.env(.local) — the same files boot loads at kernel
 # start and voice_cloud re-reads per request. The browser only ever sees a
-# masked hint (last 4 chars); the full key never leaves the server.
+# masked hint (last 4 chars) or a simple status; the full key never leaves the
+# server.
 
 _ELEVENLABS_ENV_VAR = "ELEVENLABS_API_KEY"
 
@@ -322,47 +324,42 @@ def _env_files() -> list[Path]:
     return [paths.PAI_ROOT / ".env.local", paths.PAI_ROOT / ".env"]
 
 
-def elevenlabs_key_status() -> dict:
-    """Whether an ElevenLabs key is configured, plus a masked hint.
-
-    Mirrors the resolution order the TTS provider sees: process env first
-    (voice_cloud reloads dotenv with override=False), then .env.local / .env.
-    """
+def _dotenv_lookup(var: str) -> str | None:
+    """Resolve an env var the way boot does: process env, then .env.local/.env."""
     from dotenv import dotenv_values
 
-    key = os.environ.get(_ELEVENLABS_ENV_VAR)
-    if not key:
-        for path in _env_files():
-            try:
-                key = dotenv_values(path).get(_ELEVENLABS_ENV_VAR)
-            except OSError:
-                key = None
-            if key:
-                break
-    hint = f"…{key[-4:]}" if key and len(key) >= 8 else None
-    return {"set": bool(key), "hint": hint}
+    val = os.environ.get(var)
+    if val:
+        return val
+    for path in _env_files():
+        try:
+            val = dotenv_values(path).get(var)
+        except OSError:
+            val = None
+        if val:
+            return val
+    return None
 
 
-def set_elevenlabs_key(key: str) -> dict:
-    """Persist the ElevenLabs API key and make it live for this process.
+def _write_env_var(var: str, value: str) -> None:
+    """Persist VAR=value where boot will re-read it, live for this process too.
 
-    Writes to whichever env file already defines the key (so .env.local keeps
-    shadowing .env across restarts), else to $PAI_ROOT/.env. Also sets the
-    process env directly: TTS runs in this server, and the provider's dotenv
-    reload uses override=False, so a stale exported value would otherwise win.
+    Writes to whichever env file already defines the var (so .env.local keeps
+    shadowing .env across restarts), else to $PAI_ROOT/.env, chmod 600 — the
+    file the installer seeds keys into.
     """
     from dotenv import dotenv_values, set_key
 
-    key = key.strip()
-    if not key:
+    value = value.strip()
+    if not value:
         raise ValueError("API key is empty")
-    if any(c.isspace() for c in key):
+    if any(c.isspace() for c in value):
         raise ValueError("API key must not contain whitespace")
 
     target = None
     for path in _env_files():
         try:
-            if path.is_file() and dotenv_values(path).get(_ELEVENLABS_ENV_VAR):
+            if path.is_file() and dotenv_values(path).get(var):
                 target = path
                 break
         except OSError:
@@ -370,8 +367,47 @@ def set_elevenlabs_key(key: str) -> dict:
     if target is None:
         target = paths.PAI_ROOT / ".env"
         target.touch(exist_ok=True)
-    set_key(target, _ELEVENLABS_ENV_VAR, key)
-    os.environ[_ELEVENLABS_ENV_VAR] = key
+    set_key(target, var, value)
+    try:
+        target.chmod(0o600)
+    except OSError:
+        pass
+    os.environ[var] = value
+
+
+def set_api_key(provider: str, key: str) -> dict:
+    """Store an LLM provider key from the console and make the kernel re-read it.
+
+    The key rides only the .env file — never the reload event, never a
+    response body. `key_status` is all the browser ever learns.
+    """
+    spec = llm.PROVIDERS.get(provider)
+    if spec is None:
+        raise ValueError(f"unknown provider: {provider!r}")
+    _write_env_var(spec.api_key_env, key)
+    emit_event({
+        "kind": "kernel:reload_config",
+        "source": "web",
+        "action": "set-api-key",
+        "provider": provider,
+    })
+    return {"provider": provider, "key_status": "found"}
+
+
+def elevenlabs_key_status() -> dict:
+    """Whether an ElevenLabs key is configured, plus a masked hint.
+
+    Mirrors the resolution order the TTS provider sees: process env first
+    (voice_cloud reloads dotenv with override=False), then .env.local / .env.
+    """
+    key = _dotenv_lookup(_ELEVENLABS_ENV_VAR)
+    hint = f"…{key[-4:]}" if key and len(key) >= 8 else None
+    return {"set": bool(key), "hint": hint}
+
+
+def set_elevenlabs_key(key: str) -> dict:
+    """Persist the ElevenLabs API key and make it live for this process."""
+    _write_env_var(_ELEVENLABS_ENV_VAR, key)
     return elevenlabs_key_status()
 
 
