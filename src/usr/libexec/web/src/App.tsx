@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BuildStatus,
+  DriverHealth,
   EventSighting,
   FleetMember,
   KernelStatus,
@@ -78,6 +79,7 @@ export function App() {
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [sendCaps, setSendCaps] = useState<SendCapability[]>([]);
+  const [drivers, setDrivers] = useState<DriverHealth[]>([]);
   const [notetakerRecording, setNotetakerRecording] = useState(false);
   // Last seen pending count, so the SSE handler can auto-present the modal only
   // when a *new* proposal arrives (count grew), not on every rebroadcast.
@@ -332,6 +334,7 @@ export function App() {
             approvalsCountRef.current = pending.length;
           }
           setSendCaps(msg.send_capabilities ?? []);
+          setDrivers(msg.drivers ?? []);
           setNotetakerRecording(msg.notetaker_recording ?? false);
           setBuild(msg.build ?? null);
           // A hello is a fresh snapshot: drop any command groups from a prior
@@ -438,6 +441,11 @@ export function App() {
           // Full per-channel list, single source of truth — reconciles any
           // optimistic toggle and reflects hand-edits to config.yaml.
           setSendCaps(msg.capabilities);
+          break;
+        case "drivers":
+          // Full per-driver health list — single source of truth, change-gated
+          // server-side, so every arrival is a real state change.
+          setDrivers(msg.drivers);
           break;
         case "notetaker_recording":
           setNotetakerRecording(msg.recording);
@@ -994,6 +1002,7 @@ export function App() {
               events={events}
               logLines={logLines}
               sendCaps={channelCaps}
+              drivers={drivers}
               onSetSendMode={onSetSendMode}
             />
           </div>

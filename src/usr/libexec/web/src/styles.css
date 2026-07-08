@@ -2569,7 +2569,7 @@ button {
 
 .system-body {
   display: grid;
-  grid-template-rows: minmax(280px, 1.35fr) minmax(78px, 0.35fr) minmax(150px, 0.75fr);
+  grid-template-rows: minmax(120px, 0.8fr) minmax(200px, 1.15fr) minmax(78px, 0.35fr) minmax(150px, 0.65fr);
 }
 
 .sys-block {
@@ -2848,6 +2848,145 @@ button {
 /* ---------- System tables ---------- */
 .scroll {
   overflow-y: auto;
+}
+
+/* ---------- Driver health panel ---------- */
+/* Same table voice as .proc-list; the only color in it is the status dot —
+   quiet ink when healthy, the console's single restrained red when a driver
+   is dead or crash-looping. */
+.driver-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.driver-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.driver-list th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  padding: 6px 8px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.driver-list td {
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.driver-list tbody tr {
+  transition: background 0.16s var(--ease);
+}
+
+.driver-list tbody tr:hover {
+  background: var(--surface-soft);
+}
+
+.driver-list .slug {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.driver-dot-cell {
+  width: 18px;
+  padding-right: 0;
+}
+
+.driver-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.driver-dot-ok {
+  background: var(--ok);
+}
+
+.driver-dot-stale {
+  background: var(--warn-soft);
+  border: 1.5px solid var(--warn);
+}
+
+.driver-dot-down,
+.driver-dot-looping {
+  background: var(--fail);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fail) 18%, transparent);
+}
+
+.driver-dot-off {
+  background: transparent;
+  border: 1.5px solid var(--dim);
+}
+
+.driver-row.driver-down,
+.driver-row.driver-looping {
+  background: var(--fail-soft);
+  box-shadow: inset 2px 0 0 var(--fail);
+}
+
+.driver-row.driver-down .driver-state,
+.driver-row.driver-looping .driver-state {
+  color: var(--fail);
+  font-weight: 600;
+}
+
+.driver-row.driver-stale {
+  background: var(--warn-soft);
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+
+.driver-row.driver-off .slug {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+/* The reason is context, not the alarm — dimmer, and clipped so a long
+   traceback repr doesn't blow the row (the full text rides the row title). */
+.driver-reason {
+  color: var(--muted);
+  font-weight: 400;
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.driver-restarts,
+.driver-activity {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A driver is down/looping: a small hard-failure dot on the System tab so the
+   default Activity view still surfaces it. */
+.segment-alert-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--fail);
+  vertical-align: middle;
 }
 
 .proc-list {
@@ -4151,7 +4290,7 @@ button {
   }
 
   .system-body {
-    grid-template-rows: minmax(180px, 1fr) minmax(96px, 0.55fr) minmax(150px, 0.85fr);
+    grid-template-rows: minmax(120px, 0.7fr) minmax(150px, 0.9fr) minmax(96px, 0.5fr) minmax(150px, 0.75fr);
   }
 
   .sys-block {

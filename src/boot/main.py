@@ -25,6 +25,7 @@ import yaml
 
 from . import config as C
 from . import doc_watcher
+from . import driver_health
 from . import inject
 from . import litellm_proxy
 from . import outbound_echo
@@ -1056,6 +1057,7 @@ async def _reconcile_drivers() -> None:
                 tb = traceback.format_exc()
                 print(f"[kernel] driver {slug}: failed to start — {e!r}\n{tb}", flush=True)
                 _ensure_driver_proc(slug)
+                driver_health.record_exit(slug, "failed_to_start", repr(e))
                 try:
                     P.append_log(slug, f"failed to start: {e!r}")
                     for line in tb.rstrip().splitlines():
@@ -1104,8 +1106,14 @@ async def _supervise_driver(slug: str, coro) -> None:
     (nudges PAI via the standard proc_resolved path).
     """
     _ensure_driver_proc(slug)
+    driver_health.record_start(slug)
     try:
         await coro
+        # A driver coroutine returning on its own is the quiet failure mode
+        # (a long-running ingester should never finish). /proc status still
+        # says "running" here, so the health breadcrumb is the only durable
+        # record that the task is gone.
+        driver_health.record_exit(slug, "returned")
     except asyncio.CancelledError:
         # Don't clobber a replacement's "running" status. A stop+start
         # sequence cancels this task and spawns a fresh supervise; that
@@ -1115,6 +1123,10 @@ async def _supervise_driver(slug: str, coro) -> None:
         # leave /proc looking dead while the driver is in fact live.
         current = _driver_tasks.get(slug)
         if current is None or current is asyncio.current_task():
+            # Same replacement guard for the health breadcrumb: a stop+start's
+            # fresh supervise has already recorded its start; writing our exit
+            # here would make the panel call the live replacement dead.
+            driver_health.record_exit(slug, "cancelled")
             try:
                 P.resolve(slug, "cancelled")
             except P.ProcessNotFound:
@@ -1122,6 +1134,7 @@ async def _supervise_driver(slug: str, coro) -> None:
         raise
     except Exception as e:
         tb = traceback.format_exc()
+        driver_health.record_exit(slug, "crashed", repr(e))
         print(f"[driver:{slug}] crashed: {e}\n{tb}", flush=True)
         try:
             P.append_log(slug, f"crashed: {e!r}")

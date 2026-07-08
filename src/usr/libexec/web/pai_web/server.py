@@ -35,6 +35,7 @@ from typing import Callable
 from boot.paths import PAI_ROOT, REPO_ROOT, usr_libexec
 
 from . import actions
+from . import driver_health
 from .hub import Hub, Subscriber
 
 
@@ -202,6 +203,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if path == "/api/kernel":
             return self._json({"ok": True, **actions.kernel_status()})
+        if path == "/api/drivers":
+            # Per-driver health: computed fresh from disk (proc status, health
+            # breadcrumbs, /sys state mtimes). The SSE `drivers` message is the
+            # live path; this is the poke-it-with-curl view of the same rows.
+            return self._json({"ok": True, "drivers": driver_health.read_rows()})
         if path == "/api/state":
             return self._json(HUB.snapshot(actions.read_provider()))
         if path == "/api/asset":

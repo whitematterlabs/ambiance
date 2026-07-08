@@ -79,6 +79,28 @@ export interface SendCapability {
   modes?: SendMode[];
 }
 
+// One kernel-supervised driver process and its health classification, as
+// aggregated by the backend (proc status + supervision breadcrumbs + /sys
+// state mtimes). `last_activity` is epoch seconds — the client derives the
+// live "3h ago" at render time; `state` is the backend's classification and
+// flips via rebroadcast when the disk facts (or a staleness window) change.
+export type DriverState = "ok" | "stale" | "down" | "looping" | "off";
+export interface DriverHealth {
+  slug: string;
+  driver: string;
+  active: boolean;
+  status: string;
+  starts: number;
+  last_start: string | null;
+  last_exit: string | null;
+  last_exit_outcome: string | null;
+  last_exit_reason: string;
+  last_activity: number | null;
+  stale_after_s: number | null;
+  state: DriverState;
+  state_reason: string;
+}
+
 // Build-skew status: which build the kernel vs this console is running, and
 // whether the kernel is old enough that the console is auto-rebooting it.
 export type BuildSkew = "unknown" | "in_sync" | "kernel_stale" | "console_stale" | "both_stale";
@@ -91,7 +113,7 @@ export interface BuildStatus {
 }
 
 export type ServerMessage =
-  | { type: "hello"; provider: string; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
+  | { type: "hello"; provider: string; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
   | { type: "build"; status: BuildStatus }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
@@ -107,4 +129,7 @@ export type ServerMessage =
   | { type: "pending_approvals"; approvals: PendingApproval[] }
   // Send permissions changed (toggle or hand-edit) — full list per channel.
   | { type: "send_capabilities"; capabilities: SendCapability[] }
+  // Driver health changed (state flip, restart, exit) — full list, single
+  // source of truth, change-gated by the hub.
+  | { type: "drivers"; drivers: DriverHealth[] }
   | { type: "notetaker_recording"; recording: boolean };

@@ -40,6 +40,7 @@ from boot.processes import (
 from boot.proctree import order_as_tree
 
 from . import actions
+from . import driver_health
 
 from sbin.tui.state import (
     KERNEL_LOG,
@@ -312,6 +313,7 @@ class Hub:
         self._fleet: list[dict] = []
         self._pending_approvals: list[dict] = []
         self._send_caps: list[dict] = []
+        self._drivers: list[dict] = []
         self._notetaker_recording = False
         self._log_offset = 0
         # Build-skew detection: this console's build is fixed for its lifetime;
@@ -355,6 +357,7 @@ class Hub:
                 "procs": list(self._procs),
                 "pending_approvals": list(self._pending_approvals),
                 "send_capabilities": list(self._send_caps),
+                "drivers": list(self._drivers),
                 "notetaker_recording": self._notetaker_recording,
                 "build": dict(self._build_status),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
@@ -380,19 +383,35 @@ class Hub:
 
         proc_worker = _Debounced(lambda: self._recompute_procs(broadcast=True))
         me_worker = _Debounced(self._recompute_threads)
+        # Driver health rides the same event-driven transport: /proc writes
+        # (status flips, health.yaml breadcrumbs) and /sys/drivers writes
+        # (cursor updates) poke it; the safety poll below also re-runs the
+        # change-gated classification so a staleness or crash-loop window
+        # expiring flips the panel without any new mechanism.
+        drivers_worker = _Debounced(lambda: self._recompute_drivers(broadcast=True))
         proc_worker.start()
         me_worker.start()
-        self._workers += [proc_worker, me_worker]
+        drivers_worker.start()
+        self._workers += [proc_worker, me_worker, drivers_worker]
 
-        self._watch(PROC_DIR, lambda _p: proc_worker.poke(), recursive=True)
+        self._watch(
+            PROC_DIR,
+            lambda _p: (proc_worker.poke(), drivers_worker.poke()),
+            recursive=True,
+        )
+
+        sys_drivers_dir = paths.PAI_ROOT / "sys" / "drivers"
+        sys_drivers_dir.mkdir(parents=True, exist_ok=True)
+        self._watch(sys_drivers_dir, lambda _p: drivers_worker.poke(), recursive=True)
+        self._recompute_drivers(broadcast=False)
 
         ME_ROOT.mkdir(parents=True, exist_ok=True)
         self._watch(ME_ROOT.resolve(), lambda _p: me_worker.poke(), recursive=True)
 
-        # Backstop the two directory watchers against dropped FSEvents (see
-        # _SAFETY_POLL_SECS). Poking is idempotent — both recomputes only
+        # Backstop the directory watchers against dropped FSEvents (see
+        # _SAFETY_POLL_SECS). Poking is idempotent — the recomputes only
         # broadcast on a real change — so an extra tick costs a couple of stats.
-        self._start_safety_poll([proc_worker, me_worker])
+        self._start_safety_poll([proc_worker, me_worker, drivers_worker])
 
         EVENTS_DIR.mkdir(parents=True, exist_ok=True)
         self._watch_events()
@@ -522,6 +541,20 @@ class Hub:
         self._send_caps = caps
         if broadcast:
             self._broadcast({"type": "send_capabilities", "capabilities": caps})
+
+    def _recompute_drivers(self, broadcast: bool) -> None:
+        try:
+            rows = driver_health.read_rows()
+        except Exception:  # never let a watcher thread die
+            import traceback
+
+            traceback.print_exc()
+            return
+        if rows == self._drivers:
+            return
+        self._drivers = rows
+        if broadcast:
+            self._broadcast({"type": "drivers", "drivers": rows})
 
     def _recompute_notetaker(self, broadcast: bool) -> None:
         recording = (
