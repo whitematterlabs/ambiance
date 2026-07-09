@@ -937,6 +937,7 @@ export function App() {
         onVoiceSpeedChange={setVoiceSpeed}
         voiceEngine={voiceEngine}
         onVoiceEngineChange={setVoiceEngine}
+        onEnableVoice={() => setVoiceEnabled(true)}
         pushToTalk={pushToTalk}
         onTogglePushToTalk={() => setPushToTalk((v) => !v)}
         phraseActivation={effectivePhraseOn}
@@ -972,6 +973,7 @@ export function App() {
         onVoiceSpeedChange={setVoiceSpeed}
         voiceEngine={voiceEngine}
         onVoiceEngineChange={setVoiceEngine}
+        onEnableVoice={() => setVoiceEnabled(true)}
         pushToTalk={pushToTalk}
         onTogglePushToTalk={() => setPushToTalk((v) => !v)}
         phraseActivation={effectivePhraseOn}

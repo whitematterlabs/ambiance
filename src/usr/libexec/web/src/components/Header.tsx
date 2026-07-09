@@ -64,6 +64,7 @@ export function Header({
   onVoiceSpeedChange,
   voiceEngine,
   onVoiceEngineChange,
+  onEnableVoice,
   pushToTalk,
   onTogglePushToTalk,
   phraseActivation,
@@ -92,6 +93,7 @@ export function Header({
   onVoiceSpeedChange: (speed: number) => void;
   voiceEngine: VoiceEngine;
   onVoiceEngineChange: (engine: VoiceEngine) => void;
+  onEnableVoice: () => void;
   pushToTalk: boolean;
   onTogglePushToTalk: () => void;
   phraseActivation: boolean;
@@ -300,6 +302,7 @@ export function Header({
               onVoiceSpeedChange={onVoiceSpeedChange}
               voiceEngine={voiceEngine}
               onVoiceEngineChange={onVoiceEngineChange}
+              onEnableVoice={onEnableVoice}
               pushToTalk={pushToTalk}
               onTogglePushToTalk={onTogglePushToTalk}
               phraseActivation={phraseActivation}

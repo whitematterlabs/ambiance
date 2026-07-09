@@ -30,6 +30,7 @@ export function MobileMenu({
   onVoiceSpeedChange,
   voiceEngine,
   onVoiceEngineChange,
+  onEnableVoice,
   pushToTalk,
   onTogglePushToTalk,
   phraseActivation,
@@ -64,6 +65,7 @@ export function MobileMenu({
   onVoiceSpeedChange: (speed: number) => void;
   voiceEngine: VoiceEngine;
   onVoiceEngineChange: (engine: VoiceEngine) => void;
+  onEnableVoice: () => void;
   pushToTalk: boolean;
   onTogglePushToTalk: () => void;
   phraseActivation: boolean;
@@ -214,6 +216,7 @@ export function MobileMenu({
                 onVoiceSpeedChange={onVoiceSpeedChange}
                 voiceEngine={voiceEngine}
                 onVoiceEngineChange={onVoiceEngineChange}
+                onEnableVoice={onEnableVoice}
                 pushToTalk={pushToTalk}
                 onTogglePushToTalk={onTogglePushToTalk}
                 phraseActivation={phraseActivation}

@@ -13,6 +13,7 @@ export function VoiceSettings({
   onVoiceSpeedChange,
   voiceEngine,
   onVoiceEngineChange,
+  onEnableVoice,
   pushToTalk,
   onTogglePushToTalk,
   phraseActivation,
@@ -28,6 +29,10 @@ export function VoiceSettings({
   onVoiceSpeedChange: (speed: number) => void;
   voiceEngine: VoiceEngine;
   onVoiceEngineChange: (engine: VoiceEngine) => void;
+  // Touching any read-aloud control (engine, voice, speed) is a clear signal
+  // the owner wants replies read aloud, so every one of them switches voice on
+  // if it was off. Idempotent — safe to call when voice is already on.
+  onEnableVoice: () => void;
   pushToTalk: boolean;
   onTogglePushToTalk: () => void;
   phraseActivation: boolean;
@@ -47,6 +52,21 @@ export function VoiceSettings({
       : voiceId === null
         ? "Server default"
         : VOICE_OPTIONS.find((v) => v.id === voiceId)?.name ?? "Custom";
+
+  // Every read-aloud change also flips voice on. Wrap the setters so the
+  // desktop popover and the mobile sheet get the behavior identically.
+  const pickEngine = (engine: VoiceEngine) => {
+    onVoiceEngineChange(engine);
+    onEnableVoice();
+  };
+  const pickVoice = (id: string | null) => {
+    onVoiceIdChange(id);
+    onEnableVoice();
+  };
+  const setSpeed = (speed: number) => {
+    onVoiceSpeedChange(speed);
+    onEnableVoice();
+  };
 
   return (
     <>
@@ -129,7 +149,7 @@ export function VoiceSettings({
           role="radio"
           aria-checked={voiceEngine === "elevenlabs"}
           className={`voice-engine-option ${voiceEngine === "elevenlabs" ? "selected" : ""}`}
-          onClick={() => onVoiceEngineChange("elevenlabs")}
+          onClick={() => pickEngine("elevenlabs")}
         >
           <span className="voice-engine-name">ElevenLabs</span>
           <span className="voice-engine-blurb">Cloud voices</span>
@@ -139,7 +159,7 @@ export function VoiceSettings({
           role="radio"
           aria-checked={voiceEngine === "siri"}
           className={`voice-engine-option ${voiceEngine === "siri" ? "selected" : ""}`}
-          onClick={() => onVoiceEngineChange("siri")}
+          onClick={() => pickEngine("siri")}
         >
           <span className="voice-engine-name">Siri</span>
           <span className="voice-engine-blurb">macOS, on-device</span>
@@ -153,7 +173,7 @@ export function VoiceSettings({
               <button
                 type="button"
                 className={`voice-item ${voiceId === null ? "selected" : ""}`}
-                onClick={() => onVoiceIdChange(null)}
+                onClick={() => pickVoice(null)}
               >
                 <span className="voice-name">Server default</span>
                 <span className="voice-blurb">Whatever .env / Rachel</span>
@@ -164,7 +184,7 @@ export function VoiceSettings({
                 <button
                   type="button"
                   className={`voice-item ${voiceId === v.id ? "selected" : ""}`}
-                  onClick={() => onVoiceIdChange(v.id)}
+                  onClick={() => pickVoice(v.id)}
                 >
                   <span className="voice-name">{v.name}</span>
                   <span className="voice-blurb">{v.blurb}</span>
@@ -191,7 +211,7 @@ export function VoiceSettings({
           max={1.2}
           step={0.05}
           value={voiceSpeed}
-          onChange={(e) => onVoiceSpeedChange(parseFloat(e.target.value))}
+          onChange={(e) => setSpeed(parseFloat(e.target.value))}
         />
       </div>
     </>
