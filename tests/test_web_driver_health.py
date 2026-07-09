@@ -182,6 +182,23 @@ def test_silent_clean_return_is_down_despite_running_status(fhs: Path) -> None:
     assert "returned" in row["state_reason"]
 
 
+def test_same_second_restart_is_not_falsely_down(fhs: Path) -> None:
+    """Regression (ax-in 'always cancelled'): on a graceful kernel restart the
+    old task's cancel-exit and the new task's start land in the same wall-clock
+    second. With sub-second precision the new start still sorts *after* the old
+    exit, so the running driver classifies ok — not 'down — task cancelled'."""
+    _manifest(fhs, "ax", "driver: ax\nprocesses:\n  - slug: ax-in\n    module: m\n")
+    _driver_proc("ax-in", status="running")
+    base = datetime.fromtimestamp(NOW - 120).replace(microsecond=0)
+    old_exit = base.replace(microsecond=100000).isoformat(timespec="microseconds")
+    new_start = base.replace(microsecond=500000).isoformat(timespec="microseconds")
+    B.record_start("ax-in", now=new_start)
+    B.record_exit("ax-in", "cancelled", now=old_exit)
+    _sys_file(fhs, "ax", "cursor.yaml", age_s=30)
+    row = _row(dh.read_rows(now=NOW), "ax-in")
+    assert row["state"] == "ok", row["state_reason"]
+
+
 def test_dense_restarts_classify_as_looping(fhs: Path) -> None:
     _manifest(fhs, "email", "driver: email\nprocesses:\n  - slug: email-in\n    module: m\n")
     _driver_proc("email-in")

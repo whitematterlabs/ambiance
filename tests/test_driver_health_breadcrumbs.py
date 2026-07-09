@@ -66,6 +66,19 @@ def test_record_exit_writes_outcome_and_reason(proc_root: Path) -> None:
     assert h["last_start"] == "2026-07-07T10:00:00"
 
 
+def test_default_timestamp_carries_subsecond_precision(proc_root: Path) -> None:
+    """Regression: a graceful kernel restart records the old task's cancel-exit
+    and the new task's start moments apart. At second resolution those two
+    genuinely-ordered events collapse to an equal string whenever they fall in
+    the same second, and the web console then misreads a live driver as
+    'down — task cancelled'. Sub-second precision keeps them orderable."""
+    import re
+
+    ts = DH._now_iso()
+    # Fixed-width microseconds → lexicographic compare stays chronological.
+    assert re.search(r"T\d\d:\d\d:\d\d\.\d{6}$", ts), ts
+
+
 def test_breadcrumbs_are_noops_without_a_proc_entry(proc_root: Path) -> None:
     # Health is a breadcrumb, not a dependency: no proc dir → silently skip.
     DH.record_start("ghost")

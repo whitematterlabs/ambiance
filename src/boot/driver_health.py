@@ -50,7 +50,16 @@ OUTCOMES = ("crashed", "cancelled", "returned", "failed_to_start")
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    # Microsecond (not second) resolution is load-bearing. The web console's
+    # silent-death heuristic classifies a running driver "down" when
+    # last_exit >= last_start. On a graceful kernel restart the OLD kernel
+    # records last_exit=cancelled and the NEW kernel records last_start;
+    # these are genuinely ordered exit-then-start in wall-clock, but at second
+    # resolution they collapse to an equal string whenever they land in the
+    # same second — a coin-flip per restart that falsely reds-out the driver.
+    # Fixed-width microseconds keep the string compare chronological, so the
+    # new start always sorts after the old exit.
+    return datetime.now().isoformat(timespec="microseconds")
 
 
 def health_path(slug: str) -> Path:
