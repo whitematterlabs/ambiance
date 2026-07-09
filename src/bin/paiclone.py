@@ -89,10 +89,15 @@ def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
     entry: dict[str, Any] = dict(source)
     entry["name"] = new_name
     entry.pop("pid", None)  # let kernel allocate a fresh pid
-    # Clones do NOT auto-inherit wakes: a shared catch-all `wake_on` would make
-    # every clone fire on every matching event (the B1 3×-amplification trap).
+    # Clones do NOT auto-inherit routing: they must not silently become a second
+    # subscriber/catch-all. Both fields that route events are stripped —
+    #   `wake_on`  — glob subscriptions (the B1 3×-amplification trap), and
+    #   `fallback` — catch-all for unclaimed events; cloning the fallback PAI
+    #                (e.g. `pai`) would otherwise fan every unclaimed event out
+    #                to both the original and the clone.
     # The clone is inert until the owner assigns it routing explicitly.
     entry.pop("wake_on", None)
+    entry.pop("fallback", None)
     # Behavior-free provenance marker: stamps this entry as a clone so surfaces
     # (the web "−" button, paidel guards) can tell clones from originals. It is
     # *not* the kernel's `parent` field — that flips a PAI into subagent identity.
