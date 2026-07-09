@@ -222,6 +222,7 @@ onboarding_pending: true
 capabilities:
   email_send: {email_send_yaml}        # PAI may send email (else: drafts only)
   imessage_send: {imessage_send_yaml}     # PAI may send iMessages (else: read only)
+  calendar_write: no       # PAI may create calendar events (else: read only). Flip in the console.
 
 pais:
   - name: root

@@ -98,6 +98,17 @@ CAPABILITY_SPECS: dict[str, dict] = {
         "driver": "notetaker", "freeze": "capture.freeze", "mounts": {"notetaker"},
         "default": "no", "modes": ("no", "yes"),
     },
+    # Calendar write is a *bin* gate, not a driver-send gate: there is no
+    # outbound driver to freeze, so the `write_calendar` bin reads this mode
+    # live from `config.capability_modes()` and refuses unless it is `yes`.
+    # The freeze file is still projected onto the calendar driver's state dir
+    # as the visible marker (and for parity with the other flags), but the bin
+    # is the enforcement point. Two-state (no/yes), fail-closed — there is no
+    # approvals hand-off for a direct EventKit write, so "ask" is meaningless.
+    "calendar_write": {
+        "driver": "calendar", "freeze": "write.freeze", "mounts": {"calendar"},
+        "default": "no", "modes": ("no", "yes"),
+    },
 }
 
 def _boilerplate_dir(config_path: Path) -> Path:

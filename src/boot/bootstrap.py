@@ -685,6 +685,28 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "the console first."
         ),
     },
+    # Calendar write is two-state (no/yes) — no "ask" prose, because the
+    # `write_calendar` bin acts directly against EventKit and has no approvals
+    # hand-off. Reading the calendar (`cal`) is never gated.
+    "calendar_write": {
+        "yes": (
+            "Calendar — WRITE GRANTED. You may create events in the owner's "
+            "Apple Calendar with `write_calendar TITLE START END "
+            "[--notes N] [--calendar C]` (datetimes as \"YYYY-MM-DD HH:MM\"). "
+            "Reading the calendar with `cal` is always available. A created "
+            "event is real and visible to the owner immediately — verify the "
+            "date, time, and target calendar before writing, and don't invent "
+            "an event on a guess. Never commit the owner to an appointment "
+            "without a clear instruction."
+        ),
+        "no": (
+            "Calendar — READ ONLY. You can read the owner's calendar with `cal` "
+            "but cannot create events: `write_calendar` refuses while this "
+            "capability is off. If the owner wants you to add events, tell them "
+            "to enable Calendar writes in the console first — don't claim you "
+            "created an event."
+        ),
+    },
 }
 
 

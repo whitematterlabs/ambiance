@@ -586,7 +586,7 @@ pais:
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
         "slack_send": False,
         "cowork_window": True, "cowork_clipboard": True,
-        "cowork_files": True, "notetaker": False,
+        "cowork_files": True, "notetaker": False, "calendar_write": False,
     }
 
 
@@ -597,7 +597,7 @@ def test_capability_flags_missing_file_is_deny(repo_root):
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
         "slack_send": False,
         "cowork_window": False, "cowork_clipboard": False,
-        "cowork_files": False, "notetaker": False,
+        "cowork_files": False, "notetaker": False, "calendar_write": False,
     }
 
 
@@ -683,12 +683,18 @@ pais:
 
 def test_default_config_yaml_seeds_capabilities():
     denied = yaml.safe_load(default_config_yaml())
-    assert denied["capabilities"] == {"email_send": False, "imessage_send": False}
+    assert denied["capabilities"] == {
+        "email_send": False, "imessage_send": False, "calendar_write": False,
+    }
 
     granted = yaml.safe_load(
         default_config_yaml(email_send=True, imessage_send=True)
     )
-    assert granted["capabilities"] == {"email_send": True, "imessage_send": True}
+    # calendar_write is not wired to an install-time consent question — it seeds
+    # off regardless and the owner flips it in the console.
+    assert granted["capabilities"] == {
+        "email_send": True, "imessage_send": True, "calendar_write": False,
+    }
 
 
 # ----- capabilities: tri-state modes (no / ask / yes) -----
@@ -712,7 +718,7 @@ pais:
         "email_send": "ask", "imessage_send": "yes", "whatsapp_send": "no",
         "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
-        "cowork_files": "yes", "notetaker": "no",
+        "cowork_files": "yes", "notetaker": "no", "calendar_write": "no",
     }
 
 
@@ -734,7 +740,7 @@ pais:
         "email_send": "yes", "imessage_send": "no", "whatsapp_send": "no",
         "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
-        "cowork_files": "yes", "notetaker": "no",
+        "cowork_files": "yes", "notetaker": "no", "calendar_write": "no",
     }
 
 
@@ -755,7 +761,7 @@ pais:
         "email_send": "no", "imessage_send": "no", "whatsapp_send": "no",
         "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
-        "cowork_files": "yes", "notetaker": "no",
+        "cowork_files": "yes", "notetaker": "no", "calendar_write": "no",
     }
 
 
@@ -778,7 +784,7 @@ pais:
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
         "slack_send": False,
         "cowork_window": True, "cowork_clipboard": True,
-        "cowork_files": True, "notetaker": False,
+        "cowork_files": True, "notetaker": False, "calendar_write": False,
     }
 
 

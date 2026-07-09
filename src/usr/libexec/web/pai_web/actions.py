@@ -883,6 +883,7 @@ SEND_CHANNEL_LABELS = {
     "cowork_clipboard": "Clipboard",
     "cowork_files": "File activity",
     "notetaker": "Notetaker",
+    "calendar_write": "Calendar",
 }
 
 
