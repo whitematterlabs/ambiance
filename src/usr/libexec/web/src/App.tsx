@@ -92,6 +92,9 @@ export function App() {
     () => localStorage.getItem("welcomeSeen") !== "true",
   );
   const [mobileView, setMobileView] = useState<MobileView>("chat");
+  // Which right-rail view is active. Lifted out of SidePanel so the sidebar
+  // column can widen for the System tab's tables (Activity keeps the slim rail).
+  const [panelTab, setPanelTab] = useState<"activity" | "system">("activity");
   // Desktop-only: the left rail (PAI switcher + Activity/System) collapses to
   // hand the chat full width. Persisted so the choice survives reloads.
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -1011,6 +1014,7 @@ export function App() {
         className="main"
         data-mobile-view={mobileView}
         data-sidebar={sidebarOpen ? "open" : "closed"}
+        data-panel={panelTab}
       >
         <aside className="workspace-sidebar" aria-hidden={!sidebarOpen}>
           <div className="sidebar-scroll">
@@ -1034,6 +1038,8 @@ export function App() {
               />
             </section>
             <SidePanel
+              tab={panelTab}
+              onTabChange={setPanelTab}
               activeProc={activeProc}
               activity={activity}
               procs={procs}

@@ -1086,6 +1086,19 @@ button {
   pointer-events: none;
 }
 
+/* System tab shows raw process/event/log tables that need room — widen the rail
+   to ~a third of the canvas. Activity stays on the slim 320px rail. Scoped to
+   the open sidebar so it never fights the collapse animation. */
+.main[data-sidebar="open"][data-panel="system"] .workspace-sidebar {
+  flex-basis: clamp(360px, 33vw, 600px);
+}
+
+/* Inner width follows the panel alone (not the open/closed state) so on collapse
+   the wide content slides out under overflow:hidden instead of reflowing. */
+.main[data-panel="system"] .sidebar-scroll {
+  width: clamp(360px, 33vw, 600px);
+}
+
 /* Fixed inner width so the content slides out under overflow:hidden rather than
    reflowing (tab names, feed rows) as the rail animates shut. */
 .sidebar-scroll {
@@ -1095,6 +1108,7 @@ button {
   width: 320px;
   height: 100%;
   min-height: 0;
+  transition: width 0.28s var(--ease);
 }
 
 .sidebar-section {

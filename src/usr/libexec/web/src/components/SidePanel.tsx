@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { DriverHealth, EventSighting, ProcRow, SendCapability, SendMode } from "../types";
 import type { ActivityEntry } from "../activity";
 import { StatusCard } from "./StatusCard";
@@ -15,6 +14,8 @@ type Tab = "activity" | "system";
 // preserves the raw process / event / log tables for power users. Both read
 // data already in App state — no kernel behavior here.
 export function SidePanel({
+  tab,
+  onTabChange,
   activeProc,
   activity,
   procs,
@@ -24,6 +25,8 @@ export function SidePanel({
   drivers,
   onSetSendMode,
 }: {
+  tab: Tab;
+  onTabChange: (tab: Tab) => void;
   activeProc: ProcRow | null;
   activity: ActivityEntry[];
   procs: ProcRow[];
@@ -33,7 +36,6 @@ export function SidePanel({
   drivers: DriverHealth[];
   onSetSendMode: (flag: string, mode: SendMode) => void;
 }) {
-  const [tab, setTab] = useState<Tab>("activity");
   // Surface a dead/looping driver even while the Activity tab has focus — the
   // whole point of the health panel is that silent breakage isn't silent.
   const driversNeedAttention = drivers.some(
@@ -47,7 +49,7 @@ export function SidePanel({
           role="tab"
           aria-selected={tab === "activity"}
           className={`segment ${tab === "activity" ? "active" : ""}`}
-          onClick={() => setTab("activity")}
+          onClick={() => onTabChange("activity")}
         >
           Activity
         </button>
@@ -55,7 +57,7 @@ export function SidePanel({
           role="tab"
           aria-selected={tab === "system"}
           className={`segment ${tab === "system" ? "active" : ""}`}
-          onClick={() => setTab("system")}
+          onClick={() => onTabChange("system")}
         >
           System
           {driversNeedAttention && <span className="segment-alert-dot" aria-label="driver needs attention" />}
