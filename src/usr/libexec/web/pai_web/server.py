@@ -222,6 +222,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": str(e)}, status=400)
             except Exception as e:  # noqa: BLE001
                 return self._json({"ok": False, "error": str(e)}, status=500)
+        if path == "/api/scheduled":
+            return self._json({"ok": True, "tasks": actions.list_scheduled()})
         if path == "/api/asset":
             return self._asset()
         if path == "/api/elevenlabs-key":
@@ -293,6 +295,31 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))
                 return self._json({"ok": True, **result})
+            if path == "/api/scheduled":
+                # Create an owner scheduled task. The hub's /proc watch
+                # rebroadcasts the `scheduled` list, so this doesn't push state.
+                result = actions.add_scheduled(
+                    str(body["pai"]),
+                    str(body["repeat"]),
+                    str(body["time"]),
+                    dow=body.get("dow"),
+                    date=body.get("date"),
+                    instruction=str(body.get("instruction", "")),
+                )
+                return self._json({"ok": True, "task": result})
+            if path == "/api/scheduled/update":
+                result = actions.update_scheduled(
+                    str(body["slug"]),
+                    str(body["pai"]),
+                    str(body["repeat"]),
+                    str(body["time"]),
+                    dow=body.get("dow"),
+                    date=body.get("date"),
+                    instruction=str(body.get("instruction", "")),
+                )
+                return self._json({"ok": True, "task": result})
+            if path == "/api/scheduled/delete":
+                return self._json({"ok": True, **actions.remove_scheduled(str(body["slug"]))})
             if path == "/api/models":
                 result = actions.set_pai_model(
                     str(body["pai"]), str(body["provider"]), str(body["model"])

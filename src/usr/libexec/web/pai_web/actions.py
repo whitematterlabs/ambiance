@@ -993,3 +993,164 @@ def run_shell(pid: int, cmd: str) -> dict:
     if rc == 0:
         ctx_applied = apply_pending_history_action(slug)
     return {"lines": lines, "rc": rc, "ctx_applied": ctx_applied}
+
+
+# --- scheduled tasks: owner-editable paicron jobs (web surface) -------------
+#
+# A scheduled task *is* a paicron service — no new datastore. It's a proc with
+# `schedule:` (cron or ISO one-shot), `description:` (the instruction the PAI
+# reads on fire), and `parent:` (the target PAI's invariant pid); crucially NO
+# `run:`, so on fire the kernel routes it to a PAI nudge rather than a
+# subprocess. Owner tasks carry the base slug `owner-task`, which is how the
+# panel shows *only* owner schedules and never driver/system/boot-hook crons.
+#
+# CRUD goes through `boot.processes` directly (the same substrate paicron
+# itself uses): writing a spec via `P.spawn` and cancelling via `P.resolve`
+# arms/disarms the kernel's timer live through proc_watcher — no event needed
+# (same as the approvals queue). All cron-string logic lives in `schedule.py`.
+
+# Base slug that marks a proc as an owner-created scheduled task.
+OWNER_TASK_BASE = "owner-task"
+
+
+def _scheduled_row(slug: str, spec: dict) -> dict:
+    """Project one owner-task spec into a typed row for the console.
+
+    Resolves the invariant `parent` pid to the target PAI's slug and folds in
+    the structured schedule fields + human label + next fire from
+    `schedule.describe_schedule`.
+    """
+    from boot import processes as P
+    from . import schedule as sched
+
+    parent = spec.get("parent")
+    pai_name = ""
+    if isinstance(parent, int):
+        try:
+            pai_name = P.find_pai_slug(parent)
+        except P.ProcessNotFound:
+            pai_name = ""
+    return {
+        "slug": slug,
+        "pai": pai_name,
+        "parent": parent if isinstance(parent, int) else None,
+        "instruction": str(spec.get("description", "")),
+        "schedule": str(spec.get("schedule", "")),
+        **sched.describe_schedule(spec.get("schedule", "")),
+    }
+
+
+def _is_owner_task(slug: str, status: str, spec: dict) -> bool:
+    """The panel filter: an active, run-less `schedule:` proc named `owner-task`.
+
+    `run` absent is what makes the fire a PAI nudge rather than a subprocess;
+    the `owner-task` base slug is what keeps PAI-internal reminders and
+    driver/boot-hook crons out of the panel."""
+    from bin import paicron
+
+    if status not in ("scheduled", "running"):
+        return False
+    if "schedule" not in spec or "run" in spec:
+        return False
+    return paicron._base_from_slug(slug) == OWNER_TASK_BASE
+
+
+def list_scheduled() -> list[dict]:
+    """Every owner scheduled task, as typed rows sorted by next fire."""
+    from boot import processes as P
+
+    out: list[dict] = []
+    for slug in P.list_procs():
+        try:
+            status = P.read_status(slug)
+            spec = P.read_spec(slug)
+        except P.ProcessNotFound:
+            continue
+        if not _is_owner_task(slug, status, spec):
+            continue
+        out.append(_scheduled_row(slug, spec))
+    # next_fire is a local ISO string (sortable); tasks with no next fire sort last.
+    out.sort(key=lambda r: r.get("next_fire") or "~")
+    return out
+
+
+def add_scheduled(
+    pai_slug: str,
+    repeat: str,
+    time: str,
+    dow=None,
+    date=None,
+    instruction: str = "",
+) -> dict:
+    """Create an owner scheduled task targeting a (running) fleet PAI.
+
+    Resolves the PAI slug to its invariant pid, builds the `schedule:` string
+    from the preset, guards a one-shot in the past, allocates an `owner-task`
+    slug, and spawns the spec. `P.spawn` writing the spec is enough for
+    proc_watcher to arm the timer — no event to emit.
+    """
+    from boot import processes as P
+    from boot import timers as T
+    from bin import paicron
+    from . import schedule as sched
+
+    pai_slug = (pai_slug or "").strip()
+    instruction = (instruction or "").strip()
+    if not pai_slug:
+        raise ValueError("choose a target PAI")
+    if not instruction:
+        raise ValueError("enter an instruction for the PAI")
+
+    parent = paicron._resolve_parent_slug(pai_slug)  # ValueError if not running
+    schedule_str = sched.build_schedule(repeat, time, dow=dow, date=date)
+    # A one-shot whose datetime already passed would never fire — refuse it so
+    # the owner isn't left with a dead task (the editor also blocks past times).
+    next_fire, _ = T.parse_schedule(schedule_str, datetime.now())
+    if next_fire is None:
+        raise ValueError("that time is already in the past")
+
+    slug = paicron._allocate_slug(OWNER_TASK_BASE)
+    spec = {"schedule": schedule_str, "description": instruction, "parent": parent}
+    P.spawn(slug, spec)
+    return _scheduled_row(slug, spec)
+
+
+def update_scheduled(
+    slug: str,
+    pai_slug: str,
+    repeat: str,
+    time: str,
+    dow=None,
+    date=None,
+    instruction: str = "",
+) -> dict:
+    """Edit a task: cancel the old proc, then recreate.
+
+    paicron has no in-place edit — cancelling re-arms cleanly and the fresh
+    spawn yields a new slug the SSE reconciles. Cancel first so a validation
+    error in the rebuild doesn't leave two live copies; if the rebuild fails,
+    the old task is simply gone (the owner re-enters it), never duplicated.
+    """
+    from boot import processes as P
+
+    try:
+        P.resolve(slug, "cancelled")
+    except P.ProcessNotFound:
+        pass
+    return add_scheduled(pai_slug, repeat, time, dow=dow, date=date, instruction=instruction)
+
+
+def remove_scheduled(slug: str) -> dict:
+    """Delete a task by cancelling its proc (idempotent). proc_watcher disarms
+    the timer on the status flip; `cancelled` is not a nudging status, so the
+    target PAI gets no spurious message."""
+    from boot import processes as P
+
+    slug = (slug or "").strip()
+    if not slug:
+        raise ValueError("missing task slug")
+    try:
+        P.resolve(slug, "cancelled")
+    except P.ProcessNotFound:
+        return {"slug": slug, "status": "missing"}
+    return {"slug": slug, "status": "cancelled"}

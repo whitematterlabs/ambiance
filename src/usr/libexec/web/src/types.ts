@@ -101,6 +101,26 @@ export interface DriverHealth {
   state_reason: string;
 }
 
+// One owner-created scheduled task = a paicron proc (schedule + description +
+// parent pid, no run). The server owns all cron-string logic and ships the
+// structured fields the editor round-trips plus a human `label` and `next_fire`
+// (local ISO, or null for a one-shot already past). `repeat: "custom"` marks a
+// hand-written cron the presets can't represent — shown read-only.
+export type ScheduleRepeat = "once" | "daily" | "weekdays" | "weekly" | "custom";
+export interface ScheduledTask {
+  slug: string;
+  pai: string;
+  parent: number | null;
+  instruction: string;
+  schedule: string;
+  repeat: ScheduleRepeat;
+  time: string | null;
+  dow: number | null;
+  date: string | null;
+  label: string;
+  next_fire: string | null;
+}
+
 // Build-skew status: which build the kernel vs this console is running, and
 // whether the kernel is old enough that the console is auto-rebooting it.
 export type BuildSkew = "unknown" | "in_sync" | "kernel_stale" | "console_stale" | "both_stale";
@@ -113,7 +133,7 @@ export interface BuildStatus {
 }
 
 export type ServerMessage =
-  | { type: "hello"; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
+  | { type: "hello"; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; scheduled?: ScheduledTask[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
   | { type: "build"; status: BuildStatus }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
@@ -131,7 +151,10 @@ export type ServerMessage =
   // Driver health changed (state flip, restart, exit) — full list, single
   // source of truth, change-gated by the hub.
   | { type: "drivers"; drivers: DriverHealth[] }
-  | { type: "notetaker_recording"; recording: boolean };
+  | { type: "notetaker_recording"; recording: boolean }
+  // Owner scheduled tasks changed (create/edit/delete) — full list, single
+  // source of truth, change-gated by the hub off the /proc watch.
+  | { type: "scheduled"; tasks: ScheduledTask[] };
 
 export interface ModelRow {
   provider: string;

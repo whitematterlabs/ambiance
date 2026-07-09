@@ -8,6 +8,7 @@ import type {
   ModelsState,
   PendingApproval,
   ProcRow,
+  ScheduledTask,
   SendCapability,
   SendMode,
   ServerMessage,
@@ -37,6 +38,9 @@ import { StatusBar } from "./components/StatusBar";
 import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
 import { ModelPicker } from "./components/ModelPicker";
+import { MainTabs, type MainView } from "./components/MainTabs";
+import { ScheduledView } from "./components/ScheduledView";
+import { ScheduleEditor } from "./components/ScheduleEditor";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { BuildBanner } from "./components/BuildBanner";
 import { ApprovalModal } from "./components/ApprovalModal";
@@ -92,6 +96,17 @@ export function App() {
     () => localStorage.getItem("welcomeSeen") !== "true",
   );
   const [mobileView, setMobileView] = useState<MobileView>("chat");
+  // Top-level center-pane view: Chat or Scheduled Tasks (see MainTabs).
+  const [mainView, setMainView] = useState<MainView>("chat");
+  // Owner scheduled tasks (paicron jobs). Single source of truth is the hub's
+  // `scheduled` SSE broadcast off the /proc watch; edits are optimistic-free —
+  // the broadcast reconciles create/edit/delete.
+  const [scheduled, setScheduled] = useState<ScheduledTask[]>([]);
+  // null = closed; { task: null } = new; { task } = editing.
+  const [scheduleEditor, setScheduleEditor] = useState<{ task: ScheduledTask | null } | null>(
+    null,
+  );
+  const [deletingScheduled, setDeletingScheduled] = useState<Set<string>>(() => new Set());
   // Which right-rail view is active. Lifted out of SidePanel so the sidebar
   // column can widen for the System tab's tables (Activity keeps the slim rail).
   const [panelTab, setPanelTab] = useState<"activity" | "system">("activity");
@@ -362,6 +377,7 @@ export function App() {
             approvalsCountRef.current = pending.length;
           }
           setSendCaps(msg.send_capabilities ?? []);
+          setScheduled(msg.scheduled ?? []);
           setDrivers(msg.drivers ?? []);
           setNotetakerRecording(msg.notetaker_recording ?? false);
           setBuild(msg.build ?? null);
@@ -476,6 +492,11 @@ export function App() {
           break;
         case "notetaker_recording":
           setNotetakerRecording(msg.recording);
+          break;
+        case "scheduled":
+          // Full owner-task list, change-gated server-side — reconciles any
+          // create/edit/delete and reflects a task that just fired or expired.
+          setScheduled(msg.tasks);
           break;
         case "voice": {
           // Host-mic listener fired. "listening" = wake word landed (no text
@@ -689,6 +710,22 @@ export function App() {
   const onSetSendMode = useCallback((flag: string, mode: SendMode) => {
     setSendCaps((prev) => prev.map((c) => (c.flag === flag ? { ...c, mode } : c)));
     api.setSendMode(flag, mode);
+  }, []);
+
+  // Delete a scheduled task: mark it deleting (spinner), cancel it server-side,
+  // and let the `scheduled` broadcast drop it. Idempotent, so no confirm needed.
+  const handleDeleteScheduled = useCallback((task: ScheduledTask) => {
+    setDeletingScheduled((prev) => new Set(prev).add(task.slug));
+    void api
+      .deleteScheduled(task.slug)
+      .catch(() => undefined)
+      .finally(() => {
+        setDeletingScheduled((prev) => {
+          const next = new Set(prev);
+          next.delete(task.slug);
+          return next;
+        });
+      });
   }, []);
 
   // Capture gates (cowork/notetaker) render as header/mobile-sheet toggles;
@@ -1052,6 +1089,16 @@ export function App() {
           </div>
         </aside>
         <section className="chat-col">
+          <MainTabs view={mainView} onChange={setMainView} />
+          {mainView === "scheduled" ? (
+            <ScheduledView
+              tasks={scheduled}
+              onNew={() => setScheduleEditor({ task: null })}
+              onEdit={(t) => setScheduleEditor({ task: t })}
+              onDelete={handleDeleteScheduled}
+              deletingSlugs={deletingScheduled}
+            />
+          ) : (
           <section className="conversation">
             <header className="chat-head">
               <div className="chat-head-copy">
@@ -1124,6 +1171,7 @@ export function App() {
               ctxLimit={activeProc?.ctx_limit ?? 0}
             />
           </section>
+          )}
         </section>
       </main>
       {pickerOpen && activeSlug && (
@@ -1132,6 +1180,14 @@ export function App() {
           onClose={() => setPickerOpen(false)}
           onStatus={setStatus}
           onSwitched={refreshModels}
+        />
+      )}
+      {scheduleEditor && (
+        <ScheduleEditor
+          task={scheduleEditor.task}
+          fleet={fleet}
+          defaultPai={activeSlug}
+          onClose={() => setScheduleEditor(null)}
         />
       )}
       {confirmDelete && (

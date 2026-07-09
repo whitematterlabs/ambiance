@@ -312,6 +312,7 @@ class Hub:
         self._procs: list[dict] = []
         self._fleet: list[dict] = []
         self._pending_approvals: list[dict] = []
+        self._scheduled: list[dict] = []
         self._send_caps: list[dict] = []
         self._drivers: list[dict] = []
         self._notetaker_recording = False
@@ -355,6 +356,7 @@ class Hub:
                 "fleet": list(self._fleet),
                 "procs": list(self._procs),
                 "pending_approvals": list(self._pending_approvals),
+                "scheduled": list(self._scheduled),
                 "send_capabilities": list(self._send_caps),
                 "drivers": list(self._drivers),
                 "notetaker_recording": self._notetaker_recording,
@@ -382,6 +384,10 @@ class Hub:
 
         proc_worker = _Debounced(lambda: self._recompute_procs(broadcast=True))
         me_worker = _Debounced(self._recompute_threads)
+        # Owner scheduled tasks are paicron procs, so they ride the same /proc
+        # watch: a spec write (create) or status flip (delete/edit) pokes this,
+        # and the change-gated recompute rebroadcasts the list.
+        scheduled_worker = _Debounced(lambda: self._recompute_scheduled(broadcast=True))
         # Driver health rides the same event-driven transport: /proc writes
         # (status flips, health.yaml breadcrumbs) and /sys/drivers writes
         # (cursor updates) poke it; the safety poll below also re-runs the
@@ -391,13 +397,15 @@ class Hub:
         proc_worker.start()
         me_worker.start()
         drivers_worker.start()
-        self._workers += [proc_worker, me_worker, drivers_worker]
+        scheduled_worker.start()
+        self._workers += [proc_worker, me_worker, drivers_worker, scheduled_worker]
 
         self._watch(
             PROC_DIR,
-            lambda _p: (proc_worker.poke(), drivers_worker.poke()),
+            lambda _p: (proc_worker.poke(), drivers_worker.poke(), scheduled_worker.poke()),
             recursive=True,
         )
+        self._recompute_scheduled(broadcast=False)
 
         sys_drivers_dir = paths.PAI_ROOT / "sys" / "drivers"
         sys_drivers_dir.mkdir(parents=True, exist_ok=True)
@@ -410,7 +418,7 @@ class Hub:
         # Backstop the directory watchers against dropped FSEvents (see
         # _SAFETY_POLL_SECS). Poking is idempotent — the recomputes only
         # broadcast on a real change — so an extra tick costs a couple of stats.
-        self._start_safety_poll([proc_worker, me_worker, drivers_worker])
+        self._start_safety_poll([proc_worker, me_worker, drivers_worker, scheduled_worker])
 
         EVENTS_DIR.mkdir(parents=True, exist_ok=True)
         self._watch_events()
@@ -532,6 +540,20 @@ class Hub:
         self._pending_approvals = pend
         if broadcast:
             self._broadcast({"type": "pending_approvals", "approvals": pend})
+
+    def _recompute_scheduled(self, broadcast: bool) -> None:
+        try:
+            tasks = actions.list_scheduled()
+        except Exception:  # never let a watcher thread die
+            import traceback
+
+            traceback.print_exc()
+            return
+        if tasks == self._scheduled:
+            return
+        self._scheduled = tasks
+        if broadcast:
+            self._broadcast({"type": "scheduled", "tasks": tasks})
 
     def _recompute_send_caps(self, broadcast: bool) -> None:
         caps = actions.list_send_capabilities()

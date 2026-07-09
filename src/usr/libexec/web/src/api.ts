@@ -2,7 +2,7 @@
 // handled through the web backend's explicit control endpoint.
 
 import { authHeaders, notifyUnauthorized } from "./auth";
-import type { ModelsState } from "./types";
+import type { ModelsState, ScheduledTask } from "./types";
 
 async function post(path: string, body: unknown): Promise<any> {
   const res = await fetch(path, {
@@ -170,6 +170,40 @@ export async function transcribeAudio(audio: Blob): Promise<{
   });
   return readJson(res, "/api/stt");
 }
+
+// Scheduled tasks: owner-editable paicron jobs. The body carries structured
+// fields (repeat/time/dow/date/instruction) — the server owns cron strings. The
+// hub's /proc watch rebroadcasts the full `scheduled` list, so create/edit/
+// delete are optimistic and reconciled by that broadcast.
+export interface ScheduleBody {
+  pai: string;
+  repeat: string;
+  time: string;
+  dow?: number | null;
+  date?: string | null;
+  instruction: string;
+}
+
+export const listScheduled = () =>
+  get("/api/scheduled") as Promise<{ ok: boolean; tasks?: ScheduledTask[]; error?: string }>;
+
+export const addScheduled = (body: ScheduleBody) =>
+  post("/api/scheduled", body) as Promise<{ ok: boolean; task?: ScheduledTask; error?: string }>;
+
+export const updateScheduled = (slug: string, body: ScheduleBody) =>
+  post("/api/scheduled/update", { slug, ...body }) as Promise<{
+    ok: boolean;
+    task?: ScheduledTask;
+    error?: string;
+  }>;
+
+export const deleteScheduled = (slug: string) =>
+  post("/api/scheduled/delete", { slug }) as Promise<{
+    ok: boolean;
+    slug?: string;
+    status?: string;
+    error?: string;
+  }>;
 
 export const kernelStatus = () =>
   get("/api/kernel") as Promise<{
