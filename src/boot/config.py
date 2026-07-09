@@ -67,6 +67,9 @@ CAPABILITY_SPECS: dict[str, dict] = {
     "whatsapp_send": {
         "driver": "whatsapp", "freeze": "outbound.freeze", "mounts": {"whatsapp"},
     },
+    "slack_send": {
+        "driver": "slack", "freeze": "outbound.freeze", "mounts": {"slack"},
+    },
     # Ambient-capture gates, not send freezes: the freeze file gates whether
     # the driver captures at all (presence = capture disabled). `default` is
     # the mode when the key is absent from config.yaml — send flags stay

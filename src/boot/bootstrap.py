@@ -611,6 +611,19 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "and never delivered. Don't attempt sends or claim one happened."
         ),
     },
+    # Terse mode-state only — the how-to lives in the using-slack skill, not the
+    # always-on prompt. This line exists solely so the PAI knows its *live* send
+    # mode (which a static skill can't state); everything else is in the skill.
+    "slack_send": {
+        "yes": "Slack — SEND GRANTED. You may send. How-to: the using-slack skill.",
+        "ask": (
+            "Slack — APPROVAL REQUIRED. Send normally; the driver queues your "
+            "message for the owner's approval instead of delivering it (tell the "
+            "owner you sent it for approval, not that it was delivered). How-to: "
+            "the using-slack skill."
+        ),
+        "no": "Slack — READ ONLY. You cannot send; outbound is frozen. See the using-slack skill.",
+    },
     # Capture gates are two-state (no/yes) — no "ask" prose. Cowork is three
     # independently-toggled facets; each states its own grant so the PAI never
     # infers clipboard access from a window grant (or vice versa).

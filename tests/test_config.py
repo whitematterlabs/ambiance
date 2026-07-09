@@ -584,6 +584,7 @@ pais:
     # (capture gate, ships on-by-default per its spec).
     assert flags == {
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
+        "slack_send": False,
         "cowork_window": True, "cowork_clipboard": True,
         "cowork_files": True, "notetaker": False,
     }
@@ -594,6 +595,7 @@ def test_capability_flags_missing_file_is_deny(repo_root):
     # fail closed here: no readable config means no grants of any kind.
     assert C.capability_flags() == {
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
+        "slack_send": False,
         "cowork_window": False, "cowork_clipboard": False,
         "cowork_files": False, "notetaker": False,
     }
@@ -708,6 +710,7 @@ pais:
     modes = C.capability_modes()
     assert modes == {
         "email_send": "ask", "imessage_send": "yes", "whatsapp_send": "no",
+        "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
         "cowork_files": "yes", "notetaker": "no",
     }
@@ -729,6 +732,7 @@ pais:
     )
     assert C.capability_modes() == {
         "email_send": "yes", "imessage_send": "no", "whatsapp_send": "no",
+        "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
         "cowork_files": "yes", "notetaker": "no",
     }
@@ -749,6 +753,7 @@ pais:
     )
     assert C.capability_modes() == {
         "email_send": "no", "imessage_send": "no", "whatsapp_send": "no",
+        "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
         "cowork_files": "yes", "notetaker": "no",
     }
@@ -771,6 +776,7 @@ pais:
     flags = C.capability_flags()
     assert flags == {
         "email_send": False, "imessage_send": False, "whatsapp_send": False,
+        "slack_send": False,
         "cowork_window": True, "cowork_clipboard": True,
         "cowork_files": True, "notetaker": False,
     }
