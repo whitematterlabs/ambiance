@@ -655,6 +655,23 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
         pai = int(event.get("parent", 1))
         _dispatch_nudge(pai, f"cron fired (rc={rc})", slug=slug, context={"rc": rc})
 
+    elif kind == "crash_loop":
+        # Supervisor gave up on a service that kept dying right after start
+        # (see supervisor._CRASH_BUDGET). The proc is already resolved
+        # `failed`; tell the parent PAI so it can fix the spec, not just
+        # respawn the same crash.
+        slug = event.get("slug")
+        if not slug:
+            print(f"[kernel] dropping malformed crash_loop event: {event!r}", flush=True)
+            return
+        pai = int(event.get("parent", 1))
+        _dispatch_nudge(
+            pai,
+            f"crash loop ({slug})",
+            slug=slug,
+            context={"rc": event.get("rc"), "failures": event.get("failures")},
+        )
+
     else:
         # `pai:<slug>:input` / `pai:<slug>:output` are announcement events
         # emitted by every PAI turn (see nudge.py). They are meant for

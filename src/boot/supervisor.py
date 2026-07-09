@@ -13,9 +13,24 @@ in `_handles` — they're transient.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
 from . import processes as P
+
+# Crash-loop guard. A service that exits within _STABLE_SECS of starting is a
+# rapid exit; each consecutive one restarts with exponential backoff, and once
+# _CRASH_BUDGET are spent the proc resolves `failed` and a `crash_loop` event
+# nudges the parent PAI instead of restarting again. Any run that survives
+# _STABLE_SECS clears the counter. Without this, `restart: always` on a spec
+# whose `run:` dies instantly turns the kernel into a fork storm (2026-07-08:
+# a bad node path respawned ~220×/s for 45 min — 448k forks, 172MB log.md).
+_STABLE_SECS = 30.0
+_BACKOFF_BASE = 1.0
+_BACKOFF_MAX = 60.0
+_CRASH_BUDGET = 5
+
+_crashes: dict[str, int] = {}  # slug → consecutive rapid exits
 
 
 def _spawn_args(run):
@@ -35,6 +50,7 @@ class _Handle:
     spec: dict
     proc: asyncio.subprocess.Process
     waiter: asyncio.Task
+    started_at: float = field(default_factory=time.monotonic)
 
 
 _handles: dict[str, _Handle] = {}
@@ -71,6 +87,7 @@ async def _await_exit(slug: str) -> None:
 
     if status != "running":
         # Already resolved externally (cancelled, expired). Leave it alone.
+        _crashes.pop(slug, None)
         try:
             P.append_log(slug, f"kernel: subprocess exited rc={rc} (status={status})")
         except P.ProcessNotFound:
@@ -79,7 +96,49 @@ async def _await_exit(slug: str) -> None:
 
     restart = handle.spec.get("restart", "never")
     if restart == "always" or (restart == "on-failure" and rc != 0):
-        P.append_log(slug, f"kernel: subprocess exited rc={rc}, restarting ({restart})")
+        lifetime = time.monotonic() - handle.started_at
+        if lifetime >= _STABLE_SECS:
+            _crashes.pop(slug, None)
+            P.append_log(slug, f"kernel: subprocess exited rc={rc}, restarting ({restart})")
+            await start(slug, handle.spec)
+            return
+
+        crashes = _crashes.get(slug, 0) + 1
+        _crashes[slug] = crashes
+        if crashes >= _CRASH_BUDGET:
+            _crashes.pop(slug, None)
+            P.append_log(
+                slug,
+                f"kernel: subprocess exited rc={rc} after {lifetime:.1f}s — "
+                f"{crashes} rapid exits in a row, giving up (restart: {restart})",
+            )
+            # crash_loop below carries the parent nudge (with rc/failure
+            # context); suppress the redundant plain "proc failed" one.
+            P.resolve(slug, "failed", notify_parent=False)
+            payload = {
+                "source": "kernel",
+                "kind": "crash_loop",
+                "slug": slug,
+                "rc": rc,
+                "failures": crashes,
+            }
+            if "parent" in handle.spec:
+                payload["parent"] = handle.spec["parent"]
+            P.emit_event(payload)
+            return
+
+        delay = min(_BACKOFF_BASE * (2 ** (crashes - 1)), _BACKOFF_MAX)
+        P.append_log(
+            slug,
+            f"kernel: subprocess exited rc={rc} after {lifetime:.1f}s "
+            f"(rapid exit {crashes}/{_CRASH_BUDGET}), restarting in {delay:.0f}s ({restart})",
+        )
+        await asyncio.sleep(delay)
+        try:
+            if P.read_status(slug) != "running":
+                return  # stopped/cancelled during the backoff — stay down
+        except P.ProcessNotFound:
+            return
         await start(slug, handle.spec)
         return
 
