@@ -2569,7 +2569,8 @@ button {
 
 .system-body {
   display: grid;
-  grid-template-rows: minmax(120px, 0.8fr) minmax(200px, 1.15fr) minmax(78px, 0.35fr) minmax(150px, 0.65fr);
+  /* Status (auto) · Recent activity · Drivers · Processes · Events · Kernel log */
+  grid-template-rows: auto minmax(140px, 0.95fr) minmax(110px, 0.7fr) minmax(150px, 0.9fr) minmax(72px, 0.3fr) minmax(120px, 0.55fr);
 }
 
 .sys-block {
@@ -4290,7 +4291,7 @@ button {
   }
 
   .system-body {
-    grid-template-rows: minmax(120px, 0.7fr) minmax(150px, 0.9fr) minmax(96px, 0.5fr) minmax(150px, 0.75fr);
+    grid-template-rows: auto minmax(140px, 0.9fr) minmax(120px, 0.7fr) minmax(150px, 0.9fr) minmax(96px, 0.4fr) minmax(120px, 0.6fr);
   }
 
   .sys-block {

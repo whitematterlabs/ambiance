@@ -64,15 +64,15 @@ export function SidePanel({
 
       {tab === "activity" ? (
         <div className="side-body activity-body">
-          <StatusCard proc={activeProc} />
           <SendPermissions capabilities={sendCaps} onSetMode={onSetSendMode} />
+        </div>
+      ) : (
+        <div className="side-body system-body">
+          <StatusCard proc={activeProc} />
           <div className="sys-block grow">
             <div className="sys-head">Recent activity</div>
             <ActivityFeed entries={activity} />
           </div>
-        </div>
-      ) : (
-        <div className="side-body system-body">
           <div className="sys-block">
             <div className="sys-head">
               <span>Drivers</span>
