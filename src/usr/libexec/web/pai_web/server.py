@@ -37,7 +37,7 @@ from boot.paths import PAI_ROOT, REPO_ROOT, usr_libexec
 from . import actions
 from . import dashboards
 from . import driver_health
-from .hub import Hub, Subscriber
+from .hub import Hub, Subscriber, read_fleet, read_plan
 
 
 def _frontend_dist() -> Path:
@@ -225,6 +225,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": str(e)}, status=500)
         if path == "/api/scheduled":
             return self._json({"ok": True, "tasks": actions.list_scheduled()})
+        if path == "/api/plan":
+            # Per-PAI live plan.md keyed by pid — the SSE `plan` message is the
+            # live path; this is the poke-it-with-curl view of the same strips.
+            return self._json(
+                {
+                    "ok": True,
+                    "plans": {
+                        f["pid"]: read_plan(f["slug"]) for f in read_fleet()
+                    },
+                }
+            )
         if path == "/api/dashboards":
             # Tab list (slug/title/order/channels) — the SSE `dashboards` message
             # is the live path; this is the poke-it-with-curl view of the same rows.

@@ -217,6 +217,20 @@ def read_proc_rows() -> list[dict]:
     return rows
 
 
+def read_plan(slug: str) -> str:
+    """Raw text of a PAI's live `proc/<slug>/plan.md`, or '' if absent/empty.
+
+    The PAI authors this itself via plain shell (no wrapper tool) for genuinely
+    multi-step work — a GFM checklist the console renders as a live plan strip.
+    Empty/whitespace-only counts as no plan so an emptied file drops the strip.
+    """
+    try:
+        text = (PROC_DIR / slug / "plan.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return text if text.strip() else ""
+
+
 def read_fleet() -> list[dict]:
     """Running kind:pai procs, with fallback flagged. Drives the tabs."""
     fleet: list[dict] = []
@@ -300,7 +314,7 @@ class _Debounced:
 class Hub:
     """Owns the observers and fans state out to subscribers as dict messages.
 
-    Subscribers receive: hello (once), procs, fleet, thread, event, log.
+    Subscribers receive: hello (once), procs, fleet, thread, event, log, plan.
     """
 
     def __init__(self):
@@ -317,6 +331,7 @@ class Hub:
         self._send_caps: list[dict] = []
         self._drivers: list[dict] = []
         self._dashboards: list[dict] = []
+        self._plans: dict[int, str] = {}
         self._notetaker_recording = False
         self._log_offset = 0
         # Build-skew detection: this console's build is fixed for its lifetime;
@@ -362,6 +377,7 @@ class Hub:
                 "send_capabilities": list(self._send_caps),
                 "drivers": list(self._drivers),
                 "dashboards": list(self._dashboards),
+                "plans": {str(pid): md for pid, md in self._plans.items()},
                 "notetaker_recording": self._notetaker_recording,
                 "build": dict(self._build_status),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
@@ -397,18 +413,29 @@ class Hub:
         # change-gated classification so a staleness or crash-loop window
         # expiring flips the panel without any new mechanism.
         drivers_worker = _Debounced(lambda: self._recompute_drivers(broadcast=True))
+        # A PAI's live plan.md sits under proc/<slug>/, already inside the
+        # recursively-watched PROC_DIR — so a plan write/tick/rm already pokes
+        # this observer; it just needs its own change-gated recompute+broadcast.
+        plans_worker = _Debounced(lambda: self._recompute_plans(broadcast=True))
         proc_worker.start()
         me_worker.start()
         drivers_worker.start()
         scheduled_worker.start()
-        self._workers += [proc_worker, me_worker, drivers_worker, scheduled_worker]
+        plans_worker.start()
+        self._workers += [proc_worker, me_worker, drivers_worker, scheduled_worker, plans_worker]
 
         self._watch(
             PROC_DIR,
-            lambda _p: (proc_worker.poke(), drivers_worker.poke(), scheduled_worker.poke()),
+            lambda _p: (
+                proc_worker.poke(),
+                drivers_worker.poke(),
+                scheduled_worker.poke(),
+                plans_worker.poke(),
+            ),
             recursive=True,
         )
         self._recompute_scheduled(broadcast=False)
+        self._recompute_plans(broadcast=False)
 
         sys_drivers_dir = paths.PAI_ROOT / "sys" / "drivers"
         sys_drivers_dir.mkdir(parents=True, exist_ok=True)
@@ -421,7 +448,9 @@ class Hub:
         # Backstop the directory watchers against dropped FSEvents (see
         # _SAFETY_POLL_SECS). Poking is idempotent — the recomputes only
         # broadcast on a real change — so an extra tick costs a couple of stats.
-        self._start_safety_poll([proc_worker, me_worker, drivers_worker, scheduled_worker])
+        self._start_safety_poll(
+            [proc_worker, me_worker, drivers_worker, scheduled_worker, plans_worker]
+        )
 
         EVENTS_DIR.mkdir(parents=True, exist_ok=True)
         self._watch_events()
@@ -605,6 +634,24 @@ class Hub:
         self._dashboards = rows
         if broadcast:
             self._broadcast({"type": "dashboards", "dashboards": rows})
+
+    def _recompute_plans(self, broadcast: bool) -> None:
+        """Per-PAI live plan.md, keyed by pid. Change-gated like the other
+        recomputes so the safety poll doesn't spam identical strips. Reads off
+        the current fleet (populated by _recompute_procs) so a plan only shows
+        for a running PAI; a subagent's plan.md is reaped with its proc dir."""
+        plans: dict[int, str] = {}
+        for f in self._fleet:
+            md = read_plan(f["slug"])
+            if md:
+                plans[f["pid"]] = md
+        if plans == self._plans:
+            return
+        self._plans = plans
+        if broadcast:
+            self._broadcast(
+                {"type": "plan", "plans": {str(pid): md for pid, md in plans.items()}}
+            )
 
     def _recompute_notetaker(self, broadcast: bool) -> None:
         recording = (

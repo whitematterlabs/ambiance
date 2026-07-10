@@ -42,6 +42,7 @@ import { ModelPicker } from "./components/ModelPicker";
 import { MainTabs, dashView, type MainView } from "./components/MainTabs";
 import { ScheduledView } from "./components/ScheduledView";
 import { DashboardView } from "./components/DashboardView";
+import { PlanSidebar } from "./components/PlanSidebar";
 import { ScheduleEditor } from "./components/ScheduleEditor";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { BuildBanner } from "./components/BuildBanner";
@@ -113,6 +114,10 @@ export function App() {
   // SSE broadcast off the /var/lib/dashboards watch — a file write/delete adds
   // or drops a tab live, no refresh.
   const [dashboards, setDashboards] = useState<DashboardMeta[]>([]);
+  // Per-PAI live plan.md (proc/<slug>/plan.md), keyed by pid. Single source of
+  // truth is the hub's `plan` SSE broadcast off the /proc watch — a write/tick/
+  // rm updates the active PAI's right-rail plan strip live. Absent ⇒ no strip.
+  const [plans, setPlans] = useState<Record<number, string>>({});
   // Which right-rail view is active. Lifted out of SidePanel so the sidebar
   // column can widen for the System tab's tables (Activity keeps the slim rail).
   const [panelTab, setPanelTab] = useState<"activity" | "system">("activity");
@@ -386,6 +391,11 @@ export function App() {
           setScheduled(msg.scheduled ?? []);
           setDrivers(msg.drivers ?? []);
           setDashboards(msg.dashboards ?? []);
+          {
+            const p: Record<number, string> = {};
+            for (const [pid, md] of Object.entries(msg.plans ?? {})) p[Number(pid)] = md;
+            setPlans(p);
+          }
           setNotetakerRecording(msg.notetaker_recording ?? false);
           setBuild(msg.build ?? null);
           maybeReloadForBuild(msg.build);
@@ -511,6 +521,14 @@ export function App() {
           // below rebases the view to Chat.
           setDashboards(msg.dashboards);
           break;
+        case "plan": {
+          // Full per-PAI plan map, change-gated server-side — reconciles a
+          // write/tick, and a `rm`/empty drops that pid so the strip collapses.
+          const p: Record<number, string> = {};
+          for (const [pid, md] of Object.entries(msg.plans)) p[Number(pid)] = md;
+          setPlans(p);
+          break;
+        }
         case "voice": {
           // Host-mic listener fired. "listening" = wake word landed (no text
           // yet); "utterance" = the phrase was heard (already routed to the PAI
@@ -951,6 +969,8 @@ export function App() {
     : null;
 
   const messages = activePid !== null ? threads[activePid] ?? [] : [];
+  // Active PAI's live plan.md. Empty ⇒ the right rail collapses (no strip).
+  const activePlan = activePid !== null ? (plans[activePid] ?? "").trim() : "";
   const shellEntries = activePid !== null ? shell[activePid] ?? [] : [];
   const clearScreen = activePid !== null ? clearScreens[activePid] ?? null : null;
   const clearOffset = clearScreen ? Math.min(clearScreen.messageIndex, messages.length) : 0;
@@ -1213,6 +1233,11 @@ export function App() {
           </section>
           )}
         </section>
+        {activePlan && (
+          <aside className="plan-sidebar" aria-label="Plan">
+            <PlanSidebar key={activePid} plan={activePlan} pai={activeSlug} />
+          </aside>
+        )}
       </main>
       {pickerOpen && activeSlug && (
         <ModelPicker

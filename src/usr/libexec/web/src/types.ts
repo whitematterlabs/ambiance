@@ -144,7 +144,7 @@ export interface BuildStatus {
 }
 
 export type ServerMessage =
-  | { type: "hello"; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; scheduled?: ScheduledTask[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; dashboards?: DashboardMeta[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
+  | { type: "hello"; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; scheduled?: ScheduledTask[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; dashboards?: DashboardMeta[]; plans?: Record<string, string>; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
   | { type: "build"; status: BuildStatus }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
@@ -168,7 +168,11 @@ export type ServerMessage =
   | { type: "scheduled"; tasks: ScheduledTask[] }
   // PAI-authored dashboards changed (file write/delete under /var/lib/
   // dashboards) — full list, single source of truth, change-gated by the hub.
-  | { type: "dashboards"; dashboards: DashboardMeta[] };
+  | { type: "dashboards"; dashboards: DashboardMeta[] }
+  // Per-PAI live plan.md (proc/<slug>/plan.md), keyed by pid as a string —
+  // full map, single source of truth, change-gated by the hub off the /proc
+  // watch. A pid absent from the map has no (or an empty) plan.
+  | { type: "plan"; plans: Record<string, string> };
 
 export interface ModelRow {
   provider: string;

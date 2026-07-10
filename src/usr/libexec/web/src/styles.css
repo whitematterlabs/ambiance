@@ -1175,6 +1175,122 @@ button {
   animation: rise-in 0.65s var(--ease-out) 0.12s both;
 }
 
+/* ---------- Right rail: live plan strip ---------- */
+/* Mirrors the left .workspace-sidebar: a fixed-width rail flanking the chat,
+   keyed to the active PAI. Renders proc/<slug>/plan.md as a read-only GFM
+   checklist. Only mounted when the active PAI has a non-empty plan, so the row
+   reclaims the width for chat whenever there's nothing to show. */
+.plan-sidebar {
+  flex: 0 0 300px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  animation: rise-in 0.5s var(--ease-out) both;
+}
+
+.plan-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-y: auto;
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.plan-heading {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-count {
+  flex: 0 0 auto;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dim);
+  padding: 2px 7px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.plan-body {
+  min-height: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.plan-body h1,
+.plan-body h2,
+.plan-body h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.plan-body p {
+  margin: 0 0 8px;
+}
+
+/* GFM task lists (remark-gfm renders `- [ ]`/`- [x]` as disabled checkboxes in
+   a `.contains-task-list` ul). Strip the default bullet/indent and align the
+   box with its label. Plain (non-task) lists keep a normal marker. */
+.plan-body ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.plan-body ul.contains-task-list li.task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+.plan-body li.task-list-item input[type="checkbox"] {
+  margin-top: 3px;
+  flex: 0 0 auto;
+  accent-color: var(--accent, #4f8cff);
+}
+
+/* A ticked step reads as done — dim it so the eye lands on what's left. */
+.plan-body li.task-list-item:has(input:checked) {
+  color: var(--dim);
+}
+
+.plan-body ul:not(.contains-task-list),
+.plan-body ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.plan-body code {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
 /* ---------- Main-view tab bar (Chat / Scheduled Tasks) ---------- */
 /* Scoped to the center column, below the global Header. Visual language copies
    .segmented/.mobile-view-tab. Future views (Calendar, To-Dos) drop in as one
@@ -4170,6 +4286,10 @@ button {
   .sidebar-scroll {
     width: 264px;
   }
+
+  .plan-sidebar {
+    flex-basis: 240px;
+  }
 }
 
 @media (max-width: 680px) {
@@ -4269,6 +4389,7 @@ button {
   .header,
   .fleet-strip,
   .workspace-sidebar,
+  .plan-sidebar,
   .mobile-view-switch,
   .chat-head,
   .status-bar,
