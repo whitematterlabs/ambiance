@@ -1,10 +1,10 @@
-"""Terminal stand-down tool for turns that require no action or reply."""
+"""Terminal do-nothing tool for turns that require no action or reply."""
 
 from __future__ import annotations
 
 
-TOOL_NAME = "stand_down"
-TOOL_RESULT = "stand_down: turn ended, no action taken."
+TOOL_NAME = "do_nothing"
+TOOL_RESULT = "do_nothing: turn ended, no action taken."
 
 TOOL_SCHEMA = {
     "name": TOOL_NAME,
@@ -24,12 +24,16 @@ TOOL_SCHEMA = {
 }
 
 # The model occasionally expresses a quiet turn as assistant prose instead of
-# calling this tool — it types the sentinel ("stand_down", or the old "NOOP")
-# or one of the forbidden filler phrases as its final text. Those leak to the
-# owner surface as a bogus one-word message. Canonicalize every such form back
-# to "no reply" whichever channel it arrives on. "noop"/"no-op" are the tool's
-# historical name, kept here so pre-rename habit is still absorbed.
+# calling this tool — it types the sentinel ("do_nothing", or an older name
+# like "stand_down"/"NOOP") or one of the forbidden filler phrases as its final
+# text. Those leak to the owner surface as a bogus one-word message. Canonicalize
+# every such form back to "no reply" whichever channel it arrives on.
+# "stand_down"/"noop"/"no-op" are the tool's historical names, kept here so
+# pre-rename habit is still absorbed.
 _SENTINEL_TEXTS = frozenset({
+    "do_nothing",
+    "do nothing",
+    "donothing",
     "stand_down",
     "stand down",
     "standdown",

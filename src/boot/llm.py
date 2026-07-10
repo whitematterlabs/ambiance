@@ -426,8 +426,8 @@ async def _loop(
                     "content": [{"type": "text", "text": t} for t in pending],
                 })
                 continue
-            # A quiet turn the model expressed as prose ("stand_down", "NOOP",
-            # "quiet") instead of calling the stand_down tool. Canonicalize the
+            # A quiet turn the model expressed as prose ("do_nothing", "NOOP",
+            # "quiet") instead of calling the do_nothing tool. Canonicalize the
             # sentinel to no reply so it never surfaces as a bogus message.
             if noop_tool.is_sentinel_text(reply):
                 return "", messages
@@ -439,7 +439,7 @@ async def _loop(
         # pick them up live. One-shot per block, prefixed for legibility.
         noop_only = all(use.name == noop_tool.TOOL_NAME for use in tool_uses)
         if noop_only:
-            # The model may include filler text alongside stand_down ("Quiet.",
+            # The model may include filler text alongside do_nothing ("Quiet.",
             # "Nothing to do."). Keep it out of live narration and history.
             assistant_turn = messages[-1]
             assistant_turn["content"] = [

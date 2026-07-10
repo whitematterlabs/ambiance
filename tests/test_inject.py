@@ -122,7 +122,7 @@ def test_injection_lands_at_tool_boundary(monkeypatch: pytest.MonkeyPatch) -> No
     reply, messages = _run_loop(responses, env={"PAI_SLUG": "t1"})
 
     assert reply == "handled the correction"
-    # The stand_down result and the injected message share one user turn.
+    # The do_nothing result and the injected message share one user turn.
     boundary = messages[-2]
     assert boundary["role"] == "user"
     types = [b["type"] for b in boundary["content"]]

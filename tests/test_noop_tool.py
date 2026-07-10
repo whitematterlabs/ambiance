@@ -41,9 +41,9 @@ def _response(*blocks: _Block):
 def test_noop_policy_is_required_for_quiet_turns() -> None:
     instructions = " ".join(bootstrap.OPERATING_INSTRUCTIONS.split())
 
-    assert "end by calling the `stand_down` tool" in instructions
+    assert "end by calling the `do_nothing` tool" in instructions
     assert "required for quiet turns" in instructions
-    assert "never write the word `stand_down`" in instructions
+    assert "never write the word `do_nothing`" in instructions
     assert "one-line reply is preferred over silence" not in instructions
 
 
