@@ -109,6 +109,23 @@ CAPABILITY_SPECS: dict[str, dict] = {
         "driver": "calendar", "freeze": "write.freeze", "mounts": {"calendar"},
         "default": "no", "modes": ("no", "yes"),
     },
+    # Computer use is an *actuation* gate, not a send-driver freeze. The `ax`
+    # accessibility sidecar can drive any Mac app's GUI — click, type, press
+    # Send — which is a full bypass of the per-channel send freezes above (it
+    # reaches the app's own Send button instead of going through the frozen
+    # outbound driver). So `axd` reads this freeze on every actuation and
+    # refuses `act` unless the mode is `yes`. Two-state (no/yes), fail-closed,
+    # default OFF: GUI actuation is synchronous with no approvals hand-off, so
+    # "ask" is meaningless (same reasoning as calendar_write/cowork). Enforced
+    # inside the sidecar — a process the PAI does not control — not in the `ax`
+    # client, which the PAI could bypass by speaking to the socket directly.
+    # Independently, `axd` also honors the *_send freezes above for the app it
+    # is attached to (Messages→imessage_send, Mail→email_send, …), so a granted
+    # computer_use still cannot press Send in a channel whose sends are frozen.
+    "computer_use": {
+        "driver": "ax", "freeze": "control.freeze", "mounts": {"ax"},
+        "default": "no", "modes": ("no", "yes"),
+    },
 }
 
 def _boilerplate_dir(config_path: Path) -> Path:

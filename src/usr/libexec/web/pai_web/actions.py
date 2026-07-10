@@ -884,6 +884,7 @@ SEND_CHANNEL_LABELS = {
     "cowork_files": "File activity",
     "notetaker": "Notetaker",
     "calendar_write": "Calendar",
+    "computer_use": "Computer use",
 }
 
 

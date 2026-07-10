@@ -707,6 +707,30 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "created an event."
         ),
     },
+    # Two-state (no/yes). Enforced in the `ax` sidecar (axd), so this line is
+    # honesty, not the gate — the sidecar refuses actuation regardless of what
+    # the PAI believes. Never try to route around a frozen send by driving the
+    # app's GUI with `ax`: even with computer_use ON, axd refuses to press Send
+    # in a channel whose *_send capability isn't `yes`.
+    "computer_use": {
+        "yes": (
+            "Computer use — GRANTED. You may drive the owner's Mac apps through "
+            "the `ax` accessibility tool (click, type, press controls). Act only "
+            "when it genuinely serves the owner's request, and never use it to "
+            "send a message, email, or other outbound the owner has NOT granted "
+            "as a send capability — the sidecar will refuse a Send press in a "
+            "frozen channel, and attempting it is a trust violation regardless. "
+            "GUI actuation is irreversible and visible; be deliberate."
+        ),
+        "no": (
+            "Computer use — OFF. You cannot drive the owner's Mac: the `ax` "
+            "sidecar refuses every actuation (click/type/press) while this "
+            "capability is off. Do not attempt to control apps to work around a "
+            "frozen send or any other block — it will not work and you must not "
+            "try. If the owner wants you to operate their Mac, they enable "
+            "Computer use in the console first."
+        ),
+    },
 }
 
 
