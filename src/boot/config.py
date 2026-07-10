@@ -41,9 +41,14 @@ RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 # preserved across reconciles.
 CONFIG_MANAGED_FIELDS = (
     "description", "prompt", "prompt_dir", "boilerplate", "provider",
-    "model", "wake_on", "fallback", "parent", "persistent", "active",
-    "compact_threshold", "hard_compact_threshold",
+    "model", "backend", "wake_on", "fallback", "parent", "persistent",
+    "active", "compact_threshold", "hard_compact_threshold",
 )
+
+# Turn-executor backends. Default (omitted/None) is the in-process Anthropic
+# loop in boot.llm. `claudecode` runs the turn through the `claude` CLI inside
+# the PAI's FHS home (see boot.claude_backend).
+KNOWN_BACKENDS = ("claudecode",)
 
 # Owner-granted send capabilities. Declared at the TOP LEVEL of config.yaml
 # (`capabilities:`, a sibling of `pais:`) because they are PAI-agnostic — they
@@ -243,6 +248,13 @@ def _validate_pai_entry(entry: dict, *, source: str, config_path: Path) -> None:
             )
     if "model" in entry and not isinstance(entry["model"], str):
         raise ConfigError(f"{source}: entry {name!r} has non-string model")
+    if "backend" in entry:
+        be = entry["backend"]
+        if be is not None and be not in KNOWN_BACKENDS:
+            known = ", ".join(KNOWN_BACKENDS)
+            raise ConfigError(
+                f"{source}: entry {name!r} unknown backend {be!r} (known: {known})"
+            )
     if "wake_on" in entry:
         wo = entry["wake_on"]
         if not isinstance(wo, list) or not all(isinstance(p, str) for p in wo):
