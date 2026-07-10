@@ -97,6 +97,31 @@ def _auth_env() -> dict[str, str]:
     return {}
 
 
+def auth_status() -> str:
+    """"found" if a HOME-independent credential is provisioned, else "missing".
+
+    Used by the console model picker to show whether the claudecode backend is
+    ready before offering it as a one-click switch."""
+    return "found" if _auth_env() else "missing"
+
+
+def save_token(token: str) -> None:
+    """Persist a `claude setup-token` value to etc/claudecode-token so the
+    backend authenticates without the Keychain. Goes live on the next turn — no
+    kernel restart, because _auth_env() reads the file each call."""
+    token = token.strip()
+    if not token:
+        raise ValueError("empty claudecode token")
+    _TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _TOKEN_FILE.with_suffix(".tmp")
+    tmp.write_text(token)
+    os.replace(tmp, _TOKEN_FILE)
+    try:
+        os.chmod(_TOKEN_FILE, 0o600)
+    except OSError:
+        pass
+
+
 def _session_file(slug: str) -> Path:
     return PROC_DIR / slug / "claude-session"
 
