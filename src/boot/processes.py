@@ -459,9 +459,15 @@ def read_spec(slug: str) -> dict:
 
 def read_status(slug: str) -> str:
     proc = _proc_dir(slug)
-    if not proc.exists():
+    status_file = proc / "status"
+    # A proc dir with no `status` file is not a resolvable proc: either a
+    # stale/orphaned empty dir, or the sub-millisecond window in `spawn`
+    # between mkdir and the status write. Treat both as not-found so callers
+    # that already handle ProcessNotFound skip it, rather than surfacing a
+    # raw FileNotFoundError.
+    if not status_file.exists():
         raise ProcessNotFound(slug)
-    return (proc / "status").read_text().strip()
+    return status_file.read_text().strip()
 
 
 def mark_running(slug: str) -> None:
