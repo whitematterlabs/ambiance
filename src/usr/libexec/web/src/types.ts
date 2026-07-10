@@ -121,6 +121,17 @@ export interface ScheduledTask {
   next_fire: string | null;
 }
 
+// One PAI-authored dashboard, as projected from its `<slug>.html` file's
+// embedded manifest. `title` labels the tab, `order` sorts it (server-sorted,
+// but the client keeps the field), and `channels` are the live-data streams the
+// parent bridges into the sandboxed iframe over postMessage.
+export interface DashboardMeta {
+  slug: string;
+  title: string;
+  order: number;
+  channels: string[];
+}
+
 // Build-skew status: which build the kernel vs this console is running, and
 // whether the kernel is old enough that the console is auto-rebooting it.
 export type BuildSkew = "unknown" | "in_sync" | "kernel_stale" | "console_stale" | "both_stale";
@@ -133,7 +144,7 @@ export interface BuildStatus {
 }
 
 export type ServerMessage =
-  | { type: "hello"; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; scheduled?: ScheduledTask[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
+  | { type: "hello"; voice_installed?: boolean; fleet: FleetMember[]; procs: ProcRow[]; pending_approvals?: PendingApproval[]; scheduled?: ScheduledTask[]; send_capabilities?: SendCapability[]; drivers?: DriverHealth[]; dashboards?: DashboardMeta[]; notetaker_recording?: boolean; threads: Record<string, ThreadMessage[]>; log_backlog?: string[]; build?: BuildStatus }
   | { type: "build"; status: BuildStatus }
   | { type: "procs"; rows: ProcRow[] }
   | { type: "fleet"; fleet: FleetMember[] }
@@ -154,7 +165,10 @@ export type ServerMessage =
   | { type: "notetaker_recording"; recording: boolean }
   // Owner scheduled tasks changed (create/edit/delete) — full list, single
   // source of truth, change-gated by the hub off the /proc watch.
-  | { type: "scheduled"; tasks: ScheduledTask[] };
+  | { type: "scheduled"; tasks: ScheduledTask[] }
+  // PAI-authored dashboards changed (file write/delete under /var/lib/
+  // dashboards) — full list, single source of truth, change-gated by the hub.
+  | { type: "dashboards"; dashboards: DashboardMeta[] };
 
 export interface ModelRow {
   provider: string;

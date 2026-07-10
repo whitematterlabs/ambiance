@@ -35,6 +35,7 @@ from typing import Callable
 from boot.paths import PAI_ROOT, REPO_ROOT, usr_libexec
 
 from . import actions
+from . import dashboards
 from . import driver_health
 from .hub import Hub, Subscriber
 
@@ -224,6 +225,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": str(e)}, status=500)
         if path == "/api/scheduled":
             return self._json({"ok": True, "tasks": actions.list_scheduled()})
+        if path == "/api/dashboards":
+            # Tab list (slug/title/order/channels) — the SSE `dashboards` message
+            # is the live path; this is the poke-it-with-curl view of the same rows.
+            return self._json({"ok": True, "dashboards": dashboards.list_dashboards()})
+        if path.startswith("/api/dashboards/"):
+            return self._dashboard(path[len("/api/dashboards/"):])
         if path == "/api/asset":
             return self._asset()
         if path == "/api/elevenlabs-key":
@@ -489,6 +496,57 @@ class Handler(BaseHTTPRequestHandler):
         if getattr(getattr(self, "server", None), "auth_token", None):
             return PAI_ROOT.resolve()
         return Path.home().resolve()
+
+    # -- dashboard (PAI-authored HTML, framed in a sandboxed iframe) --
+    def _dashboard(self, raw_slug: str):
+        """Serve one PAI-authored dashboard's raw HTML for the sandboxed iframe.
+
+        PAIs write arbitrary HTML+JS to `/var/lib/dashboards/<slug>.html`; this
+        route hands it to the frontend, which frames it with
+        `sandbox="allow-scripts"` (opaque origin — no access to the console's
+        session, cookies, or localStorage). The response is walled off hard so
+        the PAI's markup can never touch the owner surface:
+
+          - a strict CSP: `default-src 'none'` blocks every network fetch (so
+            even inlined JS can't phone out), `script-src`/`style-src
+            'unsafe-inline'` allow the dashboard's own inlined code to run, and
+            `img-src`/`font-src data:` allow inlined assets. `sandbox
+            allow-scripts` re-imposes the opaque origin at the document level, so
+            a direct top-level navigation to this URL is sandboxed too — not just
+            the iframe. `frame-ancestors 'self'` lets only the console frame it.
+          - no wildcard CORS header (see `_binary(cors=False)`), so no
+            cross-origin page can read a dashboard out of the loopback server.
+
+        Auth is enforced upstream (`/api/*` requires the token on the remote
+        tunnel; the iframe passes it as `?token=` since a document src can't set
+        an Authorization header). An unknown/invalid slug is a flat 404.
+        """
+        slug = raw_slug.split("?", 1)[0].split("#", 1)[0]
+        try:
+            slug = urllib.parse.unquote(slug)
+        except Exception:  # noqa: BLE001
+            return self._json({"error": "not found"}, status=404)
+        html = dashboards.read_dashboard(slug)
+        if html is None:
+            return self._json({"error": "not found"}, status=404)
+        body = html.encode("utf-8")
+        csp = (
+            "default-src 'none'; "
+            "script-src 'unsafe-inline'; "
+            "style-src 'unsafe-inline'; "
+            "img-src data:; "
+            "font-src data:; "
+            "frame-ancestors 'self'; "
+            "sandbox allow-scripts"
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", csp)
+        # A PAI can rewrite a dashboard anytime; never let a stale copy stick.
+        self.send_header("Cache-Control", "no-cache, must-revalidate")
+        self.end_headers()
+        self.wfile.write(body)
 
     # -- asset (PAI-referenced files: screenshots, downloads, attachments) --
     def _asset(self):

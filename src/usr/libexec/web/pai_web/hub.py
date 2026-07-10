@@ -40,6 +40,7 @@ from boot.processes import (
 from boot.proctree import order_as_tree
 
 from . import actions
+from . import dashboards
 from . import driver_health
 
 from sbin.tui.state import (
@@ -315,6 +316,7 @@ class Hub:
         self._scheduled: list[dict] = []
         self._send_caps: list[dict] = []
         self._drivers: list[dict] = []
+        self._dashboards: list[dict] = []
         self._notetaker_recording = False
         self._log_offset = 0
         # Build-skew detection: this console's build is fixed for its lifetime;
@@ -359,6 +361,7 @@ class Hub:
                 "scheduled": list(self._scheduled),
                 "send_capabilities": list(self._send_caps),
                 "drivers": list(self._drivers),
+                "dashboards": list(self._dashboards),
                 "notetaker_recording": self._notetaker_recording,
                 "build": dict(self._build_status),
                 "threads": {str(pid): msgs for pid, msgs in self._threads.items()},
@@ -469,6 +472,18 @@ class Hub:
         self._watch(var_lib, lambda _p: build_worker.poke(), recursive=False)
         self._recompute_build(broadcast=False)
 
+        # PAI-authored dashboards: a `<slug>.html` write/delete under
+        # /var/lib/dashboards/ pokes this, and the change-gated recompute
+        # rebroadcasts the tab list — a new dashboard appears (and a deleted one
+        # disappears) live, same FS-observer → broadcast path as scheduled tasks.
+        dashboards_worker = _Debounced(lambda: self._recompute_dashboards(broadcast=True))
+        dashboards_worker.start()
+        self._workers.append(dashboards_worker)
+        dashboards_dir = paths.var_lib_dashboards()
+        dashboards_dir.mkdir(parents=True, exist_ok=True)
+        self._watch(dashboards_dir, lambda _p: dashboards_worker.poke(), recursive=False)
+        self._recompute_dashboards(broadcast=False)
+
     def _watch(self, path: Path, cb, recursive: bool) -> None:
         obs = Observer()
         obs.schedule(_Poke(cb), str(path), recursive=recursive)
@@ -576,6 +591,20 @@ class Hub:
         self._drivers = rows
         if broadcast:
             self._broadcast({"type": "drivers", "drivers": rows})
+
+    def _recompute_dashboards(self, broadcast: bool) -> None:
+        try:
+            rows = dashboards.list_dashboards()
+        except Exception:  # never let a watcher thread die
+            import traceback
+
+            traceback.print_exc()
+            return
+        if rows == self._dashboards:
+            return
+        self._dashboards = rows
+        if broadcast:
+            self._broadcast({"type": "dashboards", "dashboards": rows})
 
     def _recompute_notetaker(self, broadcast: bool) -> None:
         recording = (

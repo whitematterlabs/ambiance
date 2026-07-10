@@ -1187,12 +1187,18 @@ button {
   background: var(--surface-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  /* One tab per PAI-authored dashboard appends after Chat/Scheduled; scroll
+     horizontally rather than wrap or squeeze when they overflow. */
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .main-tab {
   appearance: none;
   min-height: 34px;
   padding: 0 16px;
+  flex: 0 0 auto;
+  white-space: nowrap;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1215,6 +1221,24 @@ button {
   border-color: var(--border);
   color: var(--accent-deep);
   box-shadow: var(--shadow-soft);
+}
+
+/* ---------- Dashboard view (PAI-authored, sandboxed iframe) ---------- */
+/* Reuses the .conversation card chrome; the body is the sandboxed frame filling
+   the pane. The frame is opaque-origin (sandbox="allow-scripts") — the console
+   only feeds it data over postMessage. */
+.dashboard-view {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dashboard-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--surface);
+  border-radius: var(--radius);
 }
 
 /* ---------- Scheduled Tasks view ---------- */

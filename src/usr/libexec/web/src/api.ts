@@ -2,7 +2,7 @@
 // handled through the web backend's explicit control endpoint.
 
 import { authHeaders, notifyUnauthorized } from "./auth";
-import type { ModelsState, ScheduledTask } from "./types";
+import type { DashboardMeta, ModelsState, ScheduledTask } from "./types";
 
 async function post(path: string, body: unknown): Promise<any> {
   const res = await fetch(path, {
@@ -204,6 +204,12 @@ export const deleteScheduled = (slug: string) =>
     status?: string;
     error?: string;
   }>;
+
+// PAI-authored dashboards: the tab list (slug/title/order/channels). The hub's
+// /var/lib/dashboards watch rebroadcasts the full `dashboards` list live, so
+// this GET is only the poke-it-with-curl mirror; the SSE stream is the live path.
+export const listDashboards = () =>
+  get("/api/dashboards") as Promise<{ ok: boolean; dashboards?: DashboardMeta[]; error?: string }>;
 
 export const kernelStatus = () =>
   get("/api/kernel") as Promise<{

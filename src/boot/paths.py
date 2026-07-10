@@ -173,6 +173,16 @@ def var_lib_packages() -> Path:
     return PAI_ROOT / "var" / "lib" / "packages"
 
 
+def var_lib_dashboards() -> Path:
+    """Durable store for PAI-authored console dashboards.
+
+    One self-contained `<slug>.html` per dashboard (markup + an embedded
+    `application/pai-dashboard+json` manifest). Lives under `/var/lib/` so it
+    survives `pai update` (which only swaps the release dir), same durability
+    class as memory and instances."""
+    return PAI_ROOT / "var" / "lib" / "dashboards"
+
+
 def var_spool_communication() -> Path:
     return PAI_ROOT / "var" / "spool" / "communication"
 

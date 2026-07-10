@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   BuildStatus,
+  DashboardMeta,
   DriverHealth,
   EventSighting,
   FleetMember,
@@ -38,8 +39,9 @@ import { StatusBar } from "./components/StatusBar";
 import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
 import { ModelPicker } from "./components/ModelPicker";
-import { MainTabs, type MainView } from "./components/MainTabs";
+import { MainTabs, dashView, type MainView } from "./components/MainTabs";
 import { ScheduledView } from "./components/ScheduledView";
+import { DashboardView } from "./components/DashboardView";
 import { ScheduleEditor } from "./components/ScheduleEditor";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { BuildBanner } from "./components/BuildBanner";
@@ -107,6 +109,10 @@ export function App() {
     null,
   );
   const [deletingScheduled, setDeletingScheduled] = useState<Set<string>>(() => new Set());
+  // PAI-authored dashboards. Single source of truth is the hub's `dashboards`
+  // SSE broadcast off the /var/lib/dashboards watch — a file write/delete adds
+  // or drops a tab live, no refresh.
+  const [dashboards, setDashboards] = useState<DashboardMeta[]>([]);
   // Which right-rail view is active. Lifted out of SidePanel so the sidebar
   // column can widen for the System tab's tables (Activity keeps the slim rail).
   const [panelTab, setPanelTab] = useState<"activity" | "system">("activity");
@@ -379,6 +385,7 @@ export function App() {
           setSendCaps(msg.send_capabilities ?? []);
           setScheduled(msg.scheduled ?? []);
           setDrivers(msg.drivers ?? []);
+          setDashboards(msg.dashboards ?? []);
           setNotetakerRecording(msg.notetaker_recording ?? false);
           setBuild(msg.build ?? null);
           maybeReloadForBuild(msg.build);
@@ -497,6 +504,12 @@ export function App() {
           // Full owner-task list, change-gated server-side — reconciles any
           // create/edit/delete and reflects a task that just fired or expired.
           setScheduled(msg.tasks);
+          break;
+        case "dashboards":
+          // Full dashboard list, change-gated server-side — a file write/delete
+          // adds or drops a tab. If the active dashboard vanished, an effect
+          // below rebases the view to Chat.
+          setDashboards(msg.dashboards);
           break;
         case "voice": {
           // Host-mic listener fired. "listening" = wake word landed (no text
@@ -918,6 +931,25 @@ export function App() {
     }
   }, [kernel.running, refreshKernel]);
 
+  // If the active dashboard was deleted (its tab is gone), fall back to Chat so
+  // the pane never points at a slug with no tab.
+  useEffect(() => {
+    if (mainView.startsWith("dash:") && !dashboards.some((d) => dashView(d.slug) === mainView)) {
+      setMainView("chat");
+    }
+  }, [mainView, dashboards]);
+
+  // Live hub state the dashboard bridge pushes into a frame, keyed by channel.
+  // v1 exposes the hub snapshot slices the console already holds; PAI-authored
+  // data channels extend this later without touching the frame contract.
+  const dashboardData = useMemo(
+    () => ({ procs, fleet, drivers, scheduled }),
+    [procs, fleet, drivers, scheduled],
+  );
+  const activeDash = mainView.startsWith("dash:")
+    ? dashboards.find((d) => dashView(d.slug) === mainView) ?? null
+    : null;
+
   const messages = activePid !== null ? threads[activePid] ?? [] : [];
   const shellEntries = activePid !== null ? shell[activePid] ?? [] : [];
   const clearScreen = activePid !== null ? clearScreens[activePid] ?? null : null;
@@ -1089,7 +1121,7 @@ export function App() {
           </div>
         </aside>
         <section className="chat-col">
-          <MainTabs view={mainView} onChange={setMainView} />
+          <MainTabs view={mainView} onChange={setMainView} dashboards={dashboards} />
           {mainView === "scheduled" ? (
             <ScheduledView
               tasks={scheduled}
@@ -1097,6 +1129,14 @@ export function App() {
               onEdit={(t) => setScheduleEditor({ task: t })}
               onDelete={handleDeleteScheduled}
               deletingSlugs={deletingScheduled}
+            />
+          ) : activeDash ? (
+            <DashboardView
+              key={activeDash.slug}
+              slug={activeDash.slug}
+              title={activeDash.title}
+              channels={activeDash.channels}
+              data={dashboardData}
             />
           ) : (
           <section className="conversation">
