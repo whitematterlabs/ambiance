@@ -389,13 +389,38 @@ def models_state(pai: str | None) -> dict:
         }
         for e in llm.CATALOG
     ]
+
+    # The claudecode turn-executor backend appears as a pseudo-provider so the
+    # existing picker (rows + key-paste + active highlight) drives it unchanged.
+    # Its "key" is the HOME-independent setup-token; status reflects that.
+    from boot import claude_backend
+    cc_status = claude_backend.auth_status()
+    providers["claudecode"] = {
+        "key_status": cc_status,
+        "api_key_env": "claude setup-token",
+        "default_model": "opus",
+    }
+    rows += [
+        {"provider": "claudecode", "model": m, "label": lbl, "tag": "claude code",
+         "key_status": cc_status}
+        for m, lbl in (("opus", "Claude Code · Opus"), ("sonnet", "Claude Code · Sonnet"))
+    ]
+
     current = None
     if pai:
         entry = bconfig.load_config().get(pai)
         if entry is not None:
-            provider = entry.get("provider") or llm.DEFAULT_PROVIDER
-            model = entry.get("model") or llm.PROVIDERS[provider].default_model
-            current = {"pai": pai, "provider": provider, "model": model}
+            if entry.get("backend") == "claudecode":
+                current = {
+                    "pai": pai,
+                    "provider": "claudecode",
+                    "model": entry.get("model") or "opus",
+                    "backend": "claudecode",
+                }
+            else:
+                provider = entry.get("provider") or llm.DEFAULT_PROVIDER
+                model = entry.get("model") or llm.PROVIDERS[provider].default_model
+                current = {"pai": pai, "provider": provider, "model": model}
     return {"rows": rows, "providers": providers, "current": current}
 
 
@@ -422,6 +447,13 @@ def set_api_key(provider: str, key: str) -> dict:
     The key rides only the .env file — never the reload event, never a
     response body. `key_status` is all the browser ever learns.
     """
+    # The claudecode backend's "key" is a `claude setup-token`, stored in a
+    # dedicated file rather than a provider env var. It goes live on the next
+    # turn with no reload needed.
+    if provider == "claudecode":
+        from boot import claude_backend
+        claude_backend.save_token(key)
+        return {"provider": provider, "key_status": "found"}
     spec = llm.PROVIDERS.get(provider)
     if spec is None:
         raise ValueError(f"unknown provider: {provider!r}")

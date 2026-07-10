@@ -577,7 +577,11 @@ def set_pai_model(name: str, provider: str, model: str, path: Path | None = None
     the fleet block already lives with. Atomic (tmp + rename); on any failure
     the file is untouched. The caller emits `kernel:reload_config`.
     """
-    if provider not in L.PROVIDERS:
+    # The picker addresses a turn-executor backend (boot.KNOWN_BACKENDS) with
+    # the same provider slot — e.g. `claudecode`. Such a pick writes `backend:`
+    # (and drops `provider:`) instead of validating against L.PROVIDERS.
+    backend = provider if provider in KNOWN_BACKENDS else None
+    if backend is None and provider not in L.PROVIDERS:
         known = ", ".join(sorted(L.PROVIDERS))
         raise ValueError(f"unknown provider {provider!r} (known: {known})")
     model = model.strip()
@@ -593,13 +597,18 @@ def set_pai_model(name: str, provider: str, model: str, path: Path | None = None
         )
     if entry is None:
         raise ValueError(f"unknown pai: {name!r}")
-    entry["provider"] = provider
+    if backend:
+        entry["backend"] = backend
+        entry.pop("provider", None)  # a backend owns its own routing
+    else:
+        entry["provider"] = provider
+        entry.pop("backend", None)  # switching back to a provider clears it
     entry["model"] = model
     tmp = p.with_suffix(p.suffix + ".tmp")
     with tmp.open("w") as f:
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
     tmp.rename(p)
-    return {"name": name, "provider": provider, "model": model}
+    return {"name": name, "provider": provider, "model": model, "backend": backend}
 
 
 def capability_flags(path: Path | None = None) -> dict[str, bool]:

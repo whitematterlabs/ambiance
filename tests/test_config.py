@@ -1165,7 +1165,12 @@ def test_set_pai_model_rewrites_only_target(tmp_path):
         "  fallback: true\n"
     )
     out = C.set_pai_model("pai", "openrouter", "moonshotai/kimi-k2:free", path=cfg)
-    assert out == {"name": "pai", "provider": "openrouter", "model": "moonshotai/kimi-k2:free"}
+    assert out == {
+        "name": "pai",
+        "provider": "openrouter",
+        "model": "moonshotai/kimi-k2:free",
+        "backend": None,
+    }
     data = yaml.safe_load(cfg.read_text())
     by_name = {e["name"]: e for e in data["pais"]}
     assert by_name["pai"]["provider"] == "openrouter"

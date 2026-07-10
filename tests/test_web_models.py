@@ -29,13 +29,20 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 def test_models_state_rows_mirror_catalog(env_root, monkeypatch):
     monkeypatch.setattr(bconfig, "load_config", lambda: {})
+    from boot import claude_backend
+    monkeypatch.setattr(claude_backend, "auth_status", lambda: "missing")
     state = actions.models_state(None)
-    assert [(r["provider"], r["model"]) for r in state["rows"]] == [
-        (e.provider, e.model) for e in L.CATALOG
+    catalog_rows = [
+        (r["provider"], r["model"]) for r in state["rows"] if r["provider"] != "claudecode"
     ]
+    assert catalog_rows == [(e.provider, e.model) for e in L.CATALOG]
+    # The claudecode turn-executor backend surfaces as pseudo-provider rows so
+    # the picker can switch to it one-click.
+    cc = [r for r in state["rows"] if r["provider"] == "claudecode"]
+    assert [r["model"] for r in cc] == ["opus", "sonnet"]
     assert state["current"] is None
     assert all(r["key_status"] == "missing" for r in state["rows"])
-    assert set(state["providers"]) == set(L.PROVIDERS)
+    assert set(state["providers"]) == set(L.PROVIDERS) | {"claudecode"}
 
 
 def test_models_state_key_status_found(env_root, monkeypatch):
