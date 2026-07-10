@@ -1,6 +1,6 @@
 # PAI
 
-**PAI is an always-on personal AI for macOS, built like a tiny Unix system.**
+**PAI is an always-on personal AI assistant for macOS, built like a tiny Unix system.**
 
 It runs a supervised fleet of AI agents against a plain-text filesystem at
 `~/.pai`: your fleet is declared in `/etc/config.yaml`, running agents show up
