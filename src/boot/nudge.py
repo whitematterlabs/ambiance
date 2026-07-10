@@ -28,7 +28,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import bootstrap, config, debugger, image_refs, inject, llm, stitch, tokens
+from . import bootstrap, claude_backend, config, debugger, image_refs, inject, llm, stitch, tokens
 from . import paths as paths_mod
 from . import processes as P
 from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
@@ -397,6 +397,10 @@ def _apply_history_action(pai_slug: str, history_path: Path) -> bool:
     lines = raw.splitlines()
     action = lines[0].strip() if lines else ""
 
+    # If this PAI runs the claudecode backend, drop its claude session too so
+    # the CLI's own transcript doesn't outlive the reset PAI history.
+    claude_backend.clear_session(pai_slug)
+
     if action == "clear":
         archive_path = _clear_history(pai_slug, history_path, "clear")
         rel_archive = (archive_path or proc_dir / "history").relative_to(PROC_DIR.parent)
@@ -513,6 +517,9 @@ def _emergency_reset_history(pai_slug: str, history_path: Path) -> str:
     if history_path.exists():
         shutil.copy(history_path, archive_path)
     _save_history(history_path, [])
+    # A claudecode PAI's real context lives in the claude session, not this
+    # jsonl — drop it too so the reset actually takes effect for that backend.
+    claude_backend.clear_session(pai_slug)
     # Reset the token rollup so the soft-compaction threshold doesn't keep
     # firing against the now-stale (pre-reset) window size.
     _reset_window_gauge(proc_dir)
@@ -1042,15 +1049,33 @@ async def _nudge_body(
     # behind the slug lock for the whole turn (see boot.inject). Compact and
     # onboarding turns are excluded: both replace the history when the turn
     # ends, which would silently drop anything injected into it.
+    #
+    # The turn executor is pluggable: `backend: claudecode` on the PAI's spec
+    # runs the turn through the `claude` CLI (Claude Code) inside the PAI's FHS
+    # home instead of the in-process Anthropic loop. Both satisfy the same
+    # (system, user, history, env) -> (reply, messages) contract and raise
+    # llm.TurnCancelled on interrupt, so everything below is backend-agnostic.
+    # Note: mid-turn injection is Anthropic-only for now (the claude CLI owns
+    # its own tool loop with no boundary to drain into), so the claudecode
+    # backend leaves the window unregistered and injected messages re-queue.
+    run_turn = (
+        claude_backend.run_turn
+        if pai_spec.get("backend") == "claudecode"
+        else llm.run_turn
+    )
     injection_window = False
-    if reason != "kernel:compact" and not do_onboarding:
+    if (
+        reason != "kernel:compact"
+        and not do_onboarding
+        and run_turn is llm.run_turn
+    ):
         injection_window = inject.register_turn(pai_slug)
     reply = ""
     new_history: Optional[list[dict]] = None
     try:
         for attempt in range(2):
             try:
-                reply, new_history = await llm.run_turn(
+                reply, new_history = await run_turn(
                     system,
                     user,
                     history=history,
