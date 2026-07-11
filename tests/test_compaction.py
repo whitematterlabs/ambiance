@@ -294,6 +294,49 @@ def test_hard_compact_bypasses_cooldown(live_dir: Path) -> None:
     assert len(archives) == 1
 
 
+def test_model_non_cooperation_force_compacts_instead_of_looping(live_dir: Path) -> None:
+    # The model acknowledges the kernel:compact instruction with plain text
+    # ("Compaction queued.") but never actually calls `bin/compact` — no
+    # .history-action file is written. Without a fallback the gauge never
+    # resets, so every cooldown lapse re-fires kernel:compact and re-appends
+    # another un-actioned "Compaction queued." reply forever. The kernel must
+    # force-compact itself the first time cooperation fails.
+    _spawn("noncoop", pid=50, compact_threshold=1000)
+    _write_tokens("noncoop", 5000)
+    history_path = _write_history("noncoop", 8)
+    proc_dir = P.HOME_DIR / "proc" / "noncoop"
+
+    calls: list[str] = []
+
+    async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
+        if "kernel:compact" in user:
+            calls.append("compact")
+            # Model replies without writing .history-action — non-cooperation.
+            return ("Compaction queued.", list(history or []) + [
+                {"role": "user", "content": user},
+                {"role": "assistant", "content": "Compaction queued."},
+            ])
+        calls.append("original")
+        return ("ok", list(history or []) + [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "ok"},
+        ])
+
+    L, orig = _patch_run_turn(fake_run_turn)
+    try:
+        asyncio.run(N.nudge(reason="hello", to=50, from_kind="kernel"))
+    finally:
+        L.run_turn = orig  # type: ignore[assignment]
+
+    assert calls == ["compact", "original"]
+    # Kernel force-compacted itself since the model didn't cooperate.
+    archives = list((proc_dir / "history").glob("*-hardcompact.jsonl"))
+    assert len(archives) == 1
+    # Window gauge reset — the next nudge won't immediately re-trigger.
+    tokens = json.loads((proc_dir / "tokens").read_text())
+    assert tokens["last_window_tokens"] == 0
+
+
 def test_under_hard_threshold_uses_soft_path(live_dir: Path) -> None:
     # Between the soft and hard lines, the cooperative compact nudge still
     # fires — the hardline doesn't pre-empt it.

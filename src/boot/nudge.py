@@ -1227,7 +1227,33 @@ async def _nudge_body(
     except OSError as e:
         print(f"[kernel] turns.jsonl append failed: {e!r}", flush=True)
 
-    _apply_history_action(pai_slug, history_path)
+    action_applied = _apply_history_action(pai_slug, history_path)
+
+    # The model acknowledged the compact instruction (or said nothing useful)
+    # but never actually called `bin/compact` — cooperation isn't guaranteed,
+    # and leaving the window gauge stale just means the next nudge re-fires
+    # the same `kernel:compact` turn once the cooldown lapses, repeating
+    # forever with no history ever shrinking. Force it kernel-side instead of
+    # retrying the cooperative path indefinitely.
+    if reason == "kernel:compact" and not action_applied:
+        last_window = tokens.read_last_window(pai_slug)
+        if last_window is not None:
+            rel_archive = _hard_compact_history(
+                pai_slug, history_path, last_window, last_window
+            )
+            try:
+                append_log(
+                    pai_slug,
+                    f"kernel: model did not call bin/compact — force-compacted "
+                    f"(last_window={last_window}) — archived to {rel_archive}",
+                )
+            except ProcessNotFound:
+                pass
+            print(
+                f"[kernel] compact non-cooperation: pai={pai_slug} "
+                f"last_window={last_window} — force-compacted",
+                flush=True,
+            )
 
     # The child may have ended its turn by resolving its own proc (the standard
     # `bin/subagent done` exit) or been killed by its parent mid-turn. In either
