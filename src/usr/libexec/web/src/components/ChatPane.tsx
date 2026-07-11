@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authHeaders, withTokenParam } from "../auth";
@@ -83,10 +83,36 @@ function FileEmbed({ path, caption }: { path: string; caption?: string }) {
   );
 }
 
+// Code blocks (e.g. ASCII-art QR codes, terminal output) get a top-right copy
+// button; the wrapper shrinks to the block's own content width instead of
+// stretching to fill the message bubble.
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const preRef = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    const text = preRef.current?.textContent ?? "";
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  }
+
+  return (
+    <div className="msg-code-wrap">
+      <button type="button" className="msg-code-copy" onClick={handleCopy}>
+        {copied ? "copied" : "copy"}
+      </button>
+      <pre ref={preRef}>{children}</pre>
+    </div>
+  );
+}
+
 // Custom renderers for the markdown attach convention. An `![](…)` embed to a
 // local image shows inline; to a local text file, its rendered content; a plain
 // `[…](…)` link to a local file opens the raw asset in a new tab.
 const MD_COMPONENTS: Components = {
+  pre: CodeBlock,
   img({ src, alt }) {
     const url = typeof src === "string" ? src : "";
     if (!isLocalPath(url)) return <img src={url} alt={alt ?? ""} />;

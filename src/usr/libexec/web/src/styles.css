@@ -2062,15 +2062,44 @@ button {
   color: var(--accent);
 }
 
+.msg-code-wrap {
+  position: relative;
+  margin: 0.7em 0;
+}
+
 .msg-body pre {
   max-width: 100%;
+  width: fit-content;
   overflow-x: auto;
-  margin: 0.7em 0;
+  margin: 0;
   padding: 14px;
+  padding-right: 48px;
   border: 1px solid #2a2540;
   border-radius: var(--radius-sm);
   background: var(--surface-sunk);
   color: #e9e6f2;
+}
+
+.msg-code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.2s var(--ease), color 0.2s var(--ease);
+}
+
+.msg-code-copy:hover {
+  opacity: 1;
+  color: var(--accent-deep);
 }
 
 .msg-body code {
