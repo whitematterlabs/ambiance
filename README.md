@@ -20,7 +20,7 @@ One line, no prerequisites (no git, no Node, no compiler — the script installs
 `uv` and pulls a prebuilt, checksum-verified release):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/whitematterlabs/pai/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/whitematterlabs/ambiance/main/install.sh | sh
 ```
 
 Piping curl into sh deserves suspicion — [read install.sh](install.sh) first.
@@ -37,8 +37,8 @@ pai start --headless
 Developers work from a checkout instead, which keeps source edits live:
 
 ```bash
-git clone https://github.com/whitematterlabs/pai.git
-cd pai
+git clone https://github.com/whitematterlabs/ambiance.git
+cd ambiance
 uv sync && uv run paifs-init
 ```
 
