@@ -330,7 +330,21 @@ async def run_turn(
 
     usage = data.get("usage")
     if usage:
-        tokens.record(slug, data.get("model") or model or "claude", usage)
+        # claude aggregates usage across the turn's tool-use iterations, but
+        # tokens.record's contract (and the compaction gauge derived from
+        # last_window_tokens) is one record per messages.create call. Feeding
+        # it the aggregate multiplies the apparent window by the iteration
+        # count — a 3-tool turn on a 55k context reported a 165k window and
+        # tripped compaction, torching the session and forcing a full context
+        # re-upload next turn. Record per iteration; the last one is the true
+        # current window.
+        used_model = data.get("model") or model or "claude"
+        iterations = [
+            it for it in (usage.get("iterations") or [])
+            if isinstance(it, dict) and it.get("type") == "message"
+        ]
+        for it in iterations or [usage]:
+            tokens.record(slug, used_model, it)
 
     # This backend has no do_nothing tool, so a quiet turn arrives as sentinel
     # prose ("do_nothing", "quiet", ...). Canonicalize to no reply, same as the

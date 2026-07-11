@@ -41,3 +41,36 @@ def test_real_reply_passes_through(fake_invoke):
         claude_backend.run_turn("sys", [], "nudge", env={"PAI_SLUG": "test"})
     )
     assert reply == "Done — archived the thread."
+
+
+def test_usage_recorded_per_iteration(fake_invoke, monkeypatch):
+    """The turn aggregate must not become last_window_tokens — record each
+    messages.create iteration so the window gauge reads the real context."""
+    recorded = []
+    monkeypatch.setattr(
+        claude_backend.tokens, "record", lambda slug, model, u: recorded.append(u)
+    )
+    it1 = {"type": "message", "input_tokens": 2, "output_tokens": 50,
+           "cache_read_input_tokens": 55_000, "cache_creation_input_tokens": 300}
+    it2 = {"type": "message", "input_tokens": 2, "output_tokens": 20,
+           "cache_read_input_tokens": 55_300, "cache_creation_input_tokens": 200}
+    fake_invoke["result"] = "ok"
+    fake_invoke["usage"] = {
+        "input_tokens": 4, "output_tokens": 70,
+        "cache_read_input_tokens": 110_300, "cache_creation_input_tokens": 500,
+        "iterations": [it1, it2],
+    }
+    asyncio.run(claude_backend.run_turn("sys", [], "nudge", env={"PAI_SLUG": "test"}))
+    assert recorded == [it1, it2]
+
+
+def test_usage_without_iterations_falls_back_to_aggregate(fake_invoke, monkeypatch):
+    recorded = []
+    monkeypatch.setattr(
+        claude_backend.tokens, "record", lambda slug, model, u: recorded.append(u)
+    )
+    fake_invoke["result"] = "ok"
+    fake_invoke["usage"] = {"input_tokens": 2, "output_tokens": 10,
+                            "cache_read_input_tokens": 100, "cache_creation_input_tokens": 5}
+    asyncio.run(claude_backend.run_turn("sys", [], "nudge", env={"PAI_SLUG": "test"}))
+    assert recorded == [fake_invoke["usage"]]
