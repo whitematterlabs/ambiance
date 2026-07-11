@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import type { ProcRow } from "../types";
 import { elapsedSecs } from "../status";
 
-// "What your PAI is doing right now." Calm when idle, with a live elapsed
-// counter while busy. Pure read of activeProc.busy — no kernel writes.
+// "What your PAI is doing right now." Renders nothing when idle; shows a
+// live elapsed counter while busy. Pure read of activeProc.busy — no kernel writes.
 export function StatusCard({ proc }: { proc: ProcRow | null }) {
   const busy = proc?.busy ?? null;
 
@@ -17,14 +17,7 @@ export function StatusCard({ proc }: { proc: ProcRow | null }) {
   }, [busy]);
 
   if (!busy) {
-    return (
-      <div className="status-card calm">
-        <div className="status-card-copy">
-          <span className="status-card-title">Ready</span>
-          <span className="status-card-sub">Waiting for your message</span>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   const reason = busy.reason.trim() || "thinking";
