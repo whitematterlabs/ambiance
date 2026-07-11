@@ -134,9 +134,16 @@ def _read_session(slug: str) -> Optional[str]:
 
 
 def _write_session(slug: str, sid: str) -> None:
+    # NEVER mint the proc dir here. /proc/<slug>/ is owned exclusively by the
+    # kernel's spawn()/supervisor; persisting a session for a slug whose proc
+    # dir doesn't exist would leave an orphan empty /proc/<slug>/ husk that
+    # trips every proc reader (read_status/list_scheduled etc.) — this is how
+    # the stray /proc/mechpai/ dir appeared during backend dev. If the proc is
+    # gone, skip silently: the next turn simply starts a fresh session.
     try:
         p = _session_file(slug)
-        p.parent.mkdir(parents=True, exist_ok=True)
+        if not p.parent.is_dir():
+            return
         tmp = p.with_suffix(".tmp")
         tmp.write_text(sid)
         os.replace(tmp, p)
