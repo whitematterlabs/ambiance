@@ -44,6 +44,8 @@ def _health(proc_root: Path, slug: str) -> dict:
 def test_record_start_counts_and_keeps_bounded_ring(proc_root: Path) -> None:
     M._ensure_driver_proc("email-in")
     for i in range(DH.RECENT_STARTS_CAP + 2):
+        if i:
+            DH.record_exit("email-in", "crashed", "boom", now=f"2026-07-07T09:59:{i:02d}")
         DH.record_start("email-in", now=f"2026-07-07T10:00:{i:02d}")
     h = _health(proc_root, "email-in")
     assert h["starts"] == DH.RECENT_STARTS_CAP + 2
@@ -51,6 +53,34 @@ def test_record_start_counts_and_keeps_bounded_ring(proc_root: Path) -> None:
     # The ring is bounded — health.yaml must not grow with uptime.
     assert len(h["recent_starts"]) == DH.RECENT_STARTS_CAP
     assert h["recent_starts"][-1] == h["last_start"]
+
+
+def test_loop_ring_only_collects_failure_respawns(proc_root: Path) -> None:
+    """Regression (2026-07-11 'every driver is looping'): repeated kernel
+    re-execs cancel every driver task and start it again; those starts landed
+    in recent_starts and tripped the console's >=3-starts-in-30m loop signal
+    fleet-wide. Only a start whose *preceding* exit was a failure is
+    crash-loop evidence — first starts and post-cancel starts stay out."""
+    M._ensure_driver_proc("email-in")
+    # First-ever start: no prior exit, not loop evidence.
+    DH.record_start("email-in", now="2026-07-11T02:30:00")
+    # A kernel re-exec: cancelled exit, then the new kernel's start.
+    DH.record_exit("email-in", "cancelled", now="2026-07-11T02:34:00")
+    DH.record_start("email-in", now="2026-07-11T02:34:01")
+    h = _health(proc_root, "email-in")
+    assert h["recent_starts"] == []
+    assert h["starts"] == 2  # the lifetime counter still sees every start
+    assert h["last_start"] == "2026-07-11T02:34:01"
+    # Failure respawns DO count — crash, silent return, failed spawn.
+    for i, outcome in enumerate(("crashed", "returned", "failed_to_start")):
+        DH.record_exit("email-in", outcome, now=f"2026-07-11T02:4{i}:00")
+        DH.record_start("email-in", now=f"2026-07-11T02:4{i}:01")
+    h = _health(proc_root, "email-in")
+    assert h["recent_starts"] == [
+        "2026-07-11T02:40:01",
+        "2026-07-11T02:41:01",
+        "2026-07-11T02:42:01",
+    ]
 
 
 def test_record_exit_writes_outcome_and_reason(proc_root: Path) -> None:

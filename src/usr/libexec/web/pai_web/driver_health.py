@@ -19,8 +19,10 @@ and classifies each driver process into one of five states:
   stale    running, but no on-disk activity within its stale_after window (yellow)
   down     active but not running: crashed, failed to start, exited on its own,
            or never started (red)
-  looping  respawning repeatedly — >= LOOP_THRESHOLD starts inside
-           LOOP_WINDOW_S (red)
+  looping  respawning repeatedly after failures — >= LOOP_THRESHOLD
+           failure respawns inside LOOP_WINDOW_S (red; the kernel only rings
+           starts that followed a crashed/returned/failed_to_start exit, so
+           kernel re-execs and paictl restarts don't count)
   off      deliberately disabled (active: false) — neutral, not an alarm
 
 Staleness thresholds are per-driver-overridable in the shipped events.yaml:
@@ -57,7 +59,7 @@ from boot import processes as P
 # (imessage) or quieter ones (calendar) belong in the driver's events.yaml.
 DEFAULT_STALE_AFTER_S = 24 * 3600
 
-# Crash-loop detection: this many supervise starts inside the window is a loop.
+# Crash-loop detection: this many failure respawns inside the window is a loop.
 LOOP_WINDOW_S = 30 * 60
 LOOP_THRESHOLD = 3
 
@@ -192,7 +194,7 @@ def classify(row: dict, now: float) -> tuple[str, str]:
     ]
     if len(recent) >= LOOP_THRESHOLD:
         reason = row.get("last_exit_reason") or ""
-        return "looping", f"{len(recent)} starts in {LOOP_WINDOW_S // 60}m" + (
+        return "looping", f"{len(recent)} failure respawns in {LOOP_WINDOW_S // 60}m" + (
             f" — {reason}" if reason else ""
         )
     stale_after = row.get("stale_after_s")

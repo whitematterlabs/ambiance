@@ -199,6 +199,22 @@ def test_same_second_restart_is_not_falsely_down(fhs: Path) -> None:
     assert row["state"] == "ok", row["state_reason"]
 
 
+def test_kernel_reexec_storm_is_not_looping(fhs: Path) -> None:
+    """Regression (2026-07-11): root re-exec'd the kernel 4x in 15 minutes
+    while wiring a new driver; every healthy driver's task was cancelled and
+    restarted each time and the whole panel went red 'looping'. Deliberate
+    cancel→start cycles are not crash loops."""
+    _manifest(fhs, "email", "driver: email\nprocesses:\n  - slug: email-in\n    module: m\n")
+    _driver_proc("email-in")
+    B.record_start("email-in", now=_iso(NOW - 1200))  # first boot
+    for i in range(dh.LOOP_THRESHOLD + 1):
+        B.record_exit("email-in", "cancelled", now=_iso(NOW - 900 + i * 180 - 1))
+        B.record_start("email-in", now=_iso(NOW - 900 + i * 180))
+    _sys_file(fhs, "email", "cursor.yaml", age_s=30)
+    row = _row(dh.read_rows(now=NOW), "email-in")
+    assert row["state"] == "ok", row["state_reason"]
+
+
 def test_dense_restarts_classify_as_looping(fhs: Path) -> None:
     _manifest(fhs, "email", "driver: email\nprocesses:\n  - slug: email-in\n    module: m\n")
     _driver_proc("email-in")
@@ -208,7 +224,7 @@ def test_dense_restarts_classify_as_looping(fhs: Path) -> None:
     _sys_file(fhs, "email", "cursor.yaml", age_s=30)
     row = _row(dh.read_rows(now=NOW), "email-in")
     assert row["state"] == "looping"
-    assert "starts in" in row["state_reason"]
+    assert "failure respawns in" in row["state_reason"]
 
 
 def test_disabled_driver_is_off_not_alarming(fhs: Path) -> None:

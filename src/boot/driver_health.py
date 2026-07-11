@@ -14,8 +14,8 @@ aggregates):
 
     starts: 4                      # supervise starts over the proc entry's life
     last_start: '2026-07-07T20:38:12'
-    recent_starts:                 # bounded ring of start times (crash-loop signal)
-      - '2026-07-07T20:36:01'
+    recent_starts:                 # bounded ring of failure-respawn times (crash-
+      - '2026-07-07T20:36:01'      # loop signal; post-cancel starts stay out)
       - '2026-07-07T20:38:12'
     last_exit: '2026-07-07T20:36:01'
     last_exit_outcome: crashed     # crashed | cancelled | returned | failed_to_start
@@ -96,8 +96,19 @@ def _write(slug: str, data: dict) -> None:
             pass
 
 
+# Exit outcomes that make the *next* start crash-loop evidence. A start after
+# a "cancelled" exit is a kernel re-exec or a deliberate paictl stop/start —
+# counting those turned every healthy driver red ("looping") whenever the
+# kernel restarted a few times in one sitting (2026-07-11 fleet-wide false
+# positive). First-ever starts (no prior exit) don't count either.
+_LOOP_EVIDENCE_OUTCOMES = ("crashed", "returned", "failed_to_start")
+
+
 def record_start(slug: str, now: str | None = None) -> None:
-    """A supervise task for `slug` just started (boot, respawn, paictl start)."""
+    """A supervise task for `slug` just started (boot, respawn, paictl start).
+
+    Every start bumps `starts` and `last_start`; only a start that follows a
+    failure exit joins the `recent_starts` loop-signal ring."""
     try:
         data = read(slug)
         ts = now or _now_iso()
@@ -105,7 +116,8 @@ def record_start(slug: str, now: str | None = None) -> None:
         data["last_start"] = ts
         recent = data.get("recent_starts")
         recent = list(recent) if isinstance(recent, list) else []
-        recent.append(ts)
+        if str(data.get("last_exit_outcome") or "") in _LOOP_EVIDENCE_OUTCOMES:
+            recent.append(ts)
         data["recent_starts"] = recent[-RECENT_STARTS_CAP:]
         _write(slug, data)
     except Exception:
