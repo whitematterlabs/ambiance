@@ -202,6 +202,15 @@ def _build_args(model: Optional[str], system: str, sid: str, resume: bool) -> li
         "json",
         "--permission-mode",
         "bypassPermissions",
+        # Strip Claude Code's native context down to what a PAI actually is:
+        # a bash TTY (+ Read for images). The default toolset, settings-file
+        # skills/hooks, and MCP autoload cost ~15.5k tokens of dead context
+        # per turn (measured: 19,980 → 4,504 on an empty system prompt).
+        "--tools",
+        "Bash,Read",
+        "--setting-sources",
+        "",
+        "--strict-mcp-config",
     ]
     if model:
         args += ["--model", model]
