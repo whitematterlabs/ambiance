@@ -180,8 +180,8 @@ export function Header({
         className="ghost-button theme-toggle"
         type="button"
         onClick={onShowWelcome}
-        title="What can PAI do?"
-        aria-label="What can PAI do?"
+        title="What can Ambiance do?"
+        aria-label="What can Ambiance do?"
       >
         <HelpCircle size={15} aria-hidden="true" />
       </button>

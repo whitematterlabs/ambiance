@@ -1,6 +1,6 @@
-# PAI
+# Ambiance
 
-**PAI is an always-on personal AI assistant for macOS, built like a tiny Unix system.**
+**Ambiance is an always-on personal AI assistant for macOS, built like a tiny Unix system.**
 
 It runs a supervised fleet of AI agents against a plain-text filesystem at
 `~/.pai`: your fleet is declared in `/etc/config.yaml`, running agents show up
@@ -10,8 +10,8 @@ something surprising, you can read the exact prompt it saw.
 
 No database. No SaaS. The filesystem *is* the data structure.
 
-PAI is currently an alpha for technical users. It is useful, hackable, and
-intentionally transparent — not yet a polished consumer app or a hosted
+Ambiance is currently an alpha for technical users. It is useful, hackable,
+and intentionally transparent — not yet a polished consumer app or a hosted
 service.
 
 ## Install

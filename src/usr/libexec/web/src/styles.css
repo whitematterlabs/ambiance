@@ -234,8 +234,8 @@ button {
   min-width: 0;
 }
 
-/* Owner-supplied PAI wordmark. Fills with the header ink (currentColor) so it
-   adapts to light/dark; height-locked to the header line. */
+/* Plain-text wordmark, colored via the header ink; height-locked to the
+   header line. */
 /* The wordmark doubles as the sidebar toggle — a bare, chromeless click target
    (no border, no fill); only the cursor and a faint press/opacity signal it. */
 .brand-logo-btn {
@@ -266,8 +266,14 @@ button {
 .brand-logo {
   display: block;
   height: 24px;
+  line-height: 24px;
   width: auto;
   color: var(--text);
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
   user-select: none;
 }
 
