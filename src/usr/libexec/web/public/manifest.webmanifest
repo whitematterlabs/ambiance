@@ -1,7 +1,7 @@
 {
-  "name": "PAI",
-  "short_name": "PAI",
-  "description": "Drive your PAI fleet from anywhere.",
+  "name": "Ambiance",
+  "short_name": "Ambiance",
+  "description": "Drive your Ambiance fleet from anywhere.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
