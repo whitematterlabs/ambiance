@@ -51,7 +51,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from . import llm, tokens
+from . import llm, noop_tool, tokens
 from .paths import PAI_ROOT
 from .processes import PROC_DIR
 
@@ -322,6 +322,12 @@ async def run_turn(
     usage = data.get("usage")
     if usage:
         tokens.record(slug, data.get("model") or model or "claude", usage)
+
+    # This backend has no do_nothing tool, so a quiet turn arrives as sentinel
+    # prose ("do_nothing", "quiet", ...). Canonicalize to no reply, same as the
+    # anthropic backend does in llm.run_turn.
+    if noop_tool.is_sentinel_text(result):
+        result = ""
 
     messages = base_messages + [{"role": "assistant", "content": result}]
     return result, messages
