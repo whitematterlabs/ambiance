@@ -1286,6 +1286,44 @@ button {
   padding-left: 20px;
 }
 
+/* Goal sections: each `## goal` in plan.md renders as its own group with a
+   per-goal tally chip. A fully-ticked section dims as a whole — it's done and
+   awaiting deletion by the PAI, so the eye should land on live goals. */
+.plan-goal {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+/* No preamble ⇒ the first goal sits right under the rail head; skip the divider. */
+.plan-goal:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.plan-goal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.plan-goal-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-goal.done {
+  opacity: 0.55;
+}
+
 .plan-body code {
   font-family: var(--mono, monospace);
   font-size: 12px;
