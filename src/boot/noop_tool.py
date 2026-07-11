@@ -43,11 +43,21 @@ _SENTINEL_TEXTS = frozenset({
     "nothing to do",
     "no update",
     "doing nothing",
+    "no reply needed",
+    "no reply",
+    "no response needed",
+    "no action needed",
+    "nothing to report",
 })
+
+# Decoration the model wraps sentinels in ("*(no reply needed)*",
+# "`do_nothing`", "\"quiet\"") — stripped before matching.
+_SENTINEL_WRAPPING = "*_`~\"'()[]{}"
 
 
 def is_sentinel_text(text: str) -> bool:
     """True when a no-tool-use final reply is really a quiet-turn sentinel the
     model typed as prose instead of calling the tool."""
     normalized = text.strip().lower().rstrip(".!").strip()
+    normalized = normalized.strip(_SENTINEL_WRAPPING).strip().rstrip(".!").strip()
     return normalized in _SENTINEL_TEXTS

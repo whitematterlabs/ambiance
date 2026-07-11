@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from boot import bash_tool, bootstrap, llm as L
 from boot import noop_tool
 from boot import shell_tool
@@ -170,3 +172,25 @@ def test_noop_only_suppresses_interim_narration(monkeypatch) -> None:
             }
         ],
     }
+
+
+@pytest.mark.parametrize("prose", [
+    "*(no reply needed)*",
+    "(no reply needed)",
+    "No reply needed.",
+    "`do_nothing`",
+    '"quiet"',
+    "*Nothing to do.*",
+    "no action needed",
+])
+def test_wrapped_and_new_sentinel_variants_absorbed(prose) -> None:
+    assert noop_tool.is_sentinel_text(prose)
+
+
+@pytest.mark.parametrize("prose", [
+    "No reply needed — but I archived the thread.",
+    "Done — profile updated.",
+    "The owner asked me to do nothing about the email backlog, so I left it.",
+])
+def test_substantive_replies_not_absorbed(prose) -> None:
+    assert not noop_tool.is_sentinel_text(prose)
