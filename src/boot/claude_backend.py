@@ -163,14 +163,30 @@ def clear_session(slug: str) -> None:
 
 
 def _child_env(env: Optional[dict]) -> dict[str, str]:
-    """Env for the claude subprocess: kernel env + PAI env, minus any inherited
-    Claude Code markers (the kernel may itself be launched from a claude
-    session during dev), plus the injected credential."""
-    child = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith("CLAUDE") and k != "CLAUDECODE"
-    }
+    """Env for the claude subprocess: kernel env + PAI env, then exactly one
+    injected credential.
+
+    We scrub two classes of ambient var so auth is deterministic and least-
+    privilege:
+
+    * ``CLAUDE*`` / ``CLAUDECODE`` — the kernel may itself be launched from a
+      claude session during dev; those markers would confuse the child.
+    * every ``ANTHROPIC_*`` and ``*_API_KEY`` — the kernel's .env carries the
+      owner's provider keys. A leaked ``ANTHROPIC_API_KEY`` would silently
+      authenticate claude on *API billing*, defeating the subscription token;
+      the rest are just secrets the claude process has no need for. After
+      scrubbing, ``_auth_env()`` injects the one credential it picked, so
+      billing follows intent rather than whatever happened to leak.
+    """
+    def _scrub(k: str) -> bool:
+        return (
+            k.startswith("CLAUDE")
+            or k == "CLAUDECODE"
+            or k.startswith("ANTHROPIC")
+            or k.endswith("_API_KEY")
+        )
+
+    child = {k: v for k, v in os.environ.items() if not _scrub(k)}
     if env:
         child.update({k: str(v) for k, v in env.items()})
     child.update(_auth_env())
