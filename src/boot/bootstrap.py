@@ -75,6 +75,10 @@ quotes around prompts (`$1,200` corrupts under double quotes). Returns a pid
 immediately; the subagent runs async. After spawning or messaging async work, END
 your turn; no need to sleep-loop or poll `/proc/`; the reply arrives as a fresh
 nudge. \
+A child's question only the owner can resolve (a login, a credential/2FA code,
+an approval, a judgment call): relay it to the owner verbatim, then pipe the
+answer back with `send-message --to {pid}` — never guess on the child's behalf
+or let it dangle. \
 Subagent bundles are specialized subagents (eg computer-use, browsing). 
 Usage : `subagent --help`, `SUBAGENT_BUNDLES.md`. \
 Subagent lifecycle & Stopping: Default spawns end themselves via `done`; 
