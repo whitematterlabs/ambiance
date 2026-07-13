@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from boot import bash_tool, bootstrap, llm as L
-from boot import noop_tool
+from boot import edit_tool, noop_tool, read_tool, write_tool
 from boot import shell_tool
 
 
@@ -72,6 +72,9 @@ def test_noop_schema_is_registered(monkeypatch) -> None:
     assert messages_api.calls[0]["tools"] == [
         bash_tool.TOOL_SCHEMA,
         shell_tool.TOOL_SCHEMA,
+        read_tool.TOOL_SCHEMA,
+        edit_tool.TOOL_SCHEMA,
+        write_tool.TOOL_SCHEMA,
         noop_tool.TOOL_SCHEMA,
     ]
     assert len(messages_api.calls) == 1
