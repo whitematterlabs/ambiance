@@ -1208,3 +1208,77 @@ def test_set_pai_model_malformed_yaml_leaves_file_untouched(tmp_path):
     with pytest.raises(Exception):
         C.set_pai_model("pai", "anthropic", "claude-opus-4-8", path=cfg)
     assert cfg.read_text() == before
+
+
+# ----- set_pai_display_name (owner-facing rename) -----
+
+
+def test_set_pai_display_name_rewrites_only_target(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "pais:\n"
+        "- name: root\n"
+        "  description: km\n"
+        "- name: pai\n"
+        "  description: dflt\n"
+        "  fallback: true\n"
+    )
+    out = C.set_pai_display_name("pai", "  Muse  ", path=cfg)
+    assert out == {"name": "pai", "display_name": "Muse"}
+    data = yaml.safe_load(cfg.read_text())
+    by_name = {e["name"]: e for e in data["pais"]}
+    assert by_name["pai"]["display_name"] == "Muse"
+    assert by_name["pai"]["fallback"] is True       # untouched sibling keys
+    assert "display_name" not in by_name["root"]    # untouched sibling entry
+
+
+def test_set_pai_display_name_blank_clears(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("pais:\n- name: pai\n  display_name: Muse\n")
+    out = C.set_pai_display_name("pai", "   ", path=cfg)
+    assert out == {"name": "pai", "display_name": ""}
+    data = yaml.safe_load(cfg.read_text())
+    assert "display_name" not in data["pais"][0]
+
+
+def test_set_pai_display_name_unknown_pai(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("pais:\n- name: pai\n")
+    with pytest.raises(ValueError, match="unknown pai"):
+        C.set_pai_display_name("ghost", "Muse", path=cfg)
+
+
+def test_load_rejects_non_string_display_name(repo_root):
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+  - name: pai
+    pid: 2
+    description: dflt
+    display_name: 42
+""",
+    )
+    with pytest.raises(C.ConfigError, match="display_name"):
+        C.load_config()
+
+
+def test_load_accepts_display_name(repo_root):
+    _write_config(
+        repo_root,
+        """
+pais:
+  - name: root
+    pid: 1
+    description: km
+  - name: pai
+    pid: 2
+    description: dflt
+    display_name: Muse
+""",
+    )
+    cfg = C.load_config()
+    assert cfg["pai"]["display_name"] == "Muse"

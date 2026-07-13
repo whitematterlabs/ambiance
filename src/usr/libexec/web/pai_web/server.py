@@ -346,6 +346,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/apikey":
                 result = actions.set_api_key(str(body["provider"]), str(body["key"]))
                 return self._json({"ok": True, **result})
+            if path == "/api/rename":
+                result = actions.set_pai_display_name(
+                    str(body["pai"]), str(body["display_name"])
+                )
+                return self._json({"ok": True, **result})
             if path == "/api/kernel":
                 action = str(body["action"])
                 if action == "start":

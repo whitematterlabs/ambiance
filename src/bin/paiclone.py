@@ -98,6 +98,10 @@ def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
     # The clone is inert until the owner assigns it routing explicitly.
     entry.pop("wake_on", None)
     entry.pop("fallback", None)
+    # Presentation identity is also personal: a clone of "Muse" must not show
+    # up as a second "Muse" in the console or introduce itself as one. It
+    # starts under its own slug until the owner renames it.
+    entry.pop("display_name", None)
     # Behavior-free provenance marker: stamps this entry as a clone so surfaces
     # (the web "−" button, paidel guards) can tell clones from originals. It is
     # *not* the kernel's `parent` field — that flips a PAI into subagent identity.

@@ -1650,6 +1650,71 @@ button {
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Rename pencil: invisible until the title is hovered/focused, then a quiet
+   glyph that warms on hover — same register as .head-action. */
+.chat-title-edit {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  color: var(--dim);
+  line-height: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+  flex: 0 0 auto;
+}
+
+.chat-title:hover .chat-title-edit,
+.chat-title-edit:focus-visible {
+  opacity: 1;
+}
+
+/* No hover on touch (the PWA) — keep the pencil always visible there. */
+@media (hover: none) {
+  .chat-title-edit {
+    opacity: 1;
+  }
+}
+
+.chat-title-edit:hover {
+  color: var(--text);
+}
+
+/* Inline rename input: shaped like the h1 it replaces, plus a quiet underline
+   so it reads as editable. */
+.chat-title-input {
+  margin: 0;
+  padding: 0 2px;
+  font-family: var(--sans);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  min-width: 0;
+  width: min(320px, 100%);
+}
+
+.chat-title-input:focus {
+  border-bottom-color: var(--accent);
 }
 
 .chat-meta {

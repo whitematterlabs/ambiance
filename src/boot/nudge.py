@@ -986,6 +986,7 @@ async def _nudge_body(
         boilerplate=pai_spec.get("boilerplate"),
         home_dir=str(home),
         identity_dir=str(paths_mod.var_lib_instance(pai_slug) / "prompt"),
+        display_name=pai_spec.get("display_name"),
     )
     sender = f"{from_kind}:{from_}" if from_ is not None else None
     user = bootstrap.build_user_turn(reason, slug, context, sender=sender)

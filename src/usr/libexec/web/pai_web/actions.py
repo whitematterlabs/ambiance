@@ -441,6 +441,25 @@ def set_pai_model(name: str, provider: str, model: str) -> dict:
     return out
 
 
+def set_pai_display_name(name: str, display_name: str) -> dict:
+    """Rename one PAI (owner-facing display name) in config.yaml and reload
+    the kernel so reconcile projects it into the proc spec — the fleet SSE
+    and the next turn's system prompt both pick it up from there. A blank
+    name clears the field (surfaces fall back to the slug)."""
+    from boot import config as bconfig
+
+    with _config_write_lock:
+        out = bconfig.set_pai_display_name(name, display_name)
+    emit_event({
+        "kind": "kernel:reload_config",
+        "source": "web",
+        "action": "rename",
+        "name": name,
+        "display_name": out["display_name"],
+    })
+    return out
+
+
 def set_api_key(provider: str, key: str) -> dict:
     """Store an LLM provider key from the console and make the kernel re-read it.
 

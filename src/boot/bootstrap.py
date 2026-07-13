@@ -355,10 +355,15 @@ def _render_runtime(self_pid: int) -> str:
     return "\n".join(out)
 
 
-def _pai_line(pai: int, parent: Optional[int]) -> str:
+def _pai_line(pai: int, parent: Optional[int], display_name: Optional[str] = None) -> str:
     parent_label = str(parent) if parent is not None else "kernel"
+    # The owner-chosen display name (config `display_name:`) leads the identity
+    # line so the PAI answers to its given name; the pid stays the stable
+    # kernel-facing identity.
+    name = (display_name or "").strip()
+    who = f"You are {name}, PAI pid {pai}" if name else f"You are PAI pid {pai}"
     return (
-        f"You are PAI pid {pai}. Parent: {parent_label}. "
+        f"{who}. Parent: {parent_label}. "
         f"Subprocesses you spawn should declare parent: {pai}.\n"
     )
 
@@ -823,6 +828,7 @@ def _runtime_blocks(
     pai: int,
     parent: Optional[int],
     home: Path,
+    display_name: Optional[str] = None,
 ) -> str:
     """The kernel-computed half of the prompt: pai-instance line, fleet,
     skills/system-skills listings, and (fleet-only) the runtime extras.
@@ -833,7 +839,7 @@ def _runtime_blocks(
     bins, skills, system_skills = _resolve_listings(pai, home, hidden_bins)
     fleet = _list_fleet(PAI_ROOT, pai)
     out = (
-        f"<pai-instance>\n{_pai_line(pai, parent)}</pai-instance>\n\n"
+        f"<pai-instance>\n{_pai_line(pai, parent, display_name)}</pai-instance>\n\n"
         + _fleet_block(fleet)
         + _common_listings(bins, skills, system_skills)
     )
@@ -852,6 +858,7 @@ def build_system_prompt(
     boilerplate: Optional[list[str]] = None,
     home_dir: Optional[str] = None,
     identity_dir: Optional[str] = None,
+    display_name: Optional[str] = None,
 ) -> str:
     """Assemble the system prompt from three layers: custom prose (from
     the PAI's `prompt_dir`/legacy `prompt_path`, plus the writable
@@ -867,7 +874,7 @@ def build_system_prompt(
         + _capabilities_block(pai)
         + _memory_index_block(home)
         + _owner_profile_block(home)
-        + _runtime_blocks(pai, parent, home)
+        + _runtime_blocks(pai, parent, home, display_name)
         + "~ $ "
     )
 

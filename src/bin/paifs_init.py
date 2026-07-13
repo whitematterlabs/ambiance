@@ -200,6 +200,8 @@ def default_config_yaml(provider: str = DEFAULT_SEED_PROVIDER,
 #   name         (required) stable proc-dir slug; unique
 #   pid          required for reserved entries (1 and 2); auto-allocated otherwise
 #   description  required
+#   display_name (optional) owner-facing name shown in the console and the
+#                PAI's own prompt; renameable from the chat header. Slug stays.
 #   package      (optional) pulls defaults from packages/{{package}}/package.yaml
 #   prompt       per-PAI role file (resolved relative to repo root)
 #   provider     LLM provider key (anthropic | deepseek | openai). Drives base_url + key.

@@ -124,6 +124,17 @@ export const getModels = (pai: string | null) =>
   >;
 export const setModel = (pai: string, provider: string, model: string) =>
   post("/api/models", { pai, provider, model });
+
+// Rename a fleet PAI (owner-facing display name; the slug is untouched). The
+// backend rewrites config.yaml and reloads the kernel; the fleet SSE reconciles
+// the optimistic local update once the new spec lands.
+export const renamePai = (pai: string, displayName: string) =>
+  post("/api/rename", { pai, display_name: displayName }) as Promise<{
+    ok: boolean;
+    name?: string;
+    display_name?: string;
+    error?: string;
+  }>;
 export const setApiKey = (provider: string, key: string) =>
   post("/api/apikey", { provider, key });
 

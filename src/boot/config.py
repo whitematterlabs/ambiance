@@ -40,9 +40,9 @@ RESERVED_PIDS: dict[int, str] = {1: "root", 2: "pai"}
 # spec.yaml; everything else on disk (spawned, persistent, etc.) is
 # preserved across reconciles.
 CONFIG_MANAGED_FIELDS = (
-    "description", "prompt", "prompt_dir", "boilerplate", "provider",
-    "model", "backend", "wake_on", "fallback", "parent", "persistent",
-    "active", "compact_threshold", "hard_compact_threshold",
+    "description", "display_name", "prompt", "prompt_dir", "boilerplate",
+    "provider", "model", "backend", "wake_on", "fallback", "parent",
+    "persistent", "active", "compact_threshold", "hard_compact_threshold",
 )
 
 # Turn-executor backends. Default (omitted/None) is the in-process Anthropic
@@ -224,6 +224,8 @@ def _validate_pai_entry(entry: dict, *, source: str, config_path: Path) -> None:
         raise ConfigError(f"{source}: invalid name {name!r}")
     if "description" not in entry or not isinstance(entry["description"], str):
         raise ConfigError(f"{source}: entry {name!r} missing string `description`")
+    if "display_name" in entry and not isinstance(entry["display_name"], str):
+        raise ConfigError(f"{source}: entry {name!r} has non-string display_name")
     if "pid" in entry and not isinstance(entry["pid"], int):
         raise ConfigError(f"{source}: entry {name!r} has non-integer pid")
     if "prompt" in entry and not isinstance(entry["prompt"], str):
@@ -609,6 +611,39 @@ def set_pai_model(name: str, provider: str, model: str, path: Path | None = None
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
     tmp.rename(p)
     return {"name": name, "provider": provider, "model": model, "backend": backend}
+
+
+def set_pai_display_name(
+    name: str, display_name: str, path: Path | None = None
+) -> dict[str, str]:
+    """Write `display_name:` on one fleet entry (the owner-facing rename).
+
+    The slug (`name`) is the stable identity — homes, proc dirs, routing all
+    hang off it — so a rename only ever touches this presentation field. A
+    whitespace-only value clears the field (surfaces fall back to the slug).
+    Same strictness and atomicity contract as set_pai_model; the caller emits
+    `kernel:reload_config` so reconcile projects it into spec.yaml.
+    """
+    display_name = display_name.strip()
+    p = path or CONFIG_PATH
+    data = _load_yaml(p) if p.exists() else {}
+    pais = data.get("pais") if isinstance(data, dict) else None
+    entry = None
+    if isinstance(pais, list):
+        entry = next(
+            (e for e in pais if isinstance(e, dict) and e.get("name") == name), None
+        )
+    if entry is None:
+        raise ValueError(f"unknown pai: {name!r}")
+    if display_name:
+        entry["display_name"] = display_name
+    else:
+        entry.pop("display_name", None)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.rename(p)
+    return {"name": name, "display_name": display_name}
 
 
 def capability_flags(path: Path | None = None) -> dict[str, bool]:

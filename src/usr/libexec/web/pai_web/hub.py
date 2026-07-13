@@ -253,7 +253,9 @@ def read_fleet() -> list[dict]:
                 # /etc/config.yaml (not the proc spec), so read it from there —
                 # it's what gates the "−" delete button on the frontend.
                 "clone_of": config.clone_of(slug),
-                "title": slug,
+                # Owner-chosen display name (config `display_name:`, projected
+                # into the spec by reconcile). Falls back to the slug.
+                "title": str(spec.get("display_name") or "").strip() or slug,
             }
         )
     fleet.sort(key=lambda f: f["pid"])

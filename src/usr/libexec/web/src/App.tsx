@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pencil } from "lucide-react";
 import type {
   BuildStatus,
   DashboardMeta,
@@ -75,6 +76,12 @@ export function App() {
   // PAI shell commands folded into inline foldable cards (from the log stream).
   const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [status, setStatus] = useState<string>("idle");
+  // Inline rename of the active PAI (pencil next to the chat title).
+  // null = not editing; a string is the in-progress draft.
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  // Switching tabs abandons an in-progress rename rather than saving it
+  // against the wrong PAI.
+  useEffect(() => setRenameDraft(null), [activePid]);
   const [build, setBuild] = useState<BuildStatus | null>(null);
   const [kernel, setKernel] = useState<KernelStatus>({ running: false, pid: null });
   const [kernelBusy, setKernelBusy] = useState(false);
@@ -1002,6 +1009,36 @@ export function App() {
     activeProc?.busy?.reason.trim().startsWith("overclock:"),
   );
   const activeLabel = activeMember?.title || activeMember?.slug || "No active PAI";
+  // Rename applies to config-declared fleet members; a subagent's identity is
+  // transient (killed, not kept), so it gets no pencil.
+  const canRename =
+    Boolean(activeMember) && !(activeProc?.type ?? "").startsWith("subagent");
+  const commitRename = () => {
+    const draft = renameDraft;
+    setRenameDraft(null);
+    if (draft === null || !activeMember) return;
+    const next = draft.trim();
+    if (next === activeMember.title) return;
+    const slug = activeMember.slug;
+    const prevTitle = activeMember.title;
+    // Optimistic: paint the new title now; the fleet SSE reconciles once the
+    // renamed spec lands (a blank name clears back to the slug).
+    setFleet((f) =>
+      f.map((m) => (m.slug === slug ? { ...m, title: next || m.slug } : m)),
+    );
+    api
+      .renamePai(slug, next)
+      .then((res) => {
+        if (!res.ok) throw new Error(res.error || "rename failed");
+        setStatus(next ? `renamed ${slug} → ${next}` : `${slug} name reset to slug`);
+      })
+      .catch((e) => {
+        setFleet((f) =>
+          f.map((m) => (m.slug === slug ? { ...m, title: prevTitle } : m)),
+        );
+        setStatus(`rename failed: ${e instanceof Error ? e.message : e}`);
+      });
+  };
   const activeMeta =
     activeMember && activeProc
       ? `${activeMember.slug} · PID ${activeMember.pid} · ${activeProc.type}`
@@ -1162,7 +1199,43 @@ export function App() {
           <section className="conversation">
             <header className="chat-head">
               <div className="chat-head-copy">
-                <h1 className="chat-title">{activeLabel}</h1>
+                {renameDraft !== null ? (
+                  <input
+                    className="chat-title-input"
+                    value={renameDraft}
+                    autoFocus
+                    spellCheck={false}
+                    maxLength={60}
+                    aria-label="PAI name"
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitRename();
+                      } else if (e.key === "Escape") {
+                        // Keep it from the global handler (Escape = interrupt).
+                        e.stopPropagation();
+                        setRenameDraft(null);
+                      }
+                    }}
+                  />
+                ) : (
+                  <h1 className="chat-title">
+                    <span className="chat-title-text">{activeLabel}</span>
+                    {canRename && (
+                      <button
+                        type="button"
+                        className="chat-title-edit"
+                        onClick={() => setRenameDraft(activeLabel)}
+                        title="Rename this PAI"
+                        aria-label={`Rename ${activeLabel}`}
+                      >
+                        <Pencil size={13} aria-hidden="true" />
+                      </button>
+                    )}
+                  </h1>
+                )}
                 <p className="chat-meta">{activeMeta}</p>
               </div>
               <div className="chat-head-actions">
