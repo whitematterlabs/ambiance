@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from boot._shell_common import rewrite_fhs_paths
+from boot._shell_common import rewrite_fhs_path, rewrite_fhs_paths
 
 
 def _mk(root: Path, rel: str) -> None:
@@ -86,6 +86,42 @@ def test_colon_separated_paths(tmp_path: Path) -> None:
     _mk(root, "bin/y")
     out = rewrite_fhs_paths("PATH=/usr/bin:/bin cmd", str(root))
     assert out == f"PATH={root}/usr/bin:{root}/bin cmd"
+
+
+def test_single_path_pai_view_wins(tmp_path: Path) -> None:
+    """rewrite_fhs_path: PAI-view exists → PAI-view path."""
+    root = tmp_path / "pai"
+    _mk(root, "tmp/spill.log")
+    assert rewrite_fhs_path("/tmp/spill.log", str(root)) == f"{root}/tmp/spill.log"
+
+
+def test_single_path_host_preserved(tmp_path: Path) -> None:
+    """rewrite_fhs_path: host-only path left alone (`/bin/sh` stand-in)."""
+    root = tmp_path / "pai"
+    root.mkdir()
+    assert rewrite_fhs_path("/bin/sh", str(root)) == "/bin/sh"
+
+
+def test_single_path_nonexistent_defaults_to_pai_view(tmp_path: Path) -> None:
+    root = tmp_path / "pai"
+    root.mkdir()
+    assert rewrite_fhs_path("/tmp/new_file", str(root)) == f"{root}/tmp/new_file"
+
+
+def test_single_path_non_fhs_and_relative_untouched(tmp_path: Path) -> None:
+    root = tmp_path / "pai"
+    root.mkdir()
+    assert rewrite_fhs_path("/Applications/x.app", str(root)) == "/Applications/x.app"
+    assert rewrite_fhs_path("workspace/notes.md", str(root)) == "workspace/notes.md"
+    assert rewrite_fhs_path("/optional_dir", str(root)) == "/optional_dir"
+
+
+def test_single_path_with_colon_and_comma(tmp_path: Path) -> None:
+    """A bare path containing `:`/`,` is one path — the command-line regex
+    would split it at the delimiter; the single-path variant must not."""
+    root = tmp_path / "pai"
+    _mk(root, "tmp/a:b,c.log")
+    assert rewrite_fhs_path("/tmp/a:b,c.log", str(root)) == f"{root}/tmp/a:b,c.log"
 
 
 def test_quoted_real_path_preserved(tmp_path: Path) -> None:

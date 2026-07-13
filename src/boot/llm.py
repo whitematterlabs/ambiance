@@ -23,7 +23,7 @@ from anthropic import AsyncAnthropic
 
 from . import tokens
 
-from . import bash_tool, inject, noop_tool, shell_tool, stitch
+from . import bash_tool, edit_tool, inject, noop_tool, read_tool, shell_tool, stitch, truncate, write_tool
 from .image_refs import expand_image_refs
 from . import paths as paths_mod
 from .paths import HOME_DIR
@@ -393,6 +393,9 @@ async def _loop(
             tools=[
                 bash_tool.TOOL_SCHEMA,
                 shell_tool.TOOL_SCHEMA,
+                read_tool.TOOL_SCHEMA,
+                edit_tool.TOOL_SCHEMA,
+                write_tool.TOOL_SCHEMA,
                 noop_tool.TOOL_SCHEMA,
             ],
             messages=_with_cache_control(messages),
@@ -465,11 +468,19 @@ async def _loop(
                 result = await bash_tool.run(use.input, env=env)
                 rendered = result.render()
                 print(rendered, flush=True)
+                # Model-bound copy: last 2000 lines / 50KB, full text spilled
+                # to a PAI-addressable /tmp file. The full `rendered` above
+                # still reaches the TTY/proc log. _cap_tool_result stays as a
+                # backstop.
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": use.id,
                     "content": expand_image_refs(
-                        _cap_tool_result(rendered),
+                        _cap_tool_result(
+                            truncate.cap_tail_for_model(
+                                rendered, slug=pai_slug, tool=use.name
+                            )
+                        ),
                         base_dir=_tool_result_base_dir(env),
                     ),
                 })
@@ -490,9 +501,55 @@ async def _loop(
                     "type": "tool_result",
                     "tool_use_id": use.id,
                     "content": expand_image_refs(
-                        _cap_tool_result(rendered),
+                        _cap_tool_result(
+                            truncate.cap_tail_for_model(
+                                rendered, slug=pai_slug, tool=use.name
+                            )
+                        ),
                         base_dir=_tool_result_base_dir(env),
                     ),
+                })
+            elif use.name == read_tool.TOOL_NAME:
+                pai_slug = (env or {}).get("PAI_SLUG") or "?"
+                path_arg = use.input.get("path", "")
+                print(f"[pai:{pai_slug}] read {path_arg}", flush=True)
+                _status(f"read: {path_arg}"[:120])
+                result = read_tool.run(use.input, env=env)
+                print(result.text, flush=True)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": use.id,
+                    "content": expand_image_refs(
+                        _cap_tool_result(result.text),
+                        base_dir=_tool_result_base_dir(env),
+                    ),
+                    **({"is_error": True} if result.is_error else {}),
+                })
+            elif use.name == edit_tool.TOOL_NAME:
+                pai_slug = (env or {}).get("PAI_SLUG") or "?"
+                path_arg = use.input.get("path", "")
+                print(f"[pai:{pai_slug}] edit {path_arg}", flush=True)
+                _status(f"edit: {path_arg}"[:120])
+                result = edit_tool.run(use.input, env=env)
+                print(result.text, flush=True)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": use.id,
+                    "content": _cap_tool_result(result.text),
+                    **({"is_error": True} if result.is_error else {}),
+                })
+            elif use.name == write_tool.TOOL_NAME:
+                pai_slug = (env or {}).get("PAI_SLUG") or "?"
+                path_arg = use.input.get("path", "")
+                print(f"[pai:{pai_slug}] write {path_arg}", flush=True)
+                _status(f"write: {path_arg}"[:120])
+                result = write_tool.run(use.input, env=env)
+                print(result.text, flush=True)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": use.id,
+                    "content": _cap_tool_result(result.text),
+                    **({"is_error": True} if result.is_error else {}),
                 })
             elif use.name == noop_tool.TOOL_NAME:
                 tool_results.append({

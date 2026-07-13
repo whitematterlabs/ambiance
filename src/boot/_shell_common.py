@@ -59,6 +59,28 @@ def rewrite_fhs_paths(command: str, root: str) -> str:
     return _FHS_PATTERN.sub(_sub, command)
 
 
+def rewrite_fhs_path(path: str, root: str) -> str:
+    """Single-path variant of `rewrite_fhs_paths` for the file tools.
+
+    The input is one whole path, not a command line, so no regex tokenizing —
+    `_PATH_TAIL` would mis-split a bare path containing `:` or `,`. Same
+    existence-guarded tri-state: PAI-view exists → PAI-view; else host exists
+    → host; else default to the PAI-view (a file about to be created).
+    Non-FHS absolute paths and relative paths are returned unchanged.
+    """
+    if not path.startswith("/"):
+        return path
+    first_seg = path.split("/", 2)[1]
+    if first_seg not in _FHS_SLOTS:
+        return path
+    pai_path = f"{root}{path}"
+    if os.path.lexists(pai_path):
+        return pai_path
+    if os.path.lexists(path):
+        return path
+    return pai_path
+
+
 @dataclass
 class ShellResult:
     stdout: str
