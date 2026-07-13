@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from boot import claude_backend as CB
 from boot import nudge as N
 from boot import processes as P
 
@@ -47,6 +48,9 @@ def _reset_compaction_state(live_dir: Path, monkeypatch: pytest.MonkeyPatch):
     # _apply_history_action looks at the test tree, not the real ~/.pai.
     monkeypatch.setattr(N, "HOME_DIR", P.HOME_DIR, raising=True)
     monkeypatch.setattr(N, "PROC_DIR", P.PROC_DIR, raising=True)
+    # claude_backend binds PROC_DIR by name at import too — re-bind it so
+    # clear_session() during kernel compaction hits the test tree.
+    monkeypatch.setattr(CB, "PROC_DIR", P.PROC_DIR, raising=True)
 
 
 def test_threshold_triggers_compact_then_original_nudge(live_dir: Path) -> None:
@@ -232,6 +236,9 @@ def test_hard_threshold_forces_kernel_compact_without_model(live_dir: Path) -> N
     _write_tokens("hardalpha", 50000)  # well past the hard line
     history_path = _write_history("hardalpha", 8)
     proc_dir = P.HOME_DIR / "proc" / "hardalpha"
+    # A claudecode PAI's real context lives in its claude session — kernel
+    # compaction must drop it or the window never actually shrinks.
+    (proc_dir / "claude-session").write_text("11111111-2222-3333-4444-555555555555")
 
     calls: list[str] = []
 
@@ -259,11 +266,13 @@ def test_hard_threshold_forces_kernel_compact_without_model(live_dir: Path) -> N
     assert len(archived) == 8
     # The original turn ran against the breadcrumb stub (2 msgs) + its own 2.
     live = [json.loads(ln) for ln in history_path.read_text().splitlines() if ln.strip()]
-    assert live[0]["content"].startswith("[prior context kernel hard-compacted")
+    assert live[0]["content"].startswith("[prior context kernel-compacted")
     assert live[1]["content"] == "Understood. Continuing."
     # Window gauge zeroed by the hard compaction.
     tokens = json.loads((proc_dir / "tokens").read_text())
     assert tokens["last_window_tokens"] == 0
+    # Claude session dropped — the real context for a claudecode PAI.
+    assert not (proc_dir / "claude-session").exists()
 
 
 def test_hard_compact_bypasses_cooldown(live_dir: Path) -> None:
@@ -294,27 +303,26 @@ def test_hard_compact_bypasses_cooldown(live_dir: Path) -> None:
     assert len(archives) == 1
 
 
-def test_model_non_cooperation_force_compacts_instead_of_looping(live_dir: Path) -> None:
-    # The model acknowledges the kernel:compact instruction with plain text
-    # ("Compaction queued.") but never actually calls `bin/compact` — no
-    # .history-action file is written. Without a fallback the gauge never
-    # resets, so every cooldown lapse re-fires kernel:compact and re-appends
-    # another un-actioned "Compaction queued." reply forever. The kernel must
-    # force-compact itself the first time cooperation fails.
-    _spawn("noncoop", pid=50, compact_threshold=1000)
-    _write_tokens("noncoop", 5000)
-    history_path = _write_history("noncoop", 8)
-    proc_dir = P.HOME_DIR / "proc" / "noncoop"
+def test_kernel_compacts_with_harvested_summary_reply(live_dir: Path) -> None:
+    # The kernel:compact turn is a summary harvest, nothing more: the model
+    # replies with a handoff summary and the kernel performs the compaction
+    # itself, unconditionally — no bin/compact cooperation required, so a
+    # model that never calls it can't loop the kernel.
+    _spawn("harvest", pid=50, compact_threshold=1000)
+    _write_tokens("harvest", 5000)
+    history_path = _write_history("harvest", 8)
+    proc_dir = P.HOME_DIR / "proc" / "harvest"
+    (proc_dir / "claude-session").write_text("11111111-2222-3333-4444-555555555555")
 
     calls: list[str] = []
 
     async def fake_run_turn(system, user, history=None, env=None, *, provider=None, model=None, set_status=None):
         if "kernel:compact" in user:
             calls.append("compact")
-            # Model replies without writing .history-action — non-cooperation.
-            return ("Compaction queued.", list(history or []) + [
+            # Model replies with the summary but never touches bin/compact.
+            return ("Open loop: waiting on Bob's reply.", list(history or []) + [
                 {"role": "user", "content": user},
-                {"role": "assistant", "content": "Compaction queued."},
+                {"role": "assistant", "content": "Open loop: waiting on Bob's reply."},
             ])
         calls.append("original")
         return ("ok", list(history or []) + [
@@ -329,9 +337,16 @@ def test_model_non_cooperation_force_compacts_instead_of_looping(live_dir: Path)
         L.run_turn = orig  # type: ignore[assignment]
 
     assert calls == ["compact", "original"]
-    # Kernel force-compacted itself since the model didn't cooperate.
+    # Kernel compacted itself, archiving the full pre-compact history.
     archives = list((proc_dir / "history").glob("*-hardcompact.jsonl"))
     assert len(archives) == 1
+    # The reply seeded the fresh context.
+    live = [json.loads(ln) for ln in history_path.read_text().splitlines() if ln.strip()]
+    assert live[0]["content"] == (
+        "[compacted prior context]\nOpen loop: waiting on Bob's reply."
+    )
+    # Claude session dropped alongside the jsonl reset.
+    assert not (proc_dir / "claude-session").exists()
     # Window gauge reset — the next nudge won't immediately re-trigger.
     tokens = json.loads((proc_dir / "tokens").read_text())
     assert tokens["last_window_tokens"] == 0

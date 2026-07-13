@@ -36,20 +36,21 @@ from .processes import HOME_DIR, PROC_DIR, ProcessNotFound, append_log
 
 # Default per-PAI prompt-window threshold (tokens). Once
 # `last_window_tokens` for a PAI crosses this, the next nudge to it is
-# preceded by a kernel-issued compact nudge. Override per-PAI with
-# `compact_threshold:` in /etc/config.yaml.
+# preceded by a kernel-issued summary-harvest turn: the model replies with
+# a handoff summary, then the kernel compacts the history itself and seeds
+# the fresh context with that reply. Compaction is kernel work — the model
+# is only ever asked for the summary, never trusted to perform the
+# compaction. Override per-PAI with `compact_threshold:` in
+# /etc/config.yaml.
 DEFAULT_COMPACT_THRESHOLD = 150_000
 
-# Hardline (kernel-enforced) compaction threshold (tokens). The soft
-# threshold above only *asks* the PAI to call `bin/compact` — it can be
-# ignored by the model and is suppressed by the post-compaction cooldown,
-# so a PAI flooded with nudges (or one whose single turn ingests a huge
-# read) can keep climbing far past it. Once `last_window_tokens` crosses
-# THIS line, the kernel compacts the history itself — no model
-# cooperation, no cooldown — before delivering the next queued nudge.
-# It's the backstop; the cooperative `bin/compact` path stays the
-# graceful primary. Override per-PAI with `hard_compact_threshold:` in
-# /etc/config.yaml.
+# Hardline compaction threshold (tokens). The soft threshold above still
+# spends one turn harvesting a handoff summary before compacting; a PAI
+# flooded with nudges (or one whose single turn ingests a huge read) can
+# climb far past it inside the cooldown. Once `last_window_tokens` crosses
+# THIS line, the kernel skips even the summary turn — it compacts
+# immediately, breadcrumb only, before delivering the next queued nudge.
+# Override per-PAI with `hard_compact_threshold:` in /etc/config.yaml.
 DEFAULT_HARD_COMPACT_THRESHOLD = 400_000
 
 # Post-turn skill-candidate trigger. After a non-trivial turn the kernel nudges
@@ -61,10 +62,10 @@ LIBRARIAN_SLUG = "librarian"
 
 OVERCLOCK_SENTINEL = "<PAI_OVERCLOCK_COMPLETE>"
 
-# Cooldown after a compaction attempt: don't re-trigger compaction for
-# the same PAI again within this window even if tokens still exceed the
-# threshold. Insurance against an infinite compact loop if the PAI
-# fails to actually call bin/compact during the compact turn.
+# Cooldown after a compaction: don't re-trigger for the same PAI within
+# this window even if tokens still exceed the threshold. The window gauge
+# only refreshes after the next turn reports token counts, so without this
+# a just-compacted PAI would re-fire against the stale pre-compact number.
 _COMPACT_COOLDOWN_SECS = 30.0
 
 # Per-slug FIFO serialization. Other concurrent nudges to the same PAI
@@ -213,12 +214,11 @@ def _relay_no_suicide_plain_reply(
 
 _COMPACT_INSTRUCTION = (
     "Your conversation history has grown past its compaction threshold. "
-    "Summarize the conversation so far for context compaction and call "
-    "`bin/compact \"<your summary>\"` to apply it. Keep the summary "
-    "focused on what matters for the next nudge: open loops, recent "
-    "decisions, who said what — not verbatim transcripts. After this "
-    "turn the kernel will archive the full history and replace the live "
-    "conversation with your summary."
+    "Reply with a handoff summary of the conversation so far — the kernel "
+    "will archive the full history after this turn and seed your fresh "
+    "context with exactly what you reply here. Keep it focused on what "
+    "matters for the next nudge: open loops, recent decisions, who said "
+    "what — not verbatim transcripts. Do not run commands this turn."
 )
 
 
@@ -529,20 +529,25 @@ def _emergency_reset_history(pai_slug: str, history_path: Path) -> str:
         return str(archive_path)
 
 
-def _hard_compact_history(
-    pai_slug: str, history_path: Path, last_window: int, hard_threshold: int
+def _kernel_compact_history(
+    pai_slug: str,
+    history_path: Path,
+    last_window: int,
+    threshold: int,
+    summary: Optional[str] = None,
 ) -> str:
-    """Kernel-enforced compaction at the hard threshold — runs between turns,
-    needs no model cooperation, and bypasses the soft-path cooldown.
+    """Kernel-performed compaction — runs between turns, needs nothing from
+    the model beyond (optionally) a summary it already replied with.
 
     Unlike `_emergency_reset_history` (which fires reactively on an observed
-    provider overflow and wipes to empty), this fires *proactively* the moment
-    the standing window crosses `hard_threshold`, and leaves a one-line
-    breadcrumb in the user/assistant shape the cooperative `bin/compact` path
-    uses — so role alternation stays valid and the PAI knows its prior context
-    was dropped. The graceful primary remains the model calling `bin/compact`
-    with a real summary; this only catches the runaway. Returns the archive
-    path (relative to PAI_ROOT) for logging."""
+    provider overflow and wipes to empty), this fires proactively when the
+    standing window crosses a threshold. It seeds the fresh history with the
+    harvested `summary` when one exists, else a one-line breadcrumb — either
+    way in the user/assistant shape so role alternation stays valid. Also
+    drops the claude session: for a claudecode PAI the real context lives
+    there, not in the jsonl, and leaving it alive means the window never
+    shrinks and compaction re-fires forever. Returns the archive path
+    (relative to PAI_ROOT) for logging."""
     proc_dir = PROC_DIR / pai_slug
     archive_dir = proc_dir / "history"
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -550,15 +555,18 @@ def _hard_compact_history(
     archive_path = archive_dir / f"{ts}-hardcompact.jsonl"
     if history_path.exists():
         shutil.copy(history_path, archive_path)
-    breadcrumb = (
-        f"[prior context kernel hard-compacted at {last_window} tokens "
-        f"(exceeded {hard_threshold}) — summarize as you go and call "
-        f"bin/compact yourself to avoid this]"
-    )
+    if summary and summary.strip():
+        seed = f"[compacted prior context]\n{summary.strip()}"
+    else:
+        seed = (
+            f"[prior context kernel-compacted at {last_window} tokens "
+            f"(exceeded {threshold}) — no handoff summary was available]"
+        )
     _save_history(history_path, [
-        {"role": "user", "content": breadcrumb},
+        {"role": "user", "content": seed},
         {"role": "assistant", "content": "Understood. Continuing."},
     ])
+    claude_backend.clear_session(pai_slug)
     _reset_window_gauge(proc_dir)
     try:
         return str(archive_path.relative_to(PROC_DIR.parent))
@@ -677,15 +685,14 @@ async def _maybe_compact_locked(pai_pid: int, pai_slug: str) -> None:
     hard_threshold = (pai_spec.get("hard_compact_threshold")
                       or DEFAULT_HARD_COMPACT_THRESHOLD)
 
-    # Hardline path: the window has run away past anything the cooperative
-    # `bin/compact` path could be trusted to recover. Compact kernel-side now,
-    # no model cooperation and no cooldown — we're between turns (the prior
-    # turn already released; later nudges are queued behind this lock), so this
-    # is exactly "stop the PAI after its current turn and drain the queue
-    # against a fresh context."
+    # Hardline path: the window has run away too far to spend even one more
+    # turn harvesting a summary. Compact now, breadcrumb only, no cooldown —
+    # we're between turns (the prior turn already released; later nudges are
+    # queued behind this lock), so this is exactly "stop the PAI after its
+    # current turn and drain the queue against a fresh context."
     if last_window >= hard_threshold:
         _recently_compacted[pai_slug] = time.monotonic()
-        rel_archive = _hard_compact_history(
+        rel_archive = _kernel_compact_history(
             pai_slug, _history_path(pai_slug), last_window, hard_threshold
         )
         try:
@@ -1229,31 +1236,28 @@ async def _nudge_body(
 
     action_applied = _apply_history_action(pai_slug, history_path)
 
-    # The model acknowledged the compact instruction (or said nothing useful)
-    # but never actually called `bin/compact` — cooperation isn't guaranteed,
-    # and leaving the window gauge stale just means the next nudge re-fires
-    # the same `kernel:compact` turn once the cooldown lapses, repeating
-    # forever with no history ever shrinking. Force it kernel-side instead of
-    # retrying the cooperative path indefinitely.
+    # A `kernel:compact` turn only harvests a summary — the compaction itself
+    # is kernel work and happens here, unconditionally, with the model's reply
+    # as the seed. (If the model went ahead and called `bin/compact` during
+    # the turn anyway, `action_applied` above already did it — skip.)
     if reason == "kernel:compact" and not action_applied:
-        last_window = tokens.read_last_window(pai_slug)
-        if last_window is not None:
-            rel_archive = _hard_compact_history(
-                pai_slug, history_path, last_window, last_window
+        last_window = tokens.read_last_window(pai_slug) or 0
+        rel_archive = _kernel_compact_history(
+            pai_slug, history_path, last_window, last_window, summary=reply
+        )
+        try:
+            append_log(
+                pai_slug,
+                f"kernel: compacted (last_window={last_window}) — "
+                f"archived to {rel_archive}",
             )
-            try:
-                append_log(
-                    pai_slug,
-                    f"kernel: model did not call bin/compact — force-compacted "
-                    f"(last_window={last_window}) — archived to {rel_archive}",
-                )
-            except ProcessNotFound:
-                pass
-            print(
-                f"[kernel] compact non-cooperation: pai={pai_slug} "
-                f"last_window={last_window} — force-compacted",
-                flush=True,
-            )
+        except ProcessNotFound:
+            pass
+        print(
+            f"[kernel] compacted pai={pai_slug} context "
+            f"(last_window={last_window}) — archived to {rel_archive}",
+            flush=True,
+        )
 
     # The child may have ended its turn by resolving its own proc (the standard
     # `bin/subagent done` exit) or been killed by its parent mid-turn. In either
