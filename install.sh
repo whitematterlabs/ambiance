@@ -186,6 +186,19 @@ else
   ( cd "$VER_DIR" && uv run paifs-init --no-setup )
 fi
 
+# --- fzf ----------------------------------------------------------------------
+# Vendor the fzf static binary into usr/bin (Apple silicon assumed) so scripts
+# and skills can rely on it without brew. Skipped when the host already has
+# one. paifs-init only overwrites its own shims in usr/bin, so the copy
+# survives re-runs and `pai update`.
+FZF_VERSION="0.74.0"
+if ! command -v fzf >/dev/null 2>&1 && [ ! -x "$PAI_ROOT/usr/bin/fzf" ]; then
+  echo "==> installing fzf $FZF_VERSION"
+  curl -fsSL "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-darwin_arm64.tar.gz" -o "$WORK/fzf.tar.gz"
+  tar -xzf "$WORK/fzf.tar.gz" -C "$WORK" fzf
+  install -m 755 "$WORK/fzf" "$PAI_ROOT/usr/bin/fzf"
+fi
+
 # --- release marker ----------------------------------------------------------
 # Records the installed version and signals `pai update` that this is a tarball
 # install (vs a dev git checkout), so it takes the download-and-swap path.
