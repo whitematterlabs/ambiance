@@ -54,6 +54,11 @@ _pai_locks: dict[int, asyncio.Lock] = {}
 _contacts_module = None
 _messages_module = None
 
+# The kernel's timer min-heap, assigned once in run(). Module-level so the
+# per-turn heartbeat re-arm (inside nudge tasks) can reach it without
+# threading the heap through every dispatch call site.
+_timer_heap: list[T.TimerEntry] | None = None
+
 
 def _contacts_driver():
     global _contacts_module
@@ -81,6 +86,68 @@ def _pai_lock(to: int) -> asyncio.Lock:
     return lock
 
 
+def _rearm_heartbeat(pid: int) -> None:
+    """Re-arm the target PAI's idle heartbeat to now + interval.
+
+    Called from the `finally` of every nudge dispatch — the one choke point
+    every turn passes through (success, LLM error, cancellation) — so the
+    beat is always measured from the last moment the PAI finished working.
+    Must never mask the turn's own outcome: swallows everything. PAIs
+    without `heartbeat:` (and all subagents) no-op here."""
+    try:
+        heap = _timer_heap
+        if heap is None:
+            return
+        slug = P.find_pai_slug(pid)
+        spec = P.read_spec(slug)
+        hb = spec.get("heartbeat")
+        if hb is None:
+            return
+        T.arm_heartbeat(heap, slug, T.parse_duration(hb))
+    except Exception:
+        pass
+
+
+def _fire_heartbeat(slug: str) -> None:
+    """A `heartbeat:<slug>` timer fired — nudge the PAI if it is truly idle.
+
+    Never re-arms itself: a fired beat either starts a turn (whose `finally`
+    re-arms) or finds the PAI busy/queued (that turn's `finally` re-arms).
+    Any other state means the beat is stale (stopped/deleted/config cleared)
+    and it simply dies here; the proc watcher re-arms on the next spec write."""
+    try:
+        status = P.read_status(slug)
+        spec = P.read_spec(slug)
+    except P.ProcessNotFound:
+        return
+    hb = spec.get("heartbeat")
+    pid = spec.get("pid")
+    if hb is None or status != "running" or not isinstance(pid, int):
+        return
+    # In-flight or queued turn — its own finally re-arms; firing now would
+    # both interrupt work and double-arm. The _active_nudges check closes
+    # the queued-but-not-yet-busy window.
+    if P.is_busy(slug) or _active_nudges.get(pid):
+        return
+    try:
+        P.append_log(slug, f"kernel: heartbeat fired (idle ≥ {hb})")
+    except P.ProcessNotFound:
+        return
+    _dispatch_nudge(
+        pid,
+        "heartbeat",
+        context={
+            "instruction": (
+                f"Idle heartbeat: you have been idle for at least {hb}. "
+                "Review your pending work, follow-ups, and anything you said "
+                "you'd get back to. If something needs doing, do it. If "
+                "nothing needs attention, reply with one short line and "
+                "stand down."
+            ),
+        },
+    )
+
+
 def _dispatch_nudge(
     to: int, *args, from_: int | None = None, **kwargs
 ) -> asyncio.Task:
@@ -92,8 +159,14 @@ def _dispatch_nudge(
     sender = int(from_) if from_ is not None else None
 
     async def _run() -> None:
-        async with _pai_lock(to):
-            await nudge(*args, to=to, from_=sender, **kwargs)
+        try:
+            async with _pai_lock(to):
+                await nudge(*args, to=to, from_=sender, **kwargs)
+        finally:
+            # Idle-relative heartbeat: every turn end (success, failure,
+            # cancellation) resets the beat. This is the ONLY re-arm path
+            # while a PAI is turning — _fire_heartbeat never re-arms itself.
+            _rearm_heartbeat(to)
 
     task = asyncio.create_task(_run(), name=f"nudge-{to}")
     _active_nudges[to].add(task)
@@ -162,6 +235,11 @@ def _deliver_message(
 
 async def _handle_timer(entry: T.TimerEntry, heap: list[T.TimerEntry]) -> None:
     slug = entry.slug
+    # Synthetic heartbeat entries carry no proc of their own — branch before
+    # the read_status lookup, which would raise on the "heartbeat:" slug.
+    if slug.startswith(T.HEARTBEAT_PREFIX):
+        _fire_heartbeat(slug[len(T.HEARTBEAT_PREFIX):])
+        return
     try:
         status = P.read_status(slug)
         spec = P.read_spec(slug)
@@ -1247,6 +1325,8 @@ async def run() -> None:
     M = _messages_driver()
     _contacts_driver().sync(M.PEOPLE_DIR, M.MESSAGES_DIR)
     heap = T.rebuild_from_proc()
+    global _timer_heap
+    _timer_heap = heap
     watcher = EventWatcher(P.EVENTS_DIR, loop)
     watcher.start()
     await supervisor.resume_from_disk()

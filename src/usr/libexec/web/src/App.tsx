@@ -40,6 +40,7 @@ import { StatusBar } from "./components/StatusBar";
 import { MessageInput } from "./components/MessageInput";
 import { SidePanel } from "./components/SidePanel";
 import { ModelPicker } from "./components/ModelPicker";
+import { HeartbeatPicker } from "./components/HeartbeatPicker";
 import { MainTabs, dashView, type MainView } from "./components/MainTabs";
 import { ScheduledView } from "./components/ScheduledView";
 import { DashboardView } from "./components/DashboardView";
@@ -100,6 +101,7 @@ export function App() {
   // when a *new* proposal arrives (count grew), not on every rebroadcast.
   const approvalsCountRef = useRef(0);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [heartbeatOpen, setHeartbeatOpen] = useState(false);
   // Show the welcome/capability tour automatically on the very first boot,
   // then never again unless the owner re-opens it via the header "?" button.
   const [welcomeOpen, setWelcomeOpen] = useState(
@@ -1283,6 +1285,17 @@ export function App() {
                 <button
                   className="head-action"
                   type="button"
+                  disabled={!activeMember}
+                  onClick={() => setHeartbeatOpen(true)}
+                  title="Wake this PAI after it has been idle for an interval"
+                >
+                  {activeMember?.heartbeat != null
+                    ? `Heartbeat · ${activeMember.heartbeat}`
+                    : "Heartbeat"}
+                </button>
+                <button
+                  className="head-action"
+                  type="button"
                   disabled={activePid === null || clearBusy}
                   onClick={handleClearContext}
                   title="Clear this PAI's conversation buffer (archived, recoverable)"
@@ -1359,6 +1372,14 @@ export function App() {
           onClose={() => setPickerOpen(false)}
           onStatus={setStatus}
           onSwitched={refreshModels}
+        />
+      )}
+      {heartbeatOpen && activeSlug && (
+        <HeartbeatPicker
+          pai={activeSlug}
+          current={activeMember?.heartbeat}
+          onClose={() => setHeartbeatOpen(false)}
+          onStatus={setStatus}
         />
       )}
       {scheduleEditor && (

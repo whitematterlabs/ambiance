@@ -416,6 +416,7 @@ def spawn_pai(
     wake_on: list[str] | None = None,
     fallback: bool | None = None,
     parent: int | None = None,
+    heartbeat: str | int | None = None,
     extra: dict | None = None,
 ) -> Path:
     """Spawn a `kind: pai` proc with an explicit PID. Slug defaults to
@@ -443,6 +444,8 @@ def spawn_pai(
         spec["fallback"] = bool(fallback)
     if parent is not None:
         spec["parent"] = parent
+    if heartbeat is not None:
+        spec["heartbeat"] = heartbeat
     if extra:
         for k, v in extra.items():
             spec.setdefault(k, v)

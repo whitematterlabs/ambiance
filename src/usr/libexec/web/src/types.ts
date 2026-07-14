@@ -7,6 +7,9 @@ export interface FleetMember {
   // straight off the wire (snake_case, like the other server-sourced fields);
   // gates the "−" delete button — only clones are deletable.
   clone_of?: string | null;
+  // Idle heartbeat interval ("30m"/"1h" or bare seconds), or null/absent when
+  // off. Server-sourced from the proc spec; drives the Heartbeat head button.
+  heartbeat?: string | number | null;
 }
 
 export interface ProcRow {

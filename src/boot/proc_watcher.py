@@ -100,9 +100,28 @@ def _schedule_spec(heap: list[T.TimerEntry], slug: str) -> None:
         return
 
     T.remove(heap, slug)
+    T.remove(heap, T.HEARTBEAT_PREFIX + slug)
 
     if status not in P.ACTIVE_STATUSES:
         return
+
+    # Idle heartbeat: re-arm from the fresh spec so a config change (via
+    # reconcile's spec.yaml rewrite) or removal goes live without a re-exec.
+    if spec.get("kind") == "pai" and spec.get("heartbeat") is not None:
+        try:
+            interval = T.parse_duration(spec["heartbeat"])
+        except ValueError:
+            interval = None
+        if interval is not None:
+            fire = T.arm_heartbeat(heap, slug, interval)
+            try:
+                P.append_log(
+                    slug,
+                    f"kernel: heartbeat armed ({spec['heartbeat']}), "
+                    f"fires at {fire.isoformat(timespec='seconds')}",
+                )
+            except P.ProcessNotFound:
+                pass
 
     deadline = T._parse_iso(spec.get("deadline"))
     if deadline is not None:
@@ -157,10 +176,12 @@ async def run(heap: list[T.TimerEntry]) -> None:
                     status = P.read_status(slug)
                 except P.ProcessNotFound:
                     T.remove(heap, slug)
+                    T.remove(heap, T.HEARTBEAT_PREFIX + slug)
                     await _maybe_supervise(slug)
                     continue
                 if status not in P.ACTIVE_STATUSES:
                     T.remove(heap, slug)
+                    T.remove(heap, T.HEARTBEAT_PREFIX + slug)
                 else:
                     # Transitioned into an active status (running/scheduled) —
                     # reschedule against the heap.

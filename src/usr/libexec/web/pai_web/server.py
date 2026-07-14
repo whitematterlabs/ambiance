@@ -362,6 +362,12 @@ class Handler(BaseHTTPRequestHandler):
                     str(body["pai"]), str(body["display_name"])
                 )
                 return self._json({"ok": True, **result})
+            if path == "/api/heartbeat":
+                hb = body.get("heartbeat")
+                result = actions.set_pai_heartbeat(
+                    str(body["pai"]), str(hb) if hb is not None else None
+                )
+                return self._json({"ok": True, **result})
             if path == "/api/kernel":
                 action = str(body["action"])
                 if action == "start":

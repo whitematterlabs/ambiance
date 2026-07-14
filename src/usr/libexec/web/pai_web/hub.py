@@ -275,6 +275,10 @@ def read_fleet() -> list[dict]:
                 # Owner-chosen display name (config `display_name:`, projected
                 # into the spec by reconcile). Falls back to the slug.
                 "title": str(spec.get("display_name") or "").strip() or slug,
+                # Idle heartbeat interval ("30m"/int seconds), projected into
+                # the spec by reconcile; null/absent = off. Drives the console
+                # Heartbeat button label + modal current value.
+                "heartbeat": spec.get("heartbeat"),
             }
         )
     fleet.sort(key=lambda f: f["pid"])

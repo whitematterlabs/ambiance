@@ -144,6 +144,17 @@ export const renamePai = (pai: string, displayName: string) =>
 export const setApiKey = (provider: string, key: string) =>
   post("/api/apikey", { provider, key });
 
+// Set a PAI's idle heartbeat interval ("30m"/"2h"); null turns it off. The
+// backend rewrites config.yaml and reloads the kernel; the fleet SSE
+// reconciles the optimistic local update once the new spec lands.
+export const setHeartbeat = (pai: string, heartbeat: string | null) =>
+  post("/api/heartbeat", { pai, heartbeat }) as Promise<{
+    ok: boolean;
+    name?: string;
+    heartbeat?: string | null;
+    error?: string;
+  }>;
+
 // Set a send channel's tri-state mode (no/ask/yes). The backend rewrites
 // capabilities in config.yaml and reloads the kernel; the hub then rebroadcasts
 // send_capabilities, so callers update optimistically and let it reconcile.

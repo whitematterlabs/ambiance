@@ -460,6 +460,24 @@ def set_pai_display_name(name: str, display_name: str) -> dict:
     return out
 
 
+def set_pai_heartbeat(name: str, heartbeat: str | None) -> dict:
+    """Set one PAI's idle heartbeat interval in config.yaml and reload the
+    kernel — reconcile projects it into the proc spec and the proc watcher
+    (re)arms the timer. None/blank turns the heartbeat off (removes the key)."""
+    from boot import config as bconfig
+
+    with _config_write_lock:
+        out = bconfig.set_pai_heartbeat(name, heartbeat)
+    emit_event({
+        "kind": "kernel:reload_config",
+        "source": "web",
+        "action": "set-heartbeat",
+        "name": name,
+        "heartbeat": out["heartbeat"],
+    })
+    return out
+
+
 def set_api_key(provider: str, key: str) -> dict:
     """Store an LLM provider key from the console and make the kernel re-read it.
 

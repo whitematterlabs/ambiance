@@ -98,6 +98,9 @@ def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
     # The clone is inert until the owner assigns it routing explicitly.
     entry.pop("wake_on", None)
     entry.pop("fallback", None)
+    # Autonomous wake behavior is spend, same as routing: a cloned heartbeat
+    # would silently double the LLM bill. The owner re-arms it explicitly.
+    entry.pop("heartbeat", None)
     # Presentation identity is also personal: a clone of "Muse" must not show
     # up as a second "Muse" in the console or introduce itself as one. It
     # starts under its own slug until the owner renames it.

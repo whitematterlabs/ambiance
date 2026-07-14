@@ -29,6 +29,7 @@ import yaml
 from . import llm as L
 from . import processes as P
 from . import paths
+from . import timers as T
 
 CONFIG_PATH = paths.etc() / "config.yaml"
 PACKAGES_DIR = paths.usr_lib_pais()
@@ -43,6 +44,7 @@ CONFIG_MANAGED_FIELDS = (
     "description", "display_name", "prompt", "prompt_dir", "boilerplate",
     "provider", "model", "backend", "wake_on", "fallback", "parent",
     "persistent", "active", "compact_threshold", "hard_compact_threshold",
+    "heartbeat",
 )
 
 # Turn-executor backends. Default (omitted/None) is the in-process Anthropic
@@ -220,7 +222,9 @@ def _validate_pai_entry(entry: dict, *, source: str, config_path: Path) -> None:
     name = entry.get("name")
     if not isinstance(name, str) or not name:
         raise ConfigError(f"{source}: entry missing required string `name`: {entry!r}")
-    if "/" in name or name.startswith("."):
+    # ":" is reserved for synthetic timer slugs (timers.HEARTBEAT_PREFIX), so
+    # no real PAI name may contain it — same guard paiclone applies.
+    if "/" in name or ":" in name or name.startswith("."):
         raise ConfigError(f"{source}: invalid name {name!r}")
     if "description" not in entry or not isinstance(entry["description"], str):
         raise ConfigError(f"{source}: entry {name!r} missing string `description`")
@@ -286,6 +290,18 @@ def _validate_pai_entry(entry: dict, *, source: str, config_path: Path) -> None:
             raise ConfigError(
                 f"{source}: entry {name!r} hard_compact_threshold ({hct}) must be "
                 f"greater than compact_threshold ({soft})"
+            )
+    if "heartbeat" in entry and entry["heartbeat"] is not None:
+        hb = entry["heartbeat"]
+        try:
+            secs = T.parse_duration(hb)
+        except ValueError as e:
+            raise ConfigError(f"{source}: entry {name!r} heartbeat: {e}") from None
+        # Sub-minute beats are an LLM-spend footgun, not a scheduling need.
+        if secs < 60:
+            raise ConfigError(
+                f"{source}: entry {name!r} heartbeat must be at least 60s, "
+                f"got {hb!r}"
             )
 
 
@@ -646,6 +662,45 @@ def set_pai_display_name(
     return {"name": name, "display_name": display_name}
 
 
+def set_pai_heartbeat(
+    name: str, heartbeat: str | None, path: Path | None = None
+) -> dict:
+    """Write `heartbeat:` on one fleet entry (idle-relative wake interval).
+
+    Accepts a duration string ("30m"/"1h") or bare int seconds; None/blank
+    removes the key (heartbeat off — the default). Validates via the same
+    parse the config loader applies, so a bad value fails loud here instead
+    of breaking the next reconcile. Same strictness and atomicity contract
+    as set_pai_display_name; the caller emits `kernel:reload_config` so
+    reconcile projects it into spec.yaml and the proc watcher re-arms.
+    """
+    if isinstance(heartbeat, str):
+        heartbeat = heartbeat.strip() or None
+    if heartbeat is not None:
+        secs = T.parse_duration(heartbeat)  # ValueError on junk — caller's 400
+        if secs < 60:
+            raise ValueError(f"heartbeat must be at least 60s, got {heartbeat!r}")
+    p = path or CONFIG_PATH
+    data = _load_yaml(p) if p.exists() else {}
+    pais = data.get("pais") if isinstance(data, dict) else None
+    entry = None
+    if isinstance(pais, list):
+        entry = next(
+            (e for e in pais if isinstance(e, dict) and e.get("name") == name), None
+        )
+    if entry is None:
+        raise ValueError(f"unknown pai: {name!r}")
+    if heartbeat is not None:
+        entry["heartbeat"] = heartbeat
+    else:
+        entry.pop("heartbeat", None)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.rename(p)
+    return {"name": name, "heartbeat": heartbeat}
+
+
 def capability_flags(path: Path | None = None) -> dict[str, bool]:
     """Back-compat predicate: True iff the capability lets the PAI send
     *directly and autonomously* (mode `yes`). Both `no` and `ask` are
@@ -757,6 +812,7 @@ def reconcile_from_config(path: Path | None = None) -> None:
             wake_on=spec.get("wake_on"),
             fallback=spec.get("fallback"),
             parent=spec.get("parent"),
+            heartbeat=spec.get("heartbeat"),
         )
         try:
             P.append_log(name, "kernel: spawned via reconcile")

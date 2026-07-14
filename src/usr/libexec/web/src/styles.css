@@ -5207,3 +5207,27 @@ html[data-theme="dark"] .build-banner--warn {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Heartbeat modal — number + unit compose the idle interval. */
+.heartbeat-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 10px 10px;
+}
+.heartbeat-hint {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.heartbeat-row {
+  display: flex;
+  gap: 6px;
+}
+.heartbeat-amount { flex: 1; }
+.heartbeat-unit { min-width: 110px; }
+.heartbeat-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

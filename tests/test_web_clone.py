@@ -44,6 +44,7 @@ def test_clone_pai_uses_shared_paiclone_flow(fhs: Path) -> None:
                         "description": "handles delegated work",
                         "provider": "anthropic",
                         "wake_on": ["delegation:*"],
+                        "heartbeat": "1h",
                     }
                 ]
             },
@@ -67,6 +68,9 @@ def test_clone_pai_uses_shared_paiclone_flow(fhs: Path) -> None:
     # Clones do NOT inherit wakes — they start inert so N identical catch-alls
     # can't all fire on every event (B1 load-amplification trap).
     assert "wake_on" not in clone
+    # Nor the idle heartbeat — autonomous wake behavior is spend, same as
+    # routing; a cloned beat would silently double the LLM bill.
+    assert "heartbeat" not in clone
     assert "pid" not in clone
     # Behavior-free provenance marker stamped at clone time — gates deletion.
     assert clone["clone_of"] == "helper"
