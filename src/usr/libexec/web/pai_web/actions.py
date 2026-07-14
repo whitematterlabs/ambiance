@@ -583,6 +583,40 @@ def interrupt(pid: int) -> None:
     emit_event({"source": "web", "kind": "interrupt", "pai": pid})
 
 
+# Console plan edits nudge the PAI so it re-reads plan.md instead of acting on
+# (or clobbering) a stale copy from memory. A burst of checkbox ticks arrives
+# as one POST per click — coalesce them per pid so the PAI gets one nudge per
+# editing session, not one turn per click. Each write replaces the whole file,
+# so the burst's LAST write decides whether the nudge reports an edit or a
+# cleared plan.
+_PLAN_NUDGE_DELAY_S = 3.0
+_plan_nudges: dict[int, tuple[threading.Timer, bool]] = {}
+_plan_nudge_lock = threading.Lock()
+
+
+def nudge_plan_edit(pid: int, *, cleared: bool) -> None:
+    def fire() -> None:
+        with _plan_nudge_lock:
+            pending = _plan_nudges.pop(pid, None)
+        if pending is None:
+            return
+        emit_event({
+            "source": "web",
+            "kind": "plan_edit",
+            "target_pid": pid,
+            "cleared": pending[1],
+        })
+
+    with _plan_nudge_lock:
+        pending = _plan_nudges.pop(pid, None)
+        if pending is not None:
+            pending[0].cancel()
+        timer = threading.Timer(_PLAN_NUDGE_DELAY_S, fire)
+        timer.daemon = True
+        _plan_nudges[pid] = (timer, cleared)
+        timer.start()
+
+
 VOICE_LISTENER_SLUG = "voice-in"
 
 

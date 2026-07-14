@@ -315,11 +315,15 @@ class Handler(BaseHTTPRequestHandler):
                 # step add/remove, raw edit). Empty content deletes the file.
                 # The hub's /proc watch rebroadcasts the `plan` map, so the
                 # optimistic frontend update reconciles without a push here.
+                # The edit also nudges the PAI (debounced per pid) so it
+                # re-reads the file instead of trusting a stale copy.
                 pid = int(body["pid"])
                 slug = next((f["slug"] for f in read_fleet() if f["pid"] == pid), None)
                 if slug is None:
                     raise ValueError(f"no running PAI with pid {pid}")
-                write_plan(slug, str(body.get("content", "")))
+                content = str(body.get("content", ""))
+                write_plan(slug, content)
+                actions.nudge_plan_edit(pid, cleared=not content.strip())
                 return self._json({"ok": True})
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))

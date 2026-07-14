@@ -618,6 +618,40 @@ async def _handle_event_file(path: Path, heap: list[T.TimerEntry]) -> None:
             event=event,
         )
 
+    elif kind == "plan_edit":
+        # Owner edited a PAI's live plan.md from the console (tick/untick,
+        # step add/remove, raw rewrite, or cleared it). Tell that PAI so it
+        # re-reads the file instead of acting on — or clobbering — a stale
+        # copy from memory. Delivered like any message: injected mid-turn if
+        # the PAI is busy, else a fresh nudge.
+        target_pid = event.get("target_pid")
+        if target_pid is None:
+            print(f"[kernel] dropping malformed plan_edit event: {event!r}", flush=True)
+            return
+        target_pid = int(target_pid)
+        try:
+            plan_slug = P.slug_for_pid(target_pid)
+        except P.ProcessNotFound:
+            print(f"[kernel] dropping plan_edit for dead pid {target_pid}", flush=True)
+            return
+        if event.get("cleared") is True:
+            text = (
+                "The owner cleared your plan (/proc/"
+                f"{plan_slug}/plan.md is gone). Treat the remaining steps as "
+                "withdrawn unless they say otherwise."
+            )
+        else:
+            text = (
+                f"The owner edited your plan. Re-read /proc/{plan_slug}/plan.md "
+                "before acting on or rewriting it, and honor what changed."
+            )
+        _deliver_message(
+            target_pid,
+            "owner edited plan",
+            context={"text": text, "path": f"/proc/{plan_slug}/plan.md"},
+            event=event,
+        )
+
     elif kind == "subagent:response":
         target_pid = event.get("target_pid")
         text = event.get("text") or ""
