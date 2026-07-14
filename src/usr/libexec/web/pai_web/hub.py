@@ -231,6 +231,25 @@ def read_plan(slug: str) -> str:
     return text if text.strip() else ""
 
 
+def write_plan(slug: str, content: str) -> None:
+    """Owner edit of a PAI's live `proc/<slug>/plan.md` (console checkboxes,
+    step add/remove, raw-markdown edits).
+
+    The PAI still owns the file — this is the owner reaching into the same
+    surface, so it keeps the same protocol: whitespace-only content removes the
+    file (the owner's equivalent of the PAI's `rm` once every goal is done).
+    Written atomically so the hub's /proc watcher never broadcasts a half-write.
+    Last write wins if the PAI rewrites the plan concurrently.
+    """
+    path = PROC_DIR / slug / "plan.md"
+    if not content.strip():
+        path.unlink(missing_ok=True)
+        return
+    tmp = path.parent / ".plan.md.tmp"
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
 def read_fleet() -> list[dict]:
     """Running kind:pai procs, with fallback flagged. Drives the tabs."""
     fleet: list[dict] = []

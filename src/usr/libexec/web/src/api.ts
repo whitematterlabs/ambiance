@@ -96,6 +96,12 @@ export const killSubagent = (name: string) =>
     error?: string;
   }>;
 
+// Owner edit of a PAI's live plan.md (checkbox toggle, step add/remove, raw
+// edit). Empty content deletes the file. The hub's /proc watch rebroadcasts the
+// `plan` map, so callers update optimistically and let the SSE reconcile.
+export const writePlan = (pid: number, content: string) =>
+  post("/api/plan", { pid, content }) as Promise<{ ok: boolean; error?: string }>;
+
 export const runShell = (pid: number, cmd: string) =>
   post("/api/shell", { pid, cmd }) as Promise<{
     ok: boolean;

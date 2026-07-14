@@ -1183,27 +1183,121 @@ button {
 
 /* ---------- Right rail: live plan strip ---------- */
 /* Mirrors the left .workspace-sidebar: a fixed-width rail flanking the chat,
-   keyed to the active PAI. Renders proc/<slug>/plan.md as a read-only GFM
+   keyed to the active PAI. Renders proc/<slug>/plan.md as an editable GFM
    checklist. Only mounted when the active PAI has a non-empty plan, so the row
-   reclaims the width for chat whenever there's nothing to show. */
+   reclaims the width for chat whenever there's nothing to show. A slim pull-tab
+   hugs the rail's left edge; clicking it retracts the rail down to just the tab
+   (the fixed-width .plan-scroll slides out under overflow:hidden, same trick as
+   .sidebar-scroll). */
 .plan-sidebar {
-  flex: 0 0 300px;
+  --plan-w: 300px;
+  --plan-tab: 24px;
+  display: flex;
+  flex: 0 0 var(--plan-w);
+  min-width: 0;
+  min-height: 0;
+  transition: flex-basis 0.3s var(--ease);
+  animation: rise-in 0.5s var(--ease-out) both;
+}
+
+.plan-sidebar.collapsed {
+  flex-basis: var(--plan-tab);
+}
+
+/* The pull-tab: a full-height slim handle fused to the rail's left edge. When
+   collapsed it's all that remains, carrying a rotated "Plan n/m" label. */
+.plan-pull {
+  flex: 0 0 var(--plan-tab);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 0;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  color: var(--dim);
+  cursor: pointer;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease),
+    border-radius 0.3s var(--ease);
+}
+
+.plan-sidebar.collapsed .plan-pull {
+  border-right: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.plan-pull:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.plan-pull-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.3s var(--ease);
+}
+
+/* Expanded: chevron points right (push the rail away). Collapsed: flip it so
+   it points back into the canvas (pull the rail out). Hover nudges it along. */
+.plan-sidebar.collapsed .plan-pull-chevron {
+  transform: rotate(180deg);
+}
+
+.plan-pull:hover .plan-pull-chevron {
+  transform: translateX(2px);
+}
+
+.plan-sidebar.collapsed .plan-pull:hover .plan-pull-chevron {
+  transform: rotate(180deg) translateX(2px);
+}
+
+.plan-pull-label {
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity 0.25s var(--ease), max-height 0.3s var(--ease);
+}
+
+.plan-sidebar.collapsed .plan-pull-label {
+  max-height: 200px;
+  opacity: 1;
+}
+
+/* Content pane: fades out as the rail retracts; the fixed-width .plan-scroll
+   slides under overflow:hidden instead of reflowing its text. */
+.plan-rail {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  animation: rise-in 0.5s var(--ease-out) both;
+  transition: opacity 0.22s var(--ease);
+}
+
+.plan-sidebar.collapsed .plan-rail {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .plan-scroll {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: calc(var(--plan-w) - var(--plan-tab));
   height: 100%;
   min-height: 0;
   padding: 12px;
   background: var(--surface-muted);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
   overflow-y: auto;
 }
 
@@ -1239,6 +1333,39 @@ button {
   border-radius: 999px;
 }
 
+.plan-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* Small icon buttons in the rail head: discuss-with-PAI and raw-markdown edit. */
+.plan-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--dim);
+  cursor: pointer;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.plan-action:hover {
+  color: var(--text);
+  border-color: var(--accent, #4f8cff);
+}
+
+.plan-action.active {
+  color: var(--accent, #4f8cff);
+  border-color: var(--accent, #4f8cff);
+}
+
 .plan-body {
   min-height: 0;
   font-size: 13px;
@@ -1271,19 +1398,161 @@ button {
 .plan-body ul.contains-task-list li.task-list-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   margin: 0 0 6px;
+}
+
+/* The clickable row: checkbox + label. The whole row toggles the step (the
+   disabled input remark renders is click-through), so give it the pointer. */
+.plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.plan-step p {
+  margin: 0;
 }
 
 .plan-body li.task-list-item input[type="checkbox"] {
   margin-top: 3px;
   flex: 0 0 auto;
   accent-color: var(--accent, #4f8cff);
+  /* Disabled inputs swallow clicks without bubbling — pass them through so
+     clicking the box itself hits the .plan-step toggle. */
+  pointer-events: none;
 }
 
 /* A ticked step reads as done — dim it so the eye lands on what's left. */
 .plan-body li.task-list-item:has(input:checked) {
   color: var(--dim);
+}
+
+/* Hover-revealed step delete. `>` keeps a nested subtask's hover from lighting
+   up its parent's button. */
+.plan-step-remove {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-top: 1px;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease), color 0.15s var(--ease),
+    background 0.15s var(--ease);
+}
+
+.plan-body li.task-list-item:hover > .plan-step-remove {
+  opacity: 1;
+}
+
+.plan-step-remove:hover {
+  color: #e5484d;
+  background: var(--surface-raised);
+}
+
+@media (hover: none) {
+  .plan-step-remove {
+    opacity: 0.55;
+  }
+}
+
+/* Inline "+ Add step" affordance and its commit input. */
+.plan-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 8px;
+  padding: 3px 9px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.plan-add:hover {
+  color: var(--text);
+  border-color: var(--accent, #4f8cff);
+}
+
+.plan-add-input {
+  width: 100%;
+  margin: 2px 0 8px;
+  padding: 5px 8px;
+  background: var(--surface-raised);
+  border: 1px solid var(--accent, #4f8cff);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+
+/* Raw-markdown edit mode: swaps in for .plan-body under the same rail head. */
+.plan-raw {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.plan-raw-text {
+  flex: 1 1 auto;
+  min-height: 220px;
+  resize: vertical;
+  padding: 8px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.plan-raw-text:focus {
+  border-color: var(--accent, #4f8cff);
+}
+
+.plan-raw-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.plan-raw-actions button {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.plan-raw-actions .plan-raw-save {
+  background: var(--accent, #4f8cff);
+  border-color: var(--accent, #4f8cff);
+  color: #fff;
 }
 
 .plan-body ul:not(.contains-task-list),
@@ -4426,7 +4695,7 @@ button {
   }
 
   .plan-sidebar {
-    flex-basis: 240px;
+    --plan-w: 240px;
   }
 }
 

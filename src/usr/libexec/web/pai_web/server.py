@@ -37,7 +37,7 @@ from boot.paths import PAI_ROOT, REPO_ROOT, usr_libexec
 from . import actions
 from . import dashboards
 from . import driver_health
-from .hub import Hub, Subscriber, read_fleet, read_plan
+from .hub import Hub, Subscriber, read_fleet, read_plan, write_plan
 
 
 def _frontend_dist() -> Path:
@@ -310,6 +310,17 @@ class Handler(BaseHTTPRequestHandler):
                 # the updated send_capabilities, so we don't push state here.
                 result = actions.set_send_mode(str(body["flag"]), str(body["mode"]))
                 return self._json({"ok": True, **result})
+            if path == "/api/plan":
+                # Owner edit of the active PAI's live plan.md (checkbox toggle,
+                # step add/remove, raw edit). Empty content deletes the file.
+                # The hub's /proc watch rebroadcasts the `plan` map, so the
+                # optimistic frontend update reconciles without a push here.
+                pid = int(body["pid"])
+                slug = next((f["slug"] for f in read_fleet() if f["pid"] == pid), None)
+                if slug is None:
+                    raise ValueError(f"no running PAI with pid {pid}")
+                write_plan(slug, str(body.get("content", "")))
+                return self._json({"ok": True})
             if path == "/api/shell":
                 result = actions.run_shell(int(body["pid"]), str(body["cmd"]))
                 return self._json({"ok": True, **result})

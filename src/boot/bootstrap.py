@@ -53,6 +53,9 @@ its work is reported, delete that section; `rm` the file once none remain.
 It is orthogonal to the context buffer — it survives `clear`/`compact` and
 kernel restarts — so after any interruption re-read it and resume where you
 left off. Only a genuinely single-action turn skips it.
+The owner can edit this file from the console (tick/untick, add or remove
+steps) — before rewriting it, re-read it from disk so you never clobber
+their edits with a copy from memory, and honor what changed.
 \
 #PAI Filesystem\
 Your directory (~/.pai/) is structured as a Linux FHS (eg `/etc/ /usr/ /var/ /proc/ /run/ /sys/

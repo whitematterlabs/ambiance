@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import { ChevronRight, Pencil } from "lucide-react";
 import type {
   BuildStatus,
   DashboardMeta,
@@ -43,7 +43,7 @@ import { ModelPicker } from "./components/ModelPicker";
 import { MainTabs, dashView, type MainView } from "./components/MainTabs";
 import { ScheduledView } from "./components/ScheduledView";
 import { DashboardView } from "./components/DashboardView";
-import { PlanSidebar } from "./components/PlanSidebar";
+import { PlanSidebar, tally } from "./components/PlanSidebar";
 import { ScheduleEditor } from "./components/ScheduleEditor";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { BuildBanner } from "./components/BuildBanner";
@@ -133,6 +133,8 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("sidebarOpen") !== "false",
   );
+  // Right plan rail: retracts to a slim pull-tab. Persisted like sidebarOpen.
+  const [planOpen, setPlanOpen] = useState(() => localStorage.getItem("planOpen") !== "false");
   const [authNeeded, setAuthNeeded] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearScreens, setClearScreens] = useState<Record<number, ClearScreen>>({});
@@ -229,6 +231,10 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("sidebarOpen", String(sidebarOpen));
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("planOpen", String(planOpen));
+  }, [planOpen]);
 
   // Refresh the status line when the active tab changes (TUI pokes /proc).
   useEffect(() => {
@@ -978,6 +984,22 @@ export function App() {
   const messages = activePid !== null ? threads[activePid] ?? [] : [];
   // Active PAI's live plan.md. Empty ⇒ the right rail collapses (no strip).
   const activePlan = activePid !== null ? (plans[activePid] ?? "").trim() : "";
+  const planTally = useMemo(() => tally(activePlan), [activePlan]);
+  // Owner edit of the plan (checkbox toggle, step add/remove, raw edit):
+  // optimistic local update, then round-trip through the backend — the hub's
+  // /proc watch rebroadcasts the `plan` map and reconciles. An emptied plan
+  // deletes the file server-side, which drops the rail on the next broadcast.
+  const handlePlanEdit = (md: string) => {
+    if (activePid === null) return;
+    const pid = activePid;
+    setPlans((p) => ({ ...p, [pid]: md }));
+    api.writePlan(pid, md).catch((e) => setStatus(`plan save failed: ${e.message}`));
+  };
+  // "Talk to PAI about it": seed the composer and let the normal send carry it.
+  const handlePlanDiscuss = () => {
+    setComposerDraft({ text: "About your current plan: ", nonce: Date.now() });
+    setStatus("plan: say what you'd like changed, then send");
+  };
   const shellEntries = activePid !== null ? shell[activePid] ?? [] : [];
   const clearScreen = activePid !== null ? clearScreens[activePid] ?? null : null;
   const clearOffset = clearScreen ? Math.min(clearScreen.messageIndex, messages.length) : 0;
@@ -1307,8 +1329,27 @@ export function App() {
           )}
         </section>
         {activePlan && (
-          <aside className="plan-sidebar" aria-label="Plan">
-            <PlanSidebar key={activePid} plan={activePlan} pai={activeSlug} />
+          <aside className={`plan-sidebar${planOpen ? "" : " collapsed"}`} aria-label="Plan">
+            <button
+              className="plan-pull"
+              onClick={() => setPlanOpen((v) => !v)}
+              title={planOpen ? "Hide plan" : "Show plan"}
+              aria-expanded={planOpen}
+            >
+              <ChevronRight size={13} className="plan-pull-chevron" />
+              <span className="plan-pull-label">
+                Plan{planTally.total > 0 ? ` ${planTally.done}/${planTally.total}` : ""}
+              </span>
+            </button>
+            <div className="plan-rail" aria-hidden={!planOpen}>
+              <PlanSidebar
+                key={activePid}
+                plan={activePlan}
+                pai={activeSlug}
+                onEdit={handlePlanEdit}
+                onDiscuss={handlePlanDiscuss}
+              />
+            </div>
           </aside>
         )}
       </main>
