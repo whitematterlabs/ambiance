@@ -5208,24 +5208,38 @@ html[data-theme="dark"] .build-banner--warn {
   white-space: nowrap;
 }
 
-/* Heartbeat modal — number + unit compose the idle interval. */
+/* Heartbeat modal — number + unit compose the idle interval. Both fields
+   carry .schedule-input (width: 100%), so each needs an explicit flex share
+   or they fight over the row. */
 .heartbeat-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 4px 10px 10px;
+  gap: 10px;
+  padding: 8px 14px 14px;
 }
 .heartbeat-hint {
   margin: 0;
-  font-size: 12px;
-  opacity: 0.65;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--dim);
 }
 .heartbeat-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
-.heartbeat-amount { flex: 1; }
-.heartbeat-unit { min-width: 110px; }
+.heartbeat-amount {
+  width: auto;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.heartbeat-unit {
+  width: auto;
+  flex: 0 0 130px;
+}
+.heartbeat-error {
+  font-size: 12.5px;
+  color: var(--warn, #b3564d);
+}
 .heartbeat-actions {
   display: flex;
   justify-content: flex-end;

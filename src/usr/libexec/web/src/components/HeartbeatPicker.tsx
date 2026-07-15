@@ -119,7 +119,7 @@ export function HeartbeatPicker({
           </p>
           <div className="heartbeat-row">
             <input
-              className="palette-input heartbeat-amount"
+              className="schedule-input heartbeat-amount"
               type="number"
               min={1}
               placeholder="e.g. 30"
@@ -142,7 +142,7 @@ export function HeartbeatPicker({
               ))}
             </select>
           </div>
-          {error && <div className="palette-empty model-error">{error}</div>}
+          {error && <div className="heartbeat-error">{error}</div>}
           <div className="heartbeat-actions">
             <button
               type="button"
