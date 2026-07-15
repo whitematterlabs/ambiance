@@ -8,9 +8,10 @@ from boot import llm as L
 
 
 def test_provider_spec_via_proxy_flags():
-    # openai and openrouter route through the proxy; Anthropic-wire providers don't.
+    # openai, openrouter, and gemini route through the proxy; Anthropic-wire providers don't.
     assert L.PROVIDERS["openai"].via_proxy is True
     assert L.PROVIDERS["openrouter"].via_proxy is True
+    assert L.PROVIDERS["gemini"].via_proxy is True
     assert L.PROVIDERS["anthropic"].via_proxy is False
     assert L.PROVIDERS["deepseek"].via_proxy is False
     assert L.PROVIDERS["zai"].via_proxy is False
@@ -100,6 +101,29 @@ def test_openrouter_provider_routes_through_proxy():
     assert spec.api_key_env == "OPENROUTER_API_KEY"
     assert spec.base_url == f"http://127.0.0.1:{L.PROXY_PORT}"
     assert spec.proxy_api_base is None  # LiteLLM's default openrouter upstream
+
+
+def test_gemini_provider_routes_through_proxy():
+    spec = L.PROVIDERS["gemini"]
+    assert spec.via_proxy is True
+    assert spec.proxy_prefix == "gemini"
+    assert spec.api_key_env == "GEMINI_API_KEY"
+    assert spec.default_model == "gemini-3.1-pro-preview"
+    assert spec.base_url == f"http://127.0.0.1:{L.PROXY_PORT}"
+    assert spec.proxy_api_base is None  # LiteLLM's default Google AI Studio upstream
+
+
+def test_resolve_gemini_default_targets_api_key_route(monkeypatch):
+    monkeypatch.setattr(L, "_clients", {})
+    _, model, extra_body = L._resolve("gemini", None)
+    assert model == "gemini/gemini-3.1-pro-preview"
+    assert extra_body == {}
+
+
+def test_resolve_gemini_self_prefix_idempotent(monkeypatch):
+    monkeypatch.setattr(L, "_clients", {})
+    _, model, _ = L._resolve("gemini", "gemini/gemini-3.5-flash")
+    assert model == "gemini/gemini-3.5-flash"
 
 
 def test_resolve_openrouter_slug_passes_through(monkeypatch):

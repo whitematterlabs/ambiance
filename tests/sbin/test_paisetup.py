@@ -187,6 +187,16 @@ def test_ensure_api_key_reads_seeded_provider(tmp_path: Path) -> None:
     assert apikey._seeded_provider(tmp_path) == "openai"
 
 
+def test_ensure_api_key_uses_gemini_env_var(tmp_path: Path, monkeypatch) -> None:
+    _seed_config(tmp_path, "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(apikey.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(apikey.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(apikey.getpass, "getpass", lambda prompt="": "gemini-key")
+    apikey.ensure_api_key(tmp_path)
+    assert (tmp_path / ".env").read_text() == "GEMINI_API_KEY=gemini-key\n"
+
+
 def test_ensure_api_key_skips_when_in_env(tmp_path: Path, monkeypatch, capsys) -> None:
     _seed_config(tmp_path, "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-live")

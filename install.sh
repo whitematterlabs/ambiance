@@ -160,12 +160,14 @@ elif [ "$interactive" -eq 1 ]; then
   echo "  2) DeepSeek"
   echo "  3) GPT-5.5       (OpenAI)"
   echo "  4) GLM-5.2       (z.ai)"
-  printf "Choose [1/2/3/4] (default 1): "
+  echo "  5) Gemini 3.1 Pro Preview (Google)"
+  printf "Choose [1/2/3/4/5] (default 1): "
   read -r choice < /dev/tty
   case "$choice" in
     2) PROVIDER=deepseek;  MODEL=deepseek-v4-pro ;;
     3) PROVIDER=openai;    MODEL=gpt-5.5 ;;
     4) PROVIDER=zai;       MODEL=glm-5.2 ;;
+    5) PROVIDER=gemini;    MODEL=gemini-3.1-pro-preview ;;
     *) PROVIDER=anthropic; MODEL=claude-opus-4-8 ;;
   esac
   echo "    default model: $MODEL ($PROVIDER)"
@@ -219,6 +221,7 @@ ensure_api_key() {
     deepseek)  var=DEEPSEEK_API_KEY ;;
     openai)    var=OPENAI_API_KEY ;;
     zai)       var=ZAI_API_KEY ;;
+    gemini)    var=GEMINI_API_KEY ;;
     *) return 0 ;;
   esac
   if [ -n "${!var:-}" ]; then

@@ -173,6 +173,17 @@ PROVIDERS: dict[str, ProviderSpec] = {
         via_proxy=True,
         proxy_prefix="openrouter",
     ),
+    # Google AI Studio's Gemini API is reached through LiteLLM's `gemini/`
+    # provider route. The prefix is important: without it LiteLLM treats bare
+    # Gemini names as Vertex AI and expects GCP auth instead of GEMINI_API_KEY.
+    "gemini": ProviderSpec(
+        f"http://127.0.0.1:{PROXY_PORT}",
+        "GEMINI_API_KEY",
+        "gemini-3.1-pro-preview",
+        {},
+        via_proxy=True,
+        proxy_prefix="gemini",
+    ),
 }
 DEFAULT_PROVIDER = "anthropic"
 
@@ -195,6 +206,9 @@ CATALOG: tuple[CatalogEntry, ...] = (
     CatalogEntry("anthropic", "claude-opus-4-8", "Claude Opus 4.8"),
     CatalogEntry("anthropic", "claude-sonnet-4-6", "Claude Sonnet 4-6"),
     CatalogEntry("openai", "gpt-5.5", "ChatGPT-5.5"),
+    CatalogEntry("gemini", "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", "preview"),
+    CatalogEntry("gemini", "gemini-3.5-flash", "Gemini 3.5 Flash"),
+    CatalogEntry("gemini", "gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite"),
     CatalogEntry("zai", "glm-5.2", "GLM 5.2"),
     CatalogEntry("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free", "Nemotron 3 Ultra (free)", "free"),
     CatalogEntry("openrouter", "qwen/qwen3-coder:free", "Qwen3 Coder (free)", "free"),
