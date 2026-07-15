@@ -101,7 +101,7 @@ via `paiman install`, etc.) is an implementation detail tracked in Open Question
 | `src/sbin/migrate.py` | `~/.pai/sbin/migrate` | One-shot kernelPAI op |
 | `src/sbin/reset.py` | `~/.pai/sbin/reset` | One-shot kernelPAI op — destructive; wipes runtime state |
 | `src/sbin/reboot.py` | `~/.pai/sbin/reboot` | Emits `kernel:restart`; kernel drains in-flight nudges, gracefully stops drivers, then `os.execvp`s itself in place (PID 1 preserved). Use to apply on-disk patches to kernel-imported modules. |
-| `src/usr/libexec/web/` | `~/.pai/usr/libexec/web/` | Web owner surface sidecar: backend package, frontend source, and built assets. Invoked by `pai start --web`; not a `/sbin/` source tree. |
+| `src/usr/libexec/web/` | `~/.pai/usr/libexec/web/` | Web owner surface sidecar: backend package, frontend source, and built assets. Invoked by `pai start`; not a `/sbin/` source tree. |
 | `src/prompts/` | `~/.pai/usr/share/prompts/` | Shipped baseline prompts |
 | `src/usr/share/doc/` | `~/.pai/usr/share/doc/` | Shipped documentation. The runtime slot is a **real directory of per-file symlinks** into the shipped source (repo checkout in dev, `opt/pai/<ver>/` in tarball installs), plus `built` → `/var/lib/doc/built/` for durable PAI-authored docs — never one whole-dir symlink into the rotating release dir |
 | `src/seed/` | *removed* | Folded into bundle `defaults/` |

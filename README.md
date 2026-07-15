@@ -29,8 +29,7 @@ It provisions the runtime at `~/.pai`, asks for a model provider key
 picker. Then:
 
 ```bash
-pai start          # terminal UI
-pai start --web    # browser console at localhost:8787
+pai start          # browser console at localhost:8787
 pai start --headless
 ```
 
@@ -90,7 +89,7 @@ Not ready yet:
 - Strong sandboxing or privilege separation for untrusted code
 - Versioned registry release channels
 
-**Do not expose `pai start --web` to the public internet.** The local web
+**Do not expose `pai start` to the public internet.** The local web
 surface includes owner-level controls: shell execution, kernel lifecycle,
 provider switching, clone/delete, and message sending.
 
@@ -173,19 +172,53 @@ More detail:
 
 ## Development
 
-```bash
-uv sync                        # deps
-uv run python -m pytest        # tests
-uv run paifs-init --no-setup   # reprovision ~/.pai after source changes
-```
-
-Web UI:
+For a fresh checkout, build the Python and web dependencies first:
 
 ```bash
+uv sync
+
 cd src/usr/libexec/web
 pnpm install
-pnpm build     # or: pnpm dev, with `python -m usr.libexec.web.pai_web` alongside
+pnpm build
+cd -
 ```
+
+Then provision the local FHS runtime at `~/.pai`:
+
+```bash
+uv run paifs-init --no-setup
+```
+
+Re-run `paifs-init --no-setup` after source changes that affect runtime shims,
+installed docs, or the FHS layout.
+
+Start the local console through the provisioned shim, not `uv run pai start`;
+the shim uses `~/.pai/usr/lib/venv`, whose path includes registry-installed
+drivers and prompts:
+
+```bash
+pai start                  # web console at http://127.0.0.1:8787
+pai start --no-open        # don't open a browser
+pai start --port 9000      # custom port
+pai start --headless       # kernel only
+```
+
+If `pnpm install` reports ignored build scripts for `esbuild`, approve that one
+package and rerun the install:
+
+```bash
+pnpm approve-builds esbuild
+pnpm install
+```
+
+Run the Python tests with:
+
+```bash
+uv run python -m pytest
+```
+
+The suite expects the registry-backed packages installed by `paifs-init`; tests
+that import `drivers.*` will fail before the local runtime has been provisioned.
 
 Cut a release tarball with `pairelease` (needs `pnpm`, `git`, and `gh` for
 `--publish`).

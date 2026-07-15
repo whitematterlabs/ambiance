@@ -18,7 +18,7 @@ export function BuildBanner({ build }: { build: BuildStatus | null }) {
 
   if (state === "console_stale") {
     tone = "warn";
-    text = `This console is on an old build (${consoleVer}); the system is on ${current}. Restart it: \`pai start --web\`.`;
+    text = `This console is on an old build (${consoleVer}); the system is on ${current}. Restart it: \`pai start\`.`;
   } else if (escalated) {
     tone = "warn";
     text = `Kernel is stuck on an old build (${kernel ?? "?"}); auto-reboot didn't take. Run \`sbin/reboot\`.`;

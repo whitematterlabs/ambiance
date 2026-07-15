@@ -22,7 +22,7 @@ def make_handler(auth_token, path, headers=None):
 
 
 def test_no_token_allows_everything() -> None:
-    # Local unix-socket / dev `pai start --web`: auth_token is None → unchanged.
+    # Local unix-socket / dev `pai start`: auth_token is None → unchanged.
     for path in ("/", "/index.html", "/api/state", "/api/stream"):
         assert make_handler(None, path)._check_auth() is True
 

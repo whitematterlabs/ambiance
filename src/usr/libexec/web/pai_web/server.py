@@ -154,7 +154,7 @@ class Handler(BaseHTTPRequestHandler):
         """Whether this request may proceed.
 
         Only the remote TCP instance sets `server.auth_token` (via PAI.app's
-        `--auth-token`); the local unix-socket surface and dev `pai start --web`
+        `--auth-token`); the local unix-socket surface and dev `pai start`
         leave it `None` and stay unauthenticated. When a token is set, every
         `/api/*` route requires it — except `/api/health` (so the tunnel can be
         probed) and the static shell (so the page can load and then present the
@@ -536,7 +536,7 @@ class Handler(BaseHTTPRequestHandler):
             PAI_ROOT. Screenshots and downloads a PAI parks under `~/.pai`
             still render; nothing outside it is reachable.
           - Local owner surface (`auth_token is None` — unix socket, or dev
-            `pai start --web`) — the owner is viewing their own machine in
+            `pai start`) — the owner is viewing their own machine in
             their own browser, so `/api/asset` may reach anything under their
             home dir. That's where PAIs naturally reference files to show:
             `~/Downloads`, `~/Desktop`, screenshots outside `~/.pai`.
@@ -745,7 +745,7 @@ def run(
 ) -> None:
     """Attach to the running kernel and serve the web surface (blocking).
 
-    Called by `pai start --web` (TCP), by `python -m usr.libexec.web.pai_web`,
+    Called by `pai start` (TCP), by `python -m usr.libexec.web.pai_web`,
     and by PAI.app's WebServerLauncher (unix-socket mode). When `unix_socket`
     is set, `host`/`port`/`open_browser` are ignored.
 
