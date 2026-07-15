@@ -133,6 +133,18 @@ CAPABILITY_SPECS: dict[str, dict] = {
         "driver": "ax", "freeze": "control.freeze", "mounts": {"ax"},
         "default": "no", "modes": ("no", "yes"),
     },
+    # Shell execution is a *kernel* gate, not a driver freeze: `driver: None`
+    # means no freeze file is projected and the flag is relevant to every PAI
+    # regardless of mounted drivers (every PAI has the bash/shell tools).
+    # Enforcement lives in boot.bash_gate at the tool-dispatch boundary. In
+    # `ask` mode, commands matching the owner's `bash_allowlist:` prefix
+    # rules run directly; everything else blocks on the approval tray.
+    # Default `yes` — existing installs keep their behavior until the owner
+    # flips the sidebar toggle.
+    "bash_exec": {
+        "driver": None, "freeze": None, "mounts": None,
+        "default": "yes",
+    },
 }
 
 def _boilerplate_dir(config_path: Path) -> Path:
@@ -586,6 +598,46 @@ def set_capability_mode(flag: str, mode: str, path: Path | None = None) -> str:
     return mode
 
 
+def bash_allowlist(path: Path | None = None) -> list[str]:
+    """Owner prefix rules the bash gate consults in `ask` mode — top-level
+    `bash_allowlist:` list in config.yaml. Tolerant like capability_modes:
+    a missing/broken file or malformed list reads as empty (nothing
+    auto-allowed), never an error."""
+    p = path or CONFIG_PATH
+    try:
+        data = _load_yaml(p)
+    except ConfigError:
+        return []
+    rules = data.get("bash_allowlist") if isinstance(data, dict) else None
+    if not isinstance(rules, list):
+        return []
+    return [r.strip() for r in rules if isinstance(r, str) and r.strip()]
+
+
+def set_bash_allowlist(rules: list[str], path: Path | None = None) -> list[str]:
+    """Write the full `bash_allowlist:` list and return it (deduped, order
+    kept). Strict like set_capability_mode: a non-string or blank rule
+    raises. An empty list removes the key. Atomic (tmp + rename)."""
+    clean: list[str] = []
+    for r in rules:
+        if not isinstance(r, str) or not r.strip():
+            raise ValueError(f"allowlist rule must be a non-empty string: {r!r}")
+        r = r.strip()
+        if r not in clean:
+            clean.append(r)
+    p = path or CONFIG_PATH
+    data = _load_yaml(p) if p.exists() else {}
+    if clean:
+        data["bash_allowlist"] = clean
+    else:
+        data.pop("bash_allowlist", None)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.rename(p)
+    return clean
+
+
 def set_pai_model(name: str, provider: str, model: str, path: Path | None = None) -> dict[str, str]:
     """Write `provider:`/`model:` on one fleet entry and return them.
 
@@ -733,6 +785,10 @@ def project_capabilities(path: Path | None = None) -> None:
         pass
     modes = capability_modes(path)
     for flag, spec in CAPABILITY_SPECS.items():
+        if spec.get("driver") is None:
+            # Kernel-enforced gate (bash_exec) — no freeze file to project;
+            # boot.bash_gate reads the mode live at each tool dispatch.
+            continue
         mode = modes.get(flag, "no")
         freeze = paths.sys_drivers(spec["driver"]) / spec["freeze"]
         if mode == "yes":

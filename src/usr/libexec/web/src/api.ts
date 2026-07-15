@@ -166,6 +166,16 @@ export const setSendMode = (flag: string, mode: string) =>
     error?: string;
   }>;
 
+// Bash-gate allowlist: add/remove one prefix rule. The hub's etc/ watch
+// rebroadcasts send_capabilities (the bash row carries the list), so callers
+// update optimistically and let it reconcile.
+export const updateBashAllowlist = (change: { add?: string; remove?: string }) =>
+  post("/api/bash-allowlist", change) as Promise<{
+    ok: boolean;
+    allowlist?: string[];
+    error?: string;
+  }>;
+
 // ElevenLabs key management for the voice dropdown. The backend persists the
 // key into $PAI_ROOT/.env and only ever returns a masked hint (last 4 chars).
 export const elevenLabsKeyStatus = () =>

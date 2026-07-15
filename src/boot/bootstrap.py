@@ -749,6 +749,22 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
             "created an event."
         ),
     },
+    # Terse live-mode lines only — the gate mechanics live in boot.bash_gate.
+    # Enforced in the kernel at tool dispatch, so like computer_use this is
+    # honesty, not the gate itself.
+    "bash_exec": {
+        "yes": "Shell — UNRESTRICTED. bash/shell commands run directly.",
+        "ask": (
+            "Shell — APPROVAL GATED. Run commands normally; anything outside "
+            "the owner's allowlist pauses mid-turn until the owner approves it "
+            "in the console. A denial comes back as a tool error — respect it, "
+            "don't retry or route around it."
+        ),
+        "no": (
+            "Shell — DISABLED. Every bash/shell command is refused. Tell the "
+            "owner if their request needs one."
+        ),
+    },
     # Two-state (no/yes). Enforced in the `ax` sidecar (axd), so this line is
     # honesty, not the gate — the sidecar refuses actuation regardless of what
     # the PAI believes. Never try to route around a frozen send by driving the
@@ -780,10 +796,10 @@ def _capabilities_block(pai: int) -> str:
     """State this PAI's owner-granted send capabilities for the channels it can
     reach. Derived from the same `capabilities:` flags that gate the drivers, so
     the PAI is never told it can send when the kernel froze sends (or vice
-    versa). Omitted entirely for PAIs that mount no channel driver."""
+    versa). Driver-backed flags only render for PAIs that mount the channel;
+    kernel-enforced flags (`driver: None`, e.g. bash_exec) apply to every
+    PAI — so the block never comes up fully empty."""
     _, mounted = _mounted_for_pai(pai)
-    if not mounted:
-        return ""
     try:
         from . import config
         modes = config.capability_modes()
@@ -792,7 +808,9 @@ def _capabilities_block(pai: int) -> str:
         return ""
     lines: list[str] = []
     for flag, spec in specs.items():
-        if not (spec.get("mounts") or set()) & mounted:
+        if spec.get("driver") is not None and not (
+            (spec.get("mounts") or set()) & mounted
+        ):
             continue
         line = _CAPABILITY_LINES.get(flag, {}).get(modes.get(flag, "no"))
         if line:

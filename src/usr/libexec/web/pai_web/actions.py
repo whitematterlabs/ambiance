@@ -911,6 +911,11 @@ def list_pending() -> list[dict]:
         elif rec.get("channel") in ("imessage", "whatsapp"):
             recipient = action.get("thread") or ""
             body = action.get("text") or ""
+        elif rec.get("channel") == "bash":
+            # Kernel-gated shell command: `body` is the command itself (the
+            # modal's editable field), staged by boot.bash_gate which is
+            # inline-awaiting this record's status flip.
+            body = action.get("command") or ""
         out.append(
             {
                 "id": rec.get("id") or path.stem,
@@ -945,7 +950,12 @@ def _decide(ident: str, status: str, *, error: str | None = None, body_override:
         return {"id": ident, "status": rec.get("status"), "error": "not pending"}
     if body_override is not None:
         action = rec.get("action") or {}
-        key = "text" if rec.get("channel") in ("imessage", "whatsapp") else "content"
+        if rec.get("channel") == "bash":
+            key = "command"
+        elif rec.get("channel") in ("imessage", "whatsapp"):
+            key = "text"
+        else:
+            key = "content"
         action[key] = body_override
         rec["action"] = action
     rec["status"] = status
@@ -988,6 +998,7 @@ SEND_CHANNEL_LABELS = {
     "notetaker": "Notetaker",
     "calendar_write": "Calendar",
     "computer_use": "Computer use",
+    "bash_exec": "Shell commands",
 }
 
 
@@ -1022,16 +1033,23 @@ def list_send_capabilities() -> list[dict]:
     modes = config.capability_modes()
     out: list[dict] = []
     for flag, spec in config.CAPABILITY_SPECS.items():
-        if not (spec.get("mounts") or set()) & mounted:
+        # Kernel-enforced gates (`driver: None`, e.g. bash_exec) are relevant
+        # to every PAI — always shown. Driver gates need a mounted channel.
+        if spec.get("driver") is not None and not (
+            (spec.get("mounts") or set()) & mounted
+        ):
             continue
-        out.append(
-            {
-                "flag": flag,
-                "channel": SEND_CHANNEL_LABELS.get(flag, flag),
-                "mode": modes.get(flag, "no"),
-                "modes": list(spec.get("modes", config.CAPABILITY_MODES)),
-            }
-        )
+        row = {
+            "flag": flag,
+            "channel": SEND_CHANNEL_LABELS.get(flag, flag),
+            "mode": modes.get(flag, "no"),
+            "modes": list(spec.get("modes", config.CAPABILITY_MODES)),
+        }
+        if flag == "bash_exec":
+            # The sidebar's allowlist editor rides along on this row; the
+            # hub's etc/ watch rebroadcasts it whenever config.yaml changes.
+            row["allowlist"] = config.bash_allowlist()
+        out.append(row)
     return out
 
 
@@ -1060,6 +1078,26 @@ def set_send_mode(flag: str, mode: str) -> dict:
         }
     )
     return {"flag": flag, "mode": updated}
+
+
+def bash_allowlist_update(add: str | None = None, remove: str | None = None) -> dict:
+    """Add and/or remove one bash-allowlist prefix rule, returning the full
+    updated list. No kernel reload needed: the gate reads config.yaml live
+    per command, and the hub's etc/ watch rebroadcasts send_capabilities
+    (whose bash row carries the list) to every console."""
+    with _send_mode_lock:
+        rules = config.bash_allowlist()
+        if remove is not None:
+            target = remove.strip()
+            rules = [r for r in rules if r != target]
+        if add is not None:
+            rule = add.strip()
+            if not rule:
+                raise ValueError("allowlist rule must be non-empty")
+            if rule not in rules:
+                rules.append(rule)
+        updated = config.set_bash_allowlist(rules)
+    return {"allowlist": updated}
 
 
 def run_shell(pid: int, cmd: str) -> dict:

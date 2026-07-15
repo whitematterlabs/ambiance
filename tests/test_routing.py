@@ -422,9 +422,14 @@ def test_capabilities_block_denied_is_drafts_only(monkeypatch: pytest.MonkeyPatc
     assert "Email — DRAFTS ONLY" in out
 
 
-def test_capabilities_block_empty_without_channel_drivers(
+def test_capabilities_block_without_channel_drivers_has_only_kernel_gates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A PAI that mounts no channel driver (e.g. root) gets no block at all.
+    # A PAI that mounts no channel driver (e.g. root) gets no channel lines —
+    # but kernel-enforced gates (bash_exec, `driver: None`) apply to every
+    # PAI, so the block still renders with exactly those.
     monkeypatch.setattr(bootstrap, "_mounted_for_pai", lambda pai: ("root", set()))
-    assert bootstrap._capabilities_block(1) == ""
+    block = bootstrap._capabilities_block(1)
+    assert "Shell —" in block
+    for channel in ("Email", "iMessage", "WhatsApp", "Slack", "Cowork", "Notetaker", "Calendar", "Computer use"):
+        assert channel not in block

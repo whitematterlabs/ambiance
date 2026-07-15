@@ -23,6 +23,7 @@ from pathlib import Path
 
 import yaml
 
+from . import bash_gate
 from . import config as C
 from . import doc_watcher
 from . import driver_health
@@ -1358,6 +1359,16 @@ async def run() -> None:
     # now phase 4 and runs before this function is invoked.
     M = _messages_driver()
     _contacts_driver().sync(M.PEOPLE_DIR, M.MESSAGES_DIR)
+    # Pending bash approvals from a previous kernel life have no coroutine
+    # awaiting them anymore — expire them so the console tray doesn't show
+    # ghosts nobody can satisfy.
+    stale_gates = bash_gate.sweep_stale()
+    if stale_gates:
+        print(
+            f"[kernel] bash gate: expired {stale_gates} stale pending "
+            "approval(s) from a previous run",
+            flush=True,
+        )
     heap = T.rebuild_from_proc()
     global _timer_heap
     _timer_heap = heap

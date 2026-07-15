@@ -80,6 +80,10 @@ export interface SendCapability {
   channel: string;
   mode: SendMode;
   modes?: SendMode[];
+  // bash_exec only: the owner's prefix rules consulted by the kernel gate in
+  // `ask` mode. Rides on the row so the etc/ watch rebroadcast keeps the
+  // sidebar editor in step with config.yaml.
+  allowlist?: string[];
 }
 
 // One kernel-supervised driver process and its health classification, as

@@ -305,6 +305,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(
                     {"ok": True, **actions.reject_action(str(body["id"]), str(body.get("reason", "")))}
                 )
+            if path == "/api/bash-allowlist":
+                # Add/remove a bash-gate prefix rule. The hub's etc/ watch
+                # rebroadcasts send_capabilities (the bash row carries the
+                # list), so no state push here.
+                add = body.get("add")
+                remove = body.get("remove")
+                result = actions.bash_allowlist_update(
+                    add=str(add) if add is not None else None,
+                    remove=str(remove) if remove is not None else None,
+                )
+                return self._json({"ok": True, **result})
             if path == "/api/send-mode":
                 # Persist a tri-state send mode; the hub's etc/ watch rebroadcasts
                 # the updated send_capabilities, so we don't push state here.

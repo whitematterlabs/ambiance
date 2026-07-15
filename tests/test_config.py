@@ -587,7 +587,7 @@ pais:
         "slack_send": False,
         "cowork_window": True, "cowork_clipboard": True,
         "cowork_files": True, "notetaker": False, "calendar_write": False,
-        "computer_use": False,
+        "computer_use": False, "bash_exec": True,
     }
 
 
@@ -599,7 +599,7 @@ def test_capability_flags_missing_file_is_deny(repo_root):
         "slack_send": False,
         "cowork_window": False, "cowork_clipboard": False,
         "cowork_files": False, "notetaker": False, "calendar_write": False,
-        "computer_use": False,
+        "computer_use": False, "bash_exec": False,
     }
 
 
@@ -721,7 +721,7 @@ pais:
         "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
         "cowork_files": "yes", "notetaker": "no", "calendar_write": "no",
-        "computer_use": "no",
+        "computer_use": "no", "bash_exec": "yes",
     }
 
 
@@ -744,7 +744,7 @@ pais:
         "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
         "cowork_files": "yes", "notetaker": "no", "calendar_write": "no",
-        "computer_use": "no",
+        "computer_use": "no", "bash_exec": "yes",
     }
 
 
@@ -766,7 +766,7 @@ pais:
         "slack_send": "no",
         "cowork_window": "yes", "cowork_clipboard": "yes",
         "cowork_files": "yes", "notetaker": "no", "calendar_write": "no",
-        "computer_use": "no",
+        "computer_use": "no", "bash_exec": "yes",
     }
 
 
@@ -790,7 +790,7 @@ pais:
         "slack_send": False,
         "cowork_window": True, "cowork_clipboard": True,
         "cowork_files": True, "notetaker": False, "calendar_write": False,
-        "computer_use": False,
+        "computer_use": False, "bash_exec": True,
     }
 
 

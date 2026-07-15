@@ -23,7 +23,7 @@ from anthropic import AsyncAnthropic
 
 from . import tokens
 
-from . import bash_tool, edit_tool, inject, noop_tool, read_tool, shell_tool, stitch, truncate, write_tool
+from . import bash_gate, bash_tool, edit_tool, inject, noop_tool, read_tool, shell_tool, stitch, truncate, write_tool
 from .image_refs import expand_image_refs
 from . import paths as paths_mod
 from .paths import HOME_DIR
@@ -465,8 +465,24 @@ async def _loop(
                 command = use.input.get("command", "")
                 print(f"[pai:{pai_slug}] $ {command}", flush=True)
                 _status(f"bash: {command}"[:120])
+                gate = await bash_gate.clear(
+                    command, pai_slug=pai_slug, tool="bash", notify=_status
+                )
+                if not gate.allowed:
+                    print(f"[pai:{pai_slug}] gate: {gate.note}", flush=True)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": use.id,
+                        "content": f"[pai] {gate.note}",
+                        "is_error": True,
+                    })
+                    continue
+                if gate.command != command:
+                    use.input = {**use.input, "command": gate.command}
                 result = await bash_tool.run(use.input, env=env)
                 rendered = result.render()
+                if gate.note:
+                    rendered = f"[pai] {gate.note}\n{rendered}"
                 print(rendered, flush=True)
                 # Model-bound copy: last 2000 lines / 50KB, full text spilled
                 # to a PAI-addressable /tmp file. The full `rendered` above
@@ -486,6 +502,7 @@ async def _loop(
                 })
             elif use.name == shell_tool.TOOL_NAME:
                 pai_slug = (env or {}).get("PAI_SLUG") or "?"
+                gate_note = None
                 if use.input.get("keys"):
                     keys_repr = use.input["keys"]
                     print(f"[pai:{pai_slug}] [keys] {keys_repr}", flush=True)
@@ -494,8 +511,27 @@ async def _loop(
                     command = use.input.get("command", "")
                     print(f"[pai:{pai_slug}] $ {command}", flush=True)
                     _status(f"shell: {command}"[:120])
+                    # Gate command-mode only: `keys` is raw input to a
+                    # foreground program the owner already saw approved.
+                    gate = await bash_gate.clear(
+                        command, pai_slug=pai_slug, tool="shell", notify=_status
+                    )
+                    if not gate.allowed:
+                        print(f"[pai:{pai_slug}] gate: {gate.note}", flush=True)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": use.id,
+                            "content": f"[pai] {gate.note}",
+                            "is_error": True,
+                        })
+                        continue
+                    if gate.command != command:
+                        use.input = {**use.input, "command": gate.command}
+                    gate_note = gate.note
                 result = await shell_tool.run(use.input, env=env)
                 rendered = result.render()
+                if gate_note:
+                    rendered = f"[pai] {gate_note}\n{rendered}"
                 print(rendered, flush=True)
                 tool_results.append({
                     "type": "tool_result",
