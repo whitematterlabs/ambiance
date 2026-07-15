@@ -964,6 +964,21 @@ export function App() {
     }
   }, [kernel.running, refreshKernel]);
 
+  // "+" on the tab bar: new dashboard. Dashboards are root-authored (the
+  // make-dashboards skill), so maximize root's chat — Chat view front and
+  // center, root's tab focused — and seed the composer with the ask. The normal
+  // send path delivers to pid 1 and wakes root even if it has no tab yet (same
+  // contract as setup-remote); pendingFocusPid re-focuses it when the tab
+  // appears in that case.
+  const handleNewDashboard = useCallback(() => {
+    setMainView("chat");
+    const rootPid = 1;
+    pendingFocusPid.current = fleetRef.current.some((m) => m.pid === rootPid) ? null : rootPid;
+    setActivePid(rootPid);
+    setComposerDraft({ text: "create a dashboard for me: ", nonce: Date.now() });
+    setStatus("dashboard: describe what you want, then send");
+  }, []);
+
   // If the active dashboard was deleted (its tab is gone), fall back to Chat so
   // the pane never points at a slug with no tab.
   useEffect(() => {
@@ -1202,7 +1217,12 @@ export function App() {
           </div>
         </aside>
         <section className="chat-col">
-          <MainTabs view={mainView} onChange={setMainView} dashboards={dashboards} />
+          <MainTabs
+            view={mainView}
+            onChange={setMainView}
+            dashboards={dashboards}
+            onNewDashboard={handleNewDashboard}
+          />
           {mainView === "scheduled" ? (
             <ScheduledView
               tasks={scheduled}

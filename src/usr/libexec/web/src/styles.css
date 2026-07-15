@@ -1652,6 +1652,15 @@ button {
   box-shadow: var(--shadow-soft);
 }
 
+/* "+" appended after the last tab: new-dashboard affordance. Icon-only and
+   square-ish, same quiet-until-hover language as an inactive tab. */
+.main-tab-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+}
+
 /* ---------- Dashboard view (PAI-authored, sandboxed iframe) ---------- */
 /* Reuses the .conversation card chrome; the body is the sandboxed frame filling
    the pane. The frame is opaque-origin (sandbox="allow-scripts") — the console

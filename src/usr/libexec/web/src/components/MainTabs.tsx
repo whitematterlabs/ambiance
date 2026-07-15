@@ -5,6 +5,8 @@
 // the fixed "chat"/"scheduled" ids). The bar scrolls horizontally when the
 // dashboards overflow.
 
+import { Plus } from "lucide-react";
+
 import type { DashboardMeta } from "../types";
 
 export type MainView = "chat" | "scheduled" | `dash:${string}`;
@@ -22,10 +24,12 @@ export function MainTabs({
   view,
   onChange,
   dashboards,
+  onNewDashboard,
 }: {
   view: MainView;
   onChange: (v: MainView) => void;
   dashboards: DashboardMeta[];
+  onNewDashboard: () => void;
 }) {
   const tabs: { id: MainView; label: string }[] = [
     ...BASE_TABS,
@@ -45,6 +49,17 @@ export function MainTabs({
           {t.label}
         </button>
       ))}
+      {/* "+" = new dashboard. Dashboards are PAI-authored, so the button doesn't
+          open an editor — it hands the ask to root's chat (see App). */}
+      <button
+        type="button"
+        className="main-tab main-tab-add"
+        onClick={onNewDashboard}
+        title="New dashboard — ask root to create one"
+        aria-label="New dashboard"
+      >
+        <Plus size={15} aria-hidden="true" />
+      </button>
     </div>
   );
 }
