@@ -2940,6 +2940,16 @@ button {
     background 0.2s var(--ease);
 }
 
+/* Beta/privacy notice pinned under the composer. */
+.chat-disclaimer {
+  margin: -8px 16px 10px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  flex: 0 0 auto;
+}
+
 .composer-row {
   display: flex;
   align-items: flex-end;

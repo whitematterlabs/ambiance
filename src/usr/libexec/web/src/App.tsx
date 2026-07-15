@@ -1358,6 +1358,10 @@ export function App() {
               ctxTokens={activeProc?.ctx_tokens ?? 0}
               ctxLimit={activeProc?.ctx_limit ?? 0}
             />
+            <p className="chat-disclaimer">
+              Ambiance is in beta, and the LLM can make mistakes. We do not collect any sort
+              of data from you.
+            </p>
           </section>
           )}
         </section>
