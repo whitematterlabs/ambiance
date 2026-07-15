@@ -238,6 +238,40 @@ def test_sweep_stale_expires_only_pending_bash(gate_env: Path) -> None:
     assert yaml.safe_load(done.read_text())["status"] == "approved"
 
 
+def test_gate_survives_competing_watch_on_queue_dir(gate_env: Path, cfg: Path) -> None:
+    """The approvals driver watches var/spool/approvals in the same process;
+    macOS FSEvents allows one watch per exact path, so the gate must not
+    claim that same path (and must resolve even if its watcher dies).
+    Regression for the live 2026-07-15 incident: gate observer emitter died
+    with 'Cannot add watch … already scheduled' and approvals hung to the
+    10-minute deadline."""
+    _set_mode(cfg, "ask")
+    from watchdog.observers import Observer
+
+    queue = paths.var_spool_approvals()
+    queue.mkdir(parents=True, exist_ok=True)
+    competitor = Observer()
+    competitor.daemon = True
+    competitor.schedule(type("H", (), {"dispatch": lambda self, e: None})(), str(queue), recursive=False)
+    competitor.start()
+    try:
+
+        async def scenario():
+            task = asyncio.ensure_future(bash_gate.clear("rm x", pai_slug="pai"))
+
+            def approve(rec: dict) -> None:
+                rec["status"] = "approved"
+
+            await _decide_when_staged(approve)
+            # Must resolve well before the decision deadline (2s backstop).
+            return await asyncio.wait_for(task, timeout=5)
+
+        d = asyncio.run(scenario())
+        assert d.allowed
+    finally:
+        competitor.stop()
+
+
 # --- web surface glue -------------------------------------------------------
 
 

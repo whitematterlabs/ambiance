@@ -126,12 +126,24 @@ def _ensure_observer(loop: asyncio.AbstractEventLoop) -> None:
             except RuntimeError:
                 pass  # loop already closed (shutdown/re-init) — nothing to wake
 
+    # Watch the PARENT (var/spool, recursive), not the queue dir itself: the
+    # approvals driver runs in this same process and already watches
+    # var/spool/approvals, and macOS FSEvents allows one watch per exact path
+    # per process — a second one kills the emitter thread ("Cannot add watch
+    # … already scheduled") and the gate goes blind. A different path key
+    # sidesteps the collision; child events still propagate.
     queue = paths.var_spool_approvals()
     queue.mkdir(parents=True, exist_ok=True)
-    obs = Observer()
-    obs.daemon = True  # never block a kernel exit/re-exec
-    obs.schedule(_Handler(), str(queue), recursive=False)
-    obs.start()
+    try:
+        obs = Observer()
+        obs.daemon = True  # never block a kernel exit/re-exec
+        obs.schedule(_Handler(), str(queue.parent), recursive=True)
+        obs.start()
+    except Exception as e:  # noqa: BLE001 — degrade to the re-read backstop
+        print(f"[gate] spool watch unavailable ({e!r}); relying on re-reads", flush=True)
+        _observer = None
+        _observer_loop = loop
+        return
     _observer = obs
     _observer_loop = loop
 
@@ -160,8 +172,13 @@ async def _await_decision(path: Path) -> dict:
                 _atomic_dump(path, rec)
                 return rec
             ev.clear()
+            # The watch gives instant wakes; the 2s slice is a backstop — an
+            # FSEvents emitter can die silently (thread exception) and there
+            # is no cheap way to detect it. Re-reading one YAML every 2s,
+            # bounded to the window where a human decision is pending, keeps
+            # the gate correct under every watcher pathology.
             try:
-                await asyncio.wait_for(ev.wait(), timeout=remaining)
+                await asyncio.wait_for(ev.wait(), timeout=min(remaining, 2.0))
             except asyncio.TimeoutError:
                 pass
     except asyncio.CancelledError:
