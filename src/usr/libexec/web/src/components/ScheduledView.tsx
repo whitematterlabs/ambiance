@@ -68,6 +68,11 @@ export function ScheduledView({
                       </span>
                       <span className="scheduled-label">{t.label}</span>
                       {t.pai && <span className="scheduled-pai">→ {t.pai}</span>}
+                      {t.source === "pai" && (
+                        <span className="scheduled-source" title={`Scheduled via paicron (${t.slug})`}>
+                          paicron
+                        </span>
+                      )}
                     </div>
                     {t.instruction && (
                       <p className="scheduled-instruction">{t.instruction}</p>
@@ -81,11 +86,13 @@ export function ScheduledView({
                       className="head-action"
                       type="button"
                       onClick={() => onEdit(t)}
-                      disabled={deleting || t.repeat === "custom"}
+                      disabled={deleting || t.repeat === "custom" || t.source === "pai"}
                       title={
-                        t.repeat === "custom"
-                          ? "This task uses a custom schedule and can't be edited here"
-                          : "Edit this task"
+                        t.source === "pai"
+                          ? "Scheduled by a PAI via paicron — delete it, or ask the PAI to change it"
+                          : t.repeat === "custom"
+                            ? "This task uses a custom schedule and can't be edited here"
+                            : "Edit this task"
                       }
                     >
                       Edit

@@ -1767,6 +1767,19 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* PAI-created paicron jobs (delete-only) get a small chip so the owner can
+   tell them apart from tasks they created in the console. */
+.scheduled-source {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
 .scheduled-instruction {
   margin: 6px 0 0;
   font-size: 13px;

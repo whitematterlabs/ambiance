@@ -118,6 +118,8 @@ export interface ScheduledTask {
   slug: string;
   pai: string;
   parent: number | null;
+  /** "owner" = created in the console (editable); "pai" = scheduled via paicron by a PAI/driver (delete-only). */
+  source: "owner" | "pai";
   instruction: string;
   schedule: string;
   repeat: ScheduleRepeat;

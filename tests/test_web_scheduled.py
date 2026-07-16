@@ -1,10 +1,11 @@
 """Scheduled-tasks CRUD on the web surface.
 
 A scheduled task is a paicron proc — no new store. These cover the three
-actions the console calls: `add_scheduled` writes a filtered-in `owner-task`
-spec (schedule/description/parent, no run), `list_scheduled` returns it with the
-target PAI's slug resolved and never surfaces non-owner crons, and
-`remove_scheduled` flips status so it drops out.
+actions the console calls: `add_scheduled` writes an `owner-task` spec
+(schedule/description/parent, no run), `list_scheduled` returns every live
+`schedule:` proc — owner tasks (`source: owner`, editable) and PAI/driver
+paicron crons (`source: pai`, delete-only) — with the target PAI's slug
+resolved, and `remove_scheduled` flips status so it drops out.
 """
 
 from __future__ import annotations
@@ -59,16 +60,40 @@ def test_add_scheduled_rejects_past_oneshot(fleet):
         )
 
 
-def test_list_scheduled_returns_owner_tasks_only(fleet):
+def test_list_scheduled_includes_pai_crons(fleet):
     actions.add_scheduled("assistant", "daily", "09:00", instruction="owner job")
-    # A PAI-internal cron (not base `owner-task`) and the PAI proc itself must
-    # never appear in the panel.
+    # A PAI-scheduled paicron cron shows up too, tagged `source: pai` — but the
+    # PAI fleet proc itself (no `schedule:`) never appears.
     P.spawn("reminder-2026-01-01", {"schedule": "0 3 * * *", "parent": 5})
 
     rows = actions.list_scheduled()
+    assert len(rows) == 2
+    by_source = {r["source"]: r for r in rows}
+    assert by_source["owner"]["instruction"] == "owner job"
+    assert by_source["pai"]["slug"] == "reminder-2026-01-01"
+    assert by_source["pai"]["pai"] == "assistant"
+
+
+def test_list_scheduled_run_cron_shows_command_as_instruction(fleet):
+    # A `run:` cron with no description surfaces its command so the row isn't blank.
+    P.spawn("agenda-2026-01-01", {"schedule": "*/15 * * * *", "run": "python3 gen.py", "parent": 5})
+
+    rows = actions.list_scheduled()
     assert len(rows) == 1
-    assert rows[0]["pai"] == "assistant"
-    assert rows[0]["instruction"] == "owner job"
+    assert rows[0]["source"] == "pai"
+    assert rows[0]["instruction"] == "python3 gen.py"
+    assert rows[0]["repeat"] == "custom"
+
+
+def test_update_scheduled_rejects_pai_cron(fleet):
+    P.spawn("reminder-2026-01-01", {"schedule": "0 3 * * *", "parent": 5})
+
+    with pytest.raises(ValueError):
+        actions.update_scheduled(
+            "reminder-2026-01-01", "assistant", "daily", "09:00", instruction="hijack"
+        )
+    # The guard fires before the cancel — the PAI's cron is untouched.
+    assert P.read_status("reminder-2026-01-01") == "scheduled"
 
 
 def test_remove_scheduled_drops_from_list(fleet):

@@ -1138,14 +1138,17 @@ def run_shell(pid: int, cmd: str) -> dict:
     return {"lines": lines, "rc": rc, "ctx_applied": ctx_applied}
 
 
-# --- scheduled tasks: owner-editable paicron jobs (web surface) -------------
+# --- scheduled tasks: paicron jobs on the web surface ------------------------
 #
-# A scheduled task *is* a paicron service — no new datastore. It's a proc with
-# `schedule:` (cron or ISO one-shot), `description:` (the instruction the PAI
-# reads on fire), and `parent:` (the target PAI's invariant pid); crucially NO
-# `run:`, so on fire the kernel routes it to a PAI nudge rather than a
-# subprocess. Owner tasks carry the base slug `owner-task`, which is how the
-# panel shows *only* owner schedules and never driver/system/boot-hook crons.
+# A scheduled task *is* a paicron service — no new datastore: any live proc
+# with a `schedule:` (cron or ISO one-shot). The panel shows them all, split by
+# `source`:
+#   - "owner"  — created here; base slug `owner-task`, `description:` +
+#     `parent:` and crucially NO `run:`, so on fire the kernel routes it to a
+#     PAI nudge rather than a subprocess. Fully editable via the presets.
+#   - "pai"    — anything a PAI (or driver/boot hook) scheduled via paicron.
+#     Shown and deletable, but not editable here: the preset editor would
+#     recreate it as an owner-task and drop fields it doesn't model (`run:`).
 #
 # CRUD goes through `boot.processes` directly (the same substrate paicron
 # itself uses): writing a spec via `P.spawn` and cancelling via `P.resolve`
@@ -1156,12 +1159,21 @@ def run_shell(pid: int, cmd: str) -> dict:
 OWNER_TASK_BASE = "owner-task"
 
 
+def _is_owner_task(slug: str, spec: dict) -> bool:
+    """An owner-created task: base slug `owner-task` and no `run:` (the absence
+    of `run` is what makes the fire a PAI nudge rather than a subprocess)."""
+    from bin import paicron
+
+    return "run" not in spec and paicron._base_from_slug(slug) == OWNER_TASK_BASE
+
+
 def _scheduled_row(slug: str, spec: dict) -> dict:
-    """Project one owner-task spec into a typed row for the console.
+    """Project one scheduled proc's spec into a typed row for the console.
 
     Resolves the invariant `parent` pid to the target PAI's slug and folds in
     the structured schedule fields + human label + next fire from
-    `schedule.describe_schedule`.
+    `schedule.describe_schedule`. PAI-created jobs may have no `description:`;
+    their `run:` command doubles as the shown instruction.
     """
     from boot import processes as P
     from . import schedule as sched
@@ -1177,29 +1189,21 @@ def _scheduled_row(slug: str, spec: dict) -> dict:
         "slug": slug,
         "pai": pai_name,
         "parent": parent if isinstance(parent, int) else None,
-        "instruction": str(spec.get("description", "")),
+        "source": "owner" if _is_owner_task(slug, spec) else "pai",
+        "instruction": str(spec.get("description", "") or spec.get("run", "")),
         "schedule": str(spec.get("schedule", "")),
         **sched.describe_schedule(spec.get("schedule", "")),
     }
 
 
-def _is_owner_task(slug: str, status: str, spec: dict) -> bool:
-    """The panel filter: an active, run-less `schedule:` proc named `owner-task`.
-
-    `run` absent is what makes the fire a PAI nudge rather than a subprocess;
-    the `owner-task` base slug is what keeps PAI-internal reminders and
-    driver/boot-hook crons out of the panel."""
-    from bin import paicron
-
-    if status not in ("scheduled", "running"):
-        return False
-    if "schedule" not in spec or "run" in spec:
-        return False
-    return paicron._base_from_slug(slug) == OWNER_TASK_BASE
+def _is_scheduled_job(status: str, spec: dict) -> bool:
+    """The panel filter: any live proc with a `schedule:` — owner tasks and
+    PAI/driver paicron crons alike. Resolved/cancelled procs stay out."""
+    return status in ("scheduled", "running") and "schedule" in spec
 
 
 def list_scheduled() -> list[dict]:
-    """Every owner scheduled task, as typed rows sorted by next fire."""
+    """Every live scheduled job, as typed rows sorted by next fire."""
     from boot import processes as P
 
     out: list[dict] = []
@@ -1209,7 +1213,7 @@ def list_scheduled() -> list[dict]:
             spec = P.read_spec(slug)
         except P.ProcessNotFound:
             continue
-        if not _is_owner_task(slug, status, spec):
+        if not _is_scheduled_job(status, spec):
             continue
         out.append(_scheduled_row(slug, spec))
     # next_fire is a local ISO string (sortable); tasks with no next fire sort last.
@@ -1273,8 +1277,19 @@ def update_scheduled(
     spawn yields a new slug the SSE reconciles. Cancel first so a validation
     error in the rebuild doesn't leave two live copies; if the rebuild fails,
     the old task is simply gone (the owner re-enters it), never duplicated.
+
+    Only owner tasks are editable: rebuilding a PAI-created paicron job would
+    rename it to an owner-task slug and drop `run:` — the frontend disables
+    Edit on those, this guard backs it up.
     """
     from boot import processes as P
+
+    try:
+        spec = P.read_spec(slug)
+    except P.ProcessNotFound:
+        spec = {}
+    if spec and not _is_owner_task(slug, spec):
+        raise ValueError("only owner-created tasks can be edited here — delete it or ask the PAI")
 
     try:
         P.resolve(slug, "cancelled")
