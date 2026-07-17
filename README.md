@@ -25,8 +25,8 @@ curl -fsSL https://raw.githubusercontent.com/whitematterlabs/ambiance/main/insta
 
 Piping curl into sh deserves suspicion — [read install.sh](install.sh) first.
 It provisions the runtime at `~/.pai`, asks for a model provider key
-(Anthropic, OpenAI, DeepSeek, or z.ai), and offers an interactive capability
-picker. Then:
+(Anthropic, OpenAI, DeepSeek, z.ai, or Google Gemini), and offers an
+interactive capability picker. Then:
 
 ```bash
 pai start          # terminal UI
@@ -80,7 +80,7 @@ Ready today:
 - Python kernel, terminal TUI, and React/Vite local web console
 - Registry-installed drivers, skills, tools, prompts, and PAI bundles
 - API-key model providers: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-  `DEEPSEEK_API_KEY`, or `ZAI_API_KEY`
+  `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, or `GEMINI_API_KEY`
 
 Not ready yet:
 

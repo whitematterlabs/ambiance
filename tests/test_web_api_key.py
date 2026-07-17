@@ -18,6 +18,7 @@ from usr.libexec.web.pai_web import actions
 def env_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(actions.paths, "PAI_ROOT", tmp_path)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     return tmp_path
 
 
@@ -39,6 +40,16 @@ def test_set_api_key_persists_and_reloads(env_root: Path, events: list[dict]) ->
     assert events[0]["kind"] == "kernel:reload_config"
     assert events[0]["provider"] == "openrouter"
     assert "key" not in events[0]  # the secret never rides an event file
+
+
+def test_set_gemini_api_key_persists_to_gemini_env(env_root: Path, events: list[dict]) -> None:
+    out = actions.set_api_key("gemini", "  gemini-test-key  ")
+    assert out == {"provider": "gemini", "key_status": "found"}
+    assert os.environ["GEMINI_API_KEY"] == "gemini-test-key"
+    assert "GEMINI_API_KEY" in (env_root / ".env").read_text()
+    assert "gemini-test-key" in (env_root / ".env").read_text()
+    assert events[0]["provider"] == "gemini"
+    assert "key" not in events[0]
 
 
 def test_set_api_key_unknown_provider(env_root: Path, events: list[dict]) -> None:

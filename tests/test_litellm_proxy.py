@@ -94,10 +94,29 @@ def test_write_config_emits_openrouter_row(monkeypatch, tmp_path):
     assert rows["openrouter/*"]["api_key"] == "os.environ/OPENROUTER_API_KEY"
 
 
+def test_write_config_emits_gemini_row(monkeypatch, tmp_path):
+    monkeypatch.setattr(paths, "PAI_ROOT", tmp_path)
+    monkeypatch.setattr(lp.C, "load_config", lambda: {"pai": {"provider": "gemini", "model": "gemini-3.1-pro-preview"}})
+    cfg_path = lp._write_config()
+    cfg = yaml.safe_load(cfg_path.read_text())
+    rows = {r["model_name"]: r["litellm_params"] for r in cfg["model_list"]}
+    assert "gemini/*" in rows
+    assert rows["gemini/*"]["model"] == "gemini/*"
+    assert rows["gemini/*"]["api_key"] == "os.environ/GEMINI_API_KEY"
+
+
 def test_fleet_needs_proxy_openrouter_member(monkeypatch):
     monkeypatch.setattr(
         lp.C, "load_config",
         lambda: {"pai": {"provider": "openrouter", "model": "moonshotai/kimi-k2:free"}},
+    )
+    assert lp.fleet_needs_proxy() is True
+
+
+def test_fleet_needs_proxy_gemini_member(monkeypatch):
+    monkeypatch.setattr(
+        lp.C, "load_config",
+        lambda: {"pai": {"provider": "gemini", "model": "gemini-3.1-pro-preview"}},
     )
     assert lp.fleet_needs_proxy() is True
 
