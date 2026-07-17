@@ -616,9 +616,16 @@ def ensure_venv(root: Path) -> Path:
         )
     deps = _load_pyproject().get("project", {}).get("dependencies", [])
     if deps:
+        env = os.environ.copy()
+        if sys.version_info[:2] >= (3, 14):
+            # Some transitive Rust extensions still pin PyO3 releases that
+            # predate Python 3.14. The stable ABI path is enough for our
+            # runtime deps and keeps the documented paifs-init command working.
+            env.setdefault("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "1")
         subprocess.run(
             ["uv", "pip", "install", "--python", str(py), *deps],
             check=True,
+            env=env,
         )
     return venv_dir
 

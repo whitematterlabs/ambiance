@@ -72,6 +72,34 @@ def test_ensure_venv_rebuilds_existing_wrong_python(
     assert py.read_text() == "# rebuilt python\n"
 
 
+def test_ensure_venv_sets_pyo3_forward_compat_on_python_314(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "pai"
+    py = root / "usr" / "lib" / "venv" / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text("# fhs python\n")
+    install_envs: list[dict[str, str]] = []
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        if cmd[:4] == ["uv", "pip", "install", "--python"]:
+            install_envs.append(kwargs["env"])
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(paifs_init.sys, "version_info", (3, 14, 0))
+    monkeypatch.setattr(paifs_init, "_python_major_minor", lambda _py: (3, 14))
+    monkeypatch.setattr(
+        paifs_init,
+        "_load_pyproject",
+        lambda: {"project": {"dependencies": ["litellm[proxy]>=1.0"]}},
+    )
+    monkeypatch.setattr(paifs_init.subprocess, "run", fake_run)
+
+    assert paifs_init.ensure_venv(root) == root / "usr" / "lib" / "venv"
+    assert install_envs
+    assert install_envs[0]["PYO3_USE_ABI3_FORWARD_COMPATIBILITY"] == "1"
+
+
 def test_install_bin_shims_installs_calendar_tool(tmp_path: Path) -> None:
     root = tmp_path / "pai"
     venv_dir = root / "usr" / "lib" / "venv"

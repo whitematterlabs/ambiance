@@ -1,6 +1,6 @@
 # PAI web surface
 
-A browser operator console for PAI, matching the Textual TUI feature-for-feature.
+A browser operator console for PAI.
 See [CAPABILITIES.md](./CAPABILITIES.md) for the parity checklist.
 
 ## Architecture
@@ -43,12 +43,18 @@ pnpm install
 pnpm build
 ```
 
-Then start the kernel + web surface together (parallel to `pai start` for the TUI):
+Then start the kernel + web surface together through the provisioned `pai`
+shim. In a dev checkout, run this from the repo root first so `~/.pai` has the
+runtime venv, shims, and registry-installed drivers:
 
 ```bash
-pai start --web                  # boots kernel, serves UI at http://127.0.0.1:8787, opens a browser
-pai start --web --port 9000      # custom port
-pai start --web --no-open        # don't auto-open a browser
+uv run paifs-init --no-setup
+```
+
+```bash
+pai start                  # boots kernel, serves UI at http://127.0.0.1:8787, opens a browser
+pai start --port 9000      # custom port
+pai start --no-open        # don't auto-open a browser
 ```
 
 To attach the web UI to an already-running (e.g. headless) kernel, run the
