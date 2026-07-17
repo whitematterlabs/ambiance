@@ -11,7 +11,7 @@ allocates a fresh pid on the next reconcile.
 
 Usage:
 
-    paiclone <source>                 auto-suffix (<source>-2, -3, …)
+    paiclone <source>                 auto-generate random name
     paiclone <source> --name <new>    explicit new name
     paiclone <source> -y              skip confirm prompt
 
@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+import random
 import sys
 from typing import Any
 
@@ -32,6 +33,16 @@ import yaml
 from boot import config as C
 from boot import paths
 from bin import paiadd
+
+_CLONE_NAMES = [
+    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry",
+    "Iris", "Jack", "Kate", "Leo", "Mia", "Noah", "Olivia", "Parker",
+    "Quinn", "Ruby", "Sam", "Tara", "Uma", "Victor", "Wendy", "Xavier",
+    "Yara", "Zoe", "Aaron", "Bella", "Chloe", "David", "Ella", "Felix",
+    "Gina", "Hector", "Ivy", "James", "Kara", "Liam", "Maya", "Nathan",
+    "Oscar", "Piper", "Quinn", "Ryan", "Sadie", "Tyler", "Ulysses", "Violet",
+    "Wesley", "Xander", "Yasmine", "Zachary",
+]
 
 
 @dataclass(frozen=True)
@@ -62,12 +73,14 @@ def _find_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any]:
     raise SystemExit(f"paiclone: no PAI named {name!r} in {C.CONFIG_PATH}")
 
 
-def _next_free_name(base: str, taken: set[str]) -> str:
-    # base-2, base-3, … — skip any already in config.
-    i = 2
-    while f"{base}-{i}" in taken:
-        i += 1
-    return f"{base}-{i}"
+def _next_free_name(taken: set[str]) -> str:
+    # Pick a random name not already in the config.
+    for _ in range(100):  # Reasonable retry limit
+        name = random.choice(_CLONE_NAMES)
+        if name not in taken:
+            return name
+    raise SystemExit("paiclone: unable to generate a unique random name (all exhausted?)")
+
 
 
 def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
@@ -75,7 +88,7 @@ def plan_clone(source_name: str, new_name: str | None = None) -> ClonePlan:
     taken = {e["name"] for e in entries if "name" in e}
     source = _find_entry(entries, source_name)
 
-    new_name = new_name or _next_free_name(source_name, taken)
+    new_name = new_name or _next_free_name(taken)
     if "/" in new_name or new_name.startswith(".") or not new_name:
         raise SystemExit(f"paiclone: invalid name {new_name!r}")
     if new_name in taken:
@@ -152,7 +165,7 @@ def cmd_clone(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="paiclone", description=__doc__)
     ap.add_argument("source", help="name of existing PAI to clone")
-    ap.add_argument("--name", help="new instance name (default: <source>-N)")
+    ap.add_argument("--name", help="new instance name (default: random)")
     ap.add_argument("-y", "--yes", action="store_true", help="skip confirm prompt")
     ap.set_defaults(func=cmd_clone)
     args = ap.parse_args(argv)

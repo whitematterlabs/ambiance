@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from bin import paiclone
 from boot import config as C
 from boot import paths
 from boot import processes as P
@@ -56,13 +57,15 @@ def test_clone_pai_uses_shared_paiclone_flow(fhs: Path) -> None:
     result = actions.clone_pai("helper")
 
     assert result["source"] == "helper"
-    assert result["name"] == "helper-2"
-    assert Path(result["instance"]) == fhs / "var" / "lib" / "instances" / "helper-2"
-    assert Path(result["home"]) == fhs / "home" / "helper-2"
-    assert (fhs / "var" / "lib" / "instances" / "helper-2" / "memory" / "private").is_dir()
+    assert result["name"] in paiclone._CLONE_NAMES
+    assert result["name"] != "helper"  # should be a different name
+    clone_name = result["name"]
+    assert Path(result["instance"]) == fhs / "var" / "lib" / "instances" / clone_name
+    assert Path(result["home"]) == fhs / "home" / clone_name
+    assert (fhs / "var" / "lib" / "instances" / clone_name / "memory" / "private").is_dir()
 
     config = yaml.safe_load((fhs / "etc" / "config.yaml").read_text(encoding="utf-8"))
-    clone = next(e for e in config["pais"] if e["name"] == "helper-2")
+    clone = next(e for e in config["pais"] if e["name"] == clone_name)
     assert clone["package"] == "helper"
     assert clone["description"] == "handles delegated work"
     # Clones do NOT inherit wakes — they start inert so N identical catch-alls
@@ -78,7 +81,7 @@ def test_clone_pai_uses_shared_paiclone_flow(fhs: Path) -> None:
     events = list((fhs / "run" / "pai" / "events").iterdir())
     assert len(events) == 1
     payload = yaml.safe_load(events[0].read_text(encoding="utf-8"))
-    assert payload == {"kind": "kernel:reload_config", "source": "paiadd", "added": "helper-2"}
+    assert payload == {"kind": "kernel:reload_config", "source": "paiadd", "added": clone_name}
 
 
 def test_clone_pai_rejects_unknown_source(fhs: Path) -> None:
