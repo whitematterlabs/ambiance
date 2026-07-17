@@ -11,6 +11,22 @@ from boot import paths
 from boot import processes as P
 
 
+def _read_shipped_prompt(name: str) -> str:
+    candidates = (
+        paths.PAI_ROOT / "usr" / "share" / "prompts" / f"{name}.md",
+        Path("src") / "prompts" / f"{name}.md",
+    )
+    for path in candidates:
+        try:
+            return path.read_text()
+        except FileNotFoundError:
+            continue
+    pytest.fail(
+        f"could not read shipped prompt {name!r}; run `paifs-init --no-setup` "
+        "to install registry-backed prompts"
+    )
+
+
 def _spawn(
     slug: str,
     *,
@@ -184,7 +200,7 @@ def test_boilerplate_default_picks_per_role(
 
 
 def test_shipped_subagent_prompt_requires_done_result() -> None:
-    prompt = Path("src/prompts/subagent.md").read_text()
+    prompt = _read_shipped_prompt("subagent")
 
     assert "subagent done --result result.md" in prompt
     assert "Do **not** end a completed task with plain assistant text" in prompt
