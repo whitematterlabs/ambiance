@@ -33,8 +33,14 @@ Consequences:
    flight, which is a wrapper in disguise. And the rewrite only covers
    the top-level command line: paths inside a script the PAI wrote a
    minute earlier are whatever it believed at the time.
-4. **`HOME=/home/<slug>` is a lie.** `~` expansion, `pwd`, and any
-   subprocess that resolves paths disagree with the prompt.
+4. **The illusion is already half-dismantled, which is the worst
+   state.** The fake `HOME` was deprecated: `nudge.py` sets the real
+   `PAI_ROOT/home/<slug>` and the seed prompts no longer teach FHS
+   spellings. But the rewriter survives as a tolerance shim, silently
+   accepting illusion spellings PAIs emit from habit, older skills,
+   and docs, so the mixed-spelling world never converges. Honest
+   outputs, lenient inputs: two spellings forever, and the shim still
+   bites (build.69 was 2026-07-08).
 
 ## Decision
 
