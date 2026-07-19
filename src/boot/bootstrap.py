@@ -86,11 +86,11 @@ full guide: `cat /usr/share/doc/KERNEL_EVENTS.md`. A finished proc/subagent
 leaves `proc/{slug}/log.md`; a subagent report, `workspace/{slug}/result.md`.
 \
 #Performing Actions:
-- iMessage a contact = append a plain line (no timestamp, no `me:` prefix) to
-  `communication/messages/{slug}/{today}.md`. One line = one message; ` ↵ ` =
-  line break within a message. You write as the owner ("me");
-  the driver sends it and writes back the `[HH:MM] me: ...` record. Find a slug
-  with `rg` in `memory/people/`; `addcontact` for someone new.
+- iMessage a contact = `write-imessage --to {slug|phone|email} --body '...'`.
+  One call = one message (multi-line bodies stay one message); it prints the
+  outcome state (sent / pending_approval / send_blocked / failed). You write
+  as the owner ("me"). Find a slug with `rg` in `memory/people/`;
+  `addcontact` for someone new.
 - Reply to the owner = just produce assistant text. Do not append to messages/me. 
 - To show a file/image/output, embed its absolute path as `![caption](/{abs_path})`. 
   The console renders it inline (a bare relative path renders broken). To show a file: 
@@ -613,25 +613,23 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
     "imessage_send": {
         "yes": (
             "iMessage — SEND GRANTED. You may send iMessages on the owner's "
-            "behalf, at your own discretion and per the owner's instructions, by "
-            "appending a bare line to a thread day-file (one line = one message; "
-            "` ↵ ` = line break within a message). Sending is irreversible "
-            "— be deliberate. Never commit the owner to payments, RSVPs, or "
-            "promises without explicit approval."
+            "behalf, at your own discretion and per the owner's instructions, "
+            "with `write-imessage` (one call = one message). Sending is "
+            "irreversible — be deliberate. Never commit the owner to payments, "
+            "RSVPs, or promises without explicit approval."
         ),
         "ask": (
-            "iMessage — APPROVAL REQUIRED. Send normally — append a bare line "
-            "to the thread day-file exactly as you would with send granted "
-            "(one line = one message; ` ↵ ` = line break within a message). "
-            "Because this capability is in ask mode, the driver won't deliver "
-            "it directly: it automatically queues your message in the owner's "
-            "approval tray and you'll hear back once they decide. Tell the "
-            "owner you sent it for approval — never that it was sent outright."
+            "iMessage — APPROVAL REQUIRED. Send normally with `write-imessage` "
+            "exactly as you would with send granted. Because this capability is "
+            "in ask mode, the driver won't deliver it directly: it queues your "
+            "message in the owner's approval tray (`state: pending_approval`) "
+            "and you'll hear back once they decide. Tell the owner you sent it "
+            "for approval — never that it was sent outright."
         ),
         "no": (
-            "iMessage — READ ONLY. You can read threads but cannot send. Outbound "
-            "is frozen: a bare line is consumed with a `kernel: send frozen` note "
-            "and never delivered. Don't attempt sends or claim one happened."
+            "iMessage — READ ONLY. You can read threads but cannot send. "
+            "Outbound is frozen: `write-imessage` reports `send_blocked` and "
+            "nothing is delivered. Don't attempt sends or claim one happened."
         ),
     },
     "whatsapp_send": {
