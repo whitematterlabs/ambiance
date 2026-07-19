@@ -299,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
                     **actions.approve_action(
                         str(body["id"]),
                         body_override=str(body_override) if body_override is not None else None,
+                        always_allow=bool(body.get("always_allow")),
                     ),
                 })
             if path == "/api/reject":
@@ -312,6 +313,18 @@ class Handler(BaseHTTPRequestHandler):
                 add = body.get("add")
                 remove = body.get("remove")
                 result = actions.bash_allowlist_update(
+                    add=str(add) if add is not None else None,
+                    remove=str(remove) if remove is not None else None,
+                )
+                return self._json({"ok": True, **result})
+            if path == "/api/send-allowlist":
+                # Add/remove a recipient rule for a send channel; the hub's
+                # etc/ watch rebroadcasts send_capabilities (send rows carry
+                # their lists), so no state push here.
+                add = body.get("add")
+                remove = body.get("remove")
+                result = actions.send_allowlist_update(
+                    str(body["channel"]),
                     add=str(add) if add is not None else None,
                     remove=str(remove) if remove is not None else None,
                 )

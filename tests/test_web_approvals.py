@@ -58,6 +58,8 @@ def test_list_pending_projects_review_subset(queue: Path) -> None:
         "recipient": "bob@acme.com",
         "subject": "Re: test",
         "body": "Hi Bob,\n\nthanks.",
+        # What "Approve & always allow" would grant, verbatim in the button.
+        "allow_rules": ["bob@acme.com"],
     }
 
 
@@ -155,3 +157,75 @@ def test_path_traversal_id_rejected(queue: Path, bad: str) -> None:
         actions.approve_action(bad)
     with pytest.raises(ValueError, match="invalid approval id"):
         actions.reject_action(bad)
+
+
+# --- approve & always allow -------------------------------------------------
+
+
+@pytest.fixture
+def cfg(queue: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from boot import config
+
+    p = tmp_path / "pai" / "etc" / "config.yaml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("pais: []\n")
+    monkeypatch.setattr(config, "CONFIG_PATH", p, raising=True)
+    return p
+
+
+def test_always_allow_email_appends_recipients_and_approves(queue: Path, cfg: Path) -> None:
+    from boot import config
+
+    path = _write(queue, "e1")
+    out = actions.approve_action("e1", always_allow=True)
+    assert out["status"] == "approved"
+    assert _load(path)["status"] == "approved"
+    assert config.send_allowlist("email") == ["bob@acme.com"]
+
+
+def test_email_reply_offers_no_allow_rule(queue: Path, cfg: Path) -> None:
+    from boot import config
+
+    _write(
+        queue, "e2",
+        action={"from": "me@x.com", "to": ["bob@acme.com"],
+                "in_reply_to": "<id@acme.com>", "content": "hi"},
+    )
+    [item] = actions.list_pending()
+    assert item["allow_rules"] == []
+    # always_allow on it approves but grants nothing.
+    actions.approve_action("e2", always_allow=True)
+    assert config.send_allowlist("email") == []
+
+
+def test_always_allow_bash_uses_edited_command(queue: Path, cfg: Path) -> None:
+    from boot import config
+
+    _write(queue, "b1", channel="bash", action={"command": "git push origin main", "tool": "bash"})
+    actions.approve_action("b1", body_override="git push", always_allow=True)
+    assert config.bash_allowlist() == ["git push"]
+
+
+def test_always_allow_imessage_resolves_thread_handle(queue: Path, cfg: Path) -> None:
+    from boot import config
+
+    thread = paths.var_spool_messages() / "habib"
+    thread.mkdir(parents=True)
+    (thread / "meta.yaml").write_text(
+        yaml.safe_dump({"channel": "imessage", "handles": ["+15551234567"]})
+    )
+    _write(queue, "m1", channel="imessage", action={"thread": "habib", "text": "hi"})
+    [item] = actions.list_pending()
+    assert item["allow_rules"] == ["+15551234567"]
+    actions.approve_action("m1", always_allow=True)
+    assert config.send_allowlist("imessage") == ["+15551234567"]
+
+
+def test_always_allow_unresolvable_thread_grants_nothing(queue: Path, cfg: Path) -> None:
+    from boot import config
+
+    _write(queue, "m2", channel="imessage", action={"thread": "ghost", "text": "hi"})
+    [item] = actions.list_pending()
+    assert item["allow_rules"] == []
+    actions.approve_action("m2", always_allow=True)
+    assert config.send_allowlist("imessage") == []

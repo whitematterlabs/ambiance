@@ -14,6 +14,13 @@ const BASH_MODES: { mode: SendMode; label: string; hint: string }[] = [
   { mode: "yes", label: "Yes", hint: "Commands run directly, no approval" },
 ];
 
+const ALLOWLIST_PLACEHOLDER: Record<string, string> = {
+  bash_exec: "Add prefix (e.g. git status)",
+  imessage_send: "Add handle (e.g. +15551234567)",
+  whatsapp_send: "Add phone or JID (e.g. +15551234567)",
+  email_send: "Add address (e.g. *@corp.com)",
+};
+
 // Owner control for the send-channel permissions. One segmented tri-state row
 // per mounted channel (the modal approval tray still handles individual sends
 // in `ask` mode). Capture gates (cowork/notetaker) live as header/mobile-sheet
@@ -21,10 +28,10 @@ const BASH_MODES: { mode: SendMode; label: string; hint: string }[] = [
 // pre-filtered by the backend (only capabilities a PAI can actually use), so
 // an empty list means nothing is mounted and the block hides.
 //
-// The bash_exec row additionally carries the owner's allowlist (prefix rules
-// the kernel gate runs without asking); in `ask` mode it renders an inline
-// editor under the row. Edits go through onAllowlistChange and reconcile via
-// the send_capabilities rebroadcast — no local mutation.
+// Rows that carry an `allowlist` (bash_exec: command prefix rules; the send
+// channels: recipient rules) render an inline editor under the row in `ask`
+// mode. Edits go through onAllowlistChange and reconcile via the
+// send_capabilities rebroadcast — no local mutation.
 export function SendPermissions({
   capabilities,
   onSetMode,
@@ -32,17 +39,17 @@ export function SendPermissions({
 }: {
   capabilities: SendCapability[];
   onSetMode: (flag: string, mode: SendMode) => void;
-  onAllowlistChange?: (change: { add?: string; remove?: string }) => void;
+  onAllowlistChange?: (flag: string, change: { add?: string; remove?: string }) => void;
 }) {
   const [newRule, setNewRule] = useState("");
-  const [listOpen, setListOpen] = useState(false);
+  const [openFlag, setOpenFlag] = useState<string | null>(null);
 
   if (capabilities.length === 0) return null;
 
-  const addRule = () => {
+  const addRule = (flag: string) => {
     const rule = newRule.trim();
     if (!rule || !onAllowlistChange) return;
-    onAllowlistChange({ add: rule });
+    onAllowlistChange(flag, { add: rule });
     setNewRule("");
   };
 
@@ -56,6 +63,11 @@ export function SendPermissions({
           const isBash = cap.flag === "bash_exec";
           const modes = isBash ? BASH_MODES : MODES;
           const rules = cap.allowlist ?? [];
+          const editable =
+            cap.mode === "ask" &&
+            onAllowlistChange !== undefined &&
+            cap.flag in ALLOWLIST_PLACEHOLDER;
+          const listOpen = openFlag === cap.flag;
           return (
             <div key={cap.flag}>
               <div className="send-perm-row">
@@ -81,12 +93,15 @@ export function SendPermissions({
                   ))}
                 </div>
               </div>
-              {isBash && cap.mode === "ask" && onAllowlistChange && (
+              {editable && (
                 <div className="bash-allowlist">
                   <button
                     type="button"
                     className="bash-allowlist-toggle"
-                    onClick={() => setListOpen((v) => !v)}
+                    onClick={() => {
+                      setOpenFlag(listOpen ? null : cap.flag);
+                      setNewRule("");
+                    }}
                   >
                     {listOpen ? "▾" : "▸"} allowlist ({rules.length})
                   </button>
@@ -99,7 +114,7 @@ export function SendPermissions({
                             type="button"
                             className="bash-allowlist-remove"
                             title={`Remove "${rule}"`}
-                            onClick={() => onAllowlistChange({ remove: rule })}
+                            onClick={() => onAllowlistChange(cap.flag, { remove: rule })}
                           >
                             ×
                           </button>
@@ -108,14 +123,18 @@ export function SendPermissions({
                       <div className="bash-allowlist-add">
                         <input
                           type="text"
-                          placeholder="Add prefix (e.g. git status)"
+                          placeholder={ALLOWLIST_PLACEHOLDER[cap.flag]}
                           value={newRule}
                           onChange={(e) => setNewRule(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") addRule();
+                            if (e.key === "Enter") addRule(cap.flag);
                           }}
                         />
-                        <button type="button" disabled={!newRule.trim()} onClick={addRule}>
+                        <button
+                          type="button"
+                          disabled={!newRule.trim()}
+                          onClick={() => addRule(cap.flag)}
+                        >
                           Add
                         </button>
                       </div>

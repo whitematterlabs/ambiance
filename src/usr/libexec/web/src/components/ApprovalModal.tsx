@@ -13,9 +13,14 @@ import type { PendingApproval } from "../types";
 //
 // `channel: bash` items are kernel-gated shell commands (the PAI's turn is
 // blocked mid-tool-call on this decision): the body is the command itself,
-// rendered monospace, and an extra "Always allow…" action lets the owner add
-// a prefix rule to the allowlist (pre-filled with the command's first token,
-// editable to something narrower like `git status`) and approve in one step.
+// rendered monospace.
+//
+// "Approve & always allow" carries the exact grant in its label — the derived
+// allowlist rule(s): the command itself for bash (an exact prefix rule; the
+// owner broadens it later in the sidebar editor if wanted), the recipient(s)
+// for sends. No label, no button: a record with no honest rule (e.g. an email
+// reply, whose recipients live on the parent message) only offers plain
+// Approve.
 export function ApprovalModal({
   approvals,
   onApprove,
@@ -26,7 +31,7 @@ export function ApprovalModal({
   approvals: PendingApproval[];
   onApprove: (id: string, body: string) => Promise<unknown> | void;
   onReject: (id: string, reason: string) => Promise<unknown> | void;
-  onAlwaysAllow?: (id: string, rule: string, body: string) => Promise<unknown> | void;
+  onAlwaysAllow?: (id: string, body: string) => Promise<unknown> | void;
   onClose: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -34,22 +39,17 @@ export function ApprovalModal({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [body, setBody] = useState("");
-  const [allowing, setAllowing] = useState(false);
-  const [rule, setRule] = useState("");
 
   const current = approvals[0] ?? null;
   const currentId = current?.id ?? null;
   const isBash = current?.channel === "bash";
 
-  // Reset the editable body + reject/always-allow state whenever the
-  // front-of-queue item changes (a decision resolved, or a new item overtook
-  // it).
+  // Reset the editable body + reject state whenever the front-of-queue item
+  // changes (a decision resolved, or a new item overtook it).
   useEffect(() => {
     setBody(current?.body ?? "");
     setRejecting(false);
     setReason("");
-    setAllowing(false);
-    setRule("");
   }, [currentId]);
 
   // Focus the card once on mount only. The ESC listener below re-binds on every
@@ -89,14 +89,24 @@ export function ApprovalModal({
   };
 
   const runAlwaysAllow = async () => {
-    if (!onAlwaysAllow || !rule.trim()) return;
+    if (!onAlwaysAllow) return;
     setBusy(true);
     try {
-      await onAlwaysAllow(current.id, rule.trim(), body);
+      await onAlwaysAllow(current.id, body);
     } finally {
       setBusy(false);
     }
   };
+
+  // What "always allow" grants, shown verbatim (truncated for the label). For
+  // bash the rule is the live (possibly edited) command; for sends the server
+  // derived it from the thread/draft and it isn't editable here.
+  const allowItem = isBash
+    ? body.trim().split("\n")[0] ?? ""
+    : (current.allow_rules ?? []).join(", ");
+  const allowLabel =
+    allowItem.length > 36 ? `${allowItem.slice(0, 36)}…` : allowItem;
+  const canAlwaysAllow = Boolean(onAlwaysAllow) && allowItem.trim().length > 0;
 
   const noun = isBash ? "command" : "send";
   const title =
@@ -177,37 +187,6 @@ export function ApprovalModal({
                 Back
               </button>
             </div>
-          ) : allowing ? (
-            <div className="approval-reason-row">
-              <input
-                className="approval-reason approval-rule"
-                type="text"
-                placeholder="Allowed prefix (e.g. git status)"
-                value={rule}
-                autoFocus
-                disabled={busy}
-                onChange={(e) => setRule(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") runAlwaysAllow();
-                }}
-              />
-              <button
-                type="button"
-                className="head-action approval-approve"
-                disabled={busy || !rule.trim()}
-                onClick={runAlwaysAllow}
-              >
-                {busy ? "Allowing…" : "Allow + run"}
-              </button>
-              <button
-                type="button"
-                className="confirm-cancel"
-                disabled={busy}
-                onClick={() => setAllowing(false)}
-              >
-                Back
-              </button>
-            </div>
           ) : (
             <div className="approval-actions">
               <button
@@ -218,19 +197,15 @@ export function ApprovalModal({
               >
                 {busy ? "Approving…" : "Approve"}
               </button>
-              {isBash && onAlwaysAllow && (
+              {canAlwaysAllow && (
                 <button
                   type="button"
                   className="head-action approval-always"
                   disabled={busy}
-                  onClick={() => {
-                    // Pre-fill the coarsest useful rule: the command's first
-                    // token. The owner narrows it in the input if they want.
-                    setRule(body.trim().split(/\s+/)[0] ?? "");
-                    setAllowing(true);
-                  }}
+                  title={`Adds "${allowItem}" to the allowlist, then approves`}
+                  onClick={runAlwaysAllow}
                 >
-                  Always allow…
+                  {busy ? "Allowing…" : `Approve & always allow “${allowLabel}”`}
                 </button>
               )}
               <button

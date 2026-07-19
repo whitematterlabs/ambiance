@@ -36,7 +36,7 @@ export function SidePanel({
   sendCaps: SendCapability[];
   drivers: DriverHealth[];
   onSetSendMode: (flag: string, mode: SendMode) => void;
-  onAllowlistChange?: (change: { add?: string; remove?: string }) => void;
+  onAllowlistChange?: (flag: string, change: { add?: string; remove?: string }) => void;
 }) {
   // Surface a dead/looping driver even while the Activity tab has focus — the
   // whole point of the health panel is that silent breakage isn't silent.

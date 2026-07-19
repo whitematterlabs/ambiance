@@ -68,6 +68,10 @@ export interface PendingApproval {
   recipient?: string;
   subject?: string;
   body?: string;
+  // Exactly what "Approve & always allow" would add to the allowlist —
+  // rendered verbatim in the button label. Empty/absent when no honest rule
+  // is derivable (e.g. an email reply inherits recipients we can't see).
+  allow_rules?: string[];
 }
 
 // One mounted capability and its current permission. Drives the sidebar's
@@ -80,9 +84,11 @@ export interface SendCapability {
   channel: string;
   mode: SendMode;
   modes?: SendMode[];
-  // bash_exec only: the owner's prefix rules consulted by the kernel gate in
-  // `ask` mode. Rides on the row so the etc/ watch rebroadcast keeps the
-  // sidebar editor in step with config.yaml.
+  // bash_exec: the owner's prefix rules consulted by the kernel gate in
+  // `ask` mode. Send channels (imessage/whatsapp/email): the recipient rules
+  // (send_allowlist) their drivers consult in `ask` mode. Rides on the row so
+  // the etc/ watch rebroadcast keeps the sidebar editor in step with
+  // config.yaml.
   allowlist?: string[];
 }
 

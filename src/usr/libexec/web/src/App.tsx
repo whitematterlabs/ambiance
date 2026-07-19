@@ -1213,7 +1213,11 @@ export function App() {
               sendCaps={channelCaps}
               drivers={drivers}
               onSetSendMode={onSetSendMode}
-              onAllowlistChange={(change) => api.updateBashAllowlist(change)}
+              onAllowlistChange={(flag, change) =>
+                flag === "bash_exec"
+                  ? api.updateBashAllowlist(change)
+                  : api.updateSendAllowlist(flag.replace(/_send$/, ""), change)
+              }
             />
           </div>
         </aside>
@@ -1434,12 +1438,12 @@ export function App() {
           approvals={approvals}
           onApprove={(id, body) => api.approve(id, body)}
           onReject={(id, r) => api.reject(id, r)}
-          onAlwaysAllow={async (id, rule, body) => {
-            // Rule first, then approve: if the approve races a timeout the
-            // rule still lands, so the PAI's retry sails through.
-            await api.updateBashAllowlist({ add: rule });
-            await api.approve(id, body);
-          }}
+          onAlwaysAllow={(id, body) =>
+            // The server appends the derived rule(s) before flipping the
+            // record, so if the approve races a timeout the rule still lands
+            // and the PAI's retry sails through.
+            api.approve(id, body, true)
+          }
           onClose={() => setApprovalsOpen(false)}
         />
       )}

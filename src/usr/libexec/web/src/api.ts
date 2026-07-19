@@ -112,8 +112,12 @@ export const runShell = (pid: number, cmd: string) =>
 
 // Draft & approve: the owner decides a queued send. The hub's file watcher
 // rebroadcasts the shrunken pending list — these don't mutate local state.
-export const approve = (id: string, body?: string) =>
-  post("/api/approve", { id, ...(body !== undefined ? { body } : {}) }) as Promise<{
+export const approve = (id: string, body?: string, alwaysAllow?: boolean) =>
+  post("/api/approve", {
+    id,
+    ...(body !== undefined ? { body } : {}),
+    ...(alwaysAllow ? { always_allow: true } : {}),
+  }) as Promise<{
     ok: boolean;
     id?: string;
     status?: string;
@@ -172,6 +176,19 @@ export const setSendMode = (flag: string, mode: string) =>
 export const updateBashAllowlist = (change: { add?: string; remove?: string }) =>
   post("/api/bash-allowlist", change) as Promise<{
     ok: boolean;
+    allowlist?: string[];
+    error?: string;
+  }>;
+
+// send_allowlist twin: add/remove one recipient rule for a send channel
+// (imessage/whatsapp/email). Same reconcile-via-rebroadcast contract.
+export const updateSendAllowlist = (
+  channel: string,
+  change: { add?: string; remove?: string },
+) =>
+  post("/api/send-allowlist", { channel, ...change }) as Promise<{
+    ok: boolean;
+    channel?: string;
     allowlist?: string[];
     error?: string;
   }>;

@@ -60,7 +60,8 @@ def test_set_send_mode_rejects_unknown_flag(repo_root):
 _SEND_MODES = ["no", "ask", "yes"]
 
 # bash_exec is kernel-enforced (driver: None) — always listed, regardless of
-# mounted drivers, with the allowlist riding on the row.
+# mounted drivers, with the allowlist riding on the row. Send rows carry
+# their send_allowlist the same way.
 _BASH_ROW = {"flag": "bash_exec", "channel": "Shell commands", "mode": "yes", "modes": _SEND_MODES, "allowlist": []}
 
 
@@ -70,7 +71,7 @@ def test_list_send_capabilities_filters_unmounted(repo_root, monkeypatch):
     # Only the email driver is mounted → only Email shows, at its live mode.
     monkeypatch.setattr(actions, "_mounted_driver_union", lambda: {"email"})
     assert actions.list_send_capabilities() == [
-        {"flag": "email_send", "channel": "Email", "mode": "no", "modes": _SEND_MODES},
+        {"flag": "email_send", "channel": "Email", "mode": "no", "modes": _SEND_MODES, "allowlist": []},
         _BASH_ROW,
     ]
 
@@ -88,8 +89,8 @@ def test_list_send_capabilities_reports_both_channels(repo_root, monkeypatch):
         actions, "_mounted_driver_union", lambda: {"email", "imessage"}
     )
     assert actions.list_send_capabilities() == [
-        {"flag": "email_send", "channel": "Email", "mode": "no", "modes": _SEND_MODES},
-        {"flag": "imessage_send", "channel": "iMessage", "mode": "ask", "modes": _SEND_MODES},
+        {"flag": "email_send", "channel": "Email", "mode": "no", "modes": _SEND_MODES, "allowlist": []},
+        {"flag": "imessage_send", "channel": "iMessage", "mode": "ask", "modes": _SEND_MODES, "allowlist": []},
         _BASH_ROW,
     ]
 

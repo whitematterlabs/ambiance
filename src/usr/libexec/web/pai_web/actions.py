@@ -925,10 +925,96 @@ def list_pending() -> list[dict]:
                 "recipient": recipient,
                 "subject": subject,
                 "body": body,
+                # What "Approve & always allow" would add — shown verbatim in
+                # the button label so the owner sees the exact grant. Empty
+                # when no honest rule is derivable (e.g. an email reply).
+                "allow_rules": _allow_rules_for(rec),
             }
         )
     out.sort(key=lambda r: r.get("created_at") or "")
     return out
+
+
+def _thread_meta(channel: str, thread: str) -> dict:
+    """meta.yaml for a message thread, {} on any trouble (fail-closed:
+    no meta means no derivable allow rule, never an error)."""
+    if not thread or "/" in thread or thread.startswith("."):
+        return {}
+    if channel == "imessage":
+        base = paths.var_spool_messages()
+    else:
+        base = paths.var_spool_communication() / channel
+    try:
+        data = yaml.safe_load((base / thread / "meta.yaml").read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _allow_rules_for(rec: dict, body_override: str | None = None) -> list[str]:
+    """The allowlist rule(s) "Approve & always allow" adds for this record.
+
+    bash → the (possibly owner-edited) command as one exact prefix rule;
+    imessage/whatsapp → the thread's delivery target (chat guid / handle /
+    JID), resolved from thread meta the same way the drivers resolve it;
+    email → every explicit recipient. Empty list = no honest rule exists
+    (unresolvable thread, email reply — replies inherit recipients from the
+    parent message, so a rule derived from the draft would be a lie)."""
+    channel = rec.get("channel") or ""
+    action = rec.get("action") or {}
+    if channel == "bash":
+        cmd = (
+            body_override if body_override is not None else str(action.get("command") or "")
+        ).strip()
+        return [cmd] if cmd else []
+    if channel in ("imessage", "whatsapp"):
+        thread = str(action.get("thread") or "")
+        meta = _thread_meta(channel, thread)
+        cand = ""
+        if channel == "imessage":
+            if meta.get("group"):
+                cand = str(meta.get("chat_guid") or "")
+            else:
+                handles = meta.get("handles") or []
+                cand = str(handles[0]) if handles else ""
+        else:
+            jid = meta.get("jid")
+            if isinstance(jid, str) and jid.strip():
+                cand = jid.strip()
+            else:
+                handles = [str(h) for h in (meta.get("handles") or []) if h]
+                cand = handles[0] if handles else (thread if thread.isdigit() else "")
+        cand = cand.strip()
+        return [cand] if cand else []
+    if channel == "email":
+        if action.get("in_reply_to"):
+            return []
+        rules: list[str] = []
+        for k in ("to", "cc", "bcc"):
+            v = action.get(k)
+            entries = [v] if isinstance(v, str) else (v if isinstance(v, list) else [])
+            for a in entries:
+                a = str(a).strip()
+                if a and a not in rules:
+                    rules.append(a)
+        return rules
+    return []
+
+
+def _append_allow_rules(channel: str, rules: list[str]) -> None:
+    """Append rules to the allowlist backing `channel` (bash → bash_allowlist,
+    sends → send_allowlist.<channel>). Unknown channels are a no-op."""
+    if not rules:
+        return
+    with _send_mode_lock:
+        if channel == "bash":
+            cur = config.bash_allowlist()
+            cur += [r for r in rules if r not in cur]
+            config.set_bash_allowlist(cur)
+        elif channel in config.SEND_ALLOWLIST_CHANNELS:
+            cur = config.send_allowlist(channel)
+            cur += [r for r in rules if r not in cur]
+            config.set_send_allowlist(channel, cur)
 
 
 def _decide(ident: str, status: str, *, error: str | None = None, body_override: str | None = None) -> dict:
@@ -967,8 +1053,22 @@ def _decide(ident: str, status: str, *, error: str | None = None, body_override:
     return {"id": ident, "status": status}
 
 
-def approve_action(ident: str, body_override: str | None = None) -> dict:
-    """Mark a pending record `approved`; the approvals driver delivers it."""
+def approve_action(
+    ident: str, body_override: str | None = None, always_allow: bool = False
+) -> dict:
+    """Mark a pending record `approved`; the approvals driver delivers it.
+    `always_allow` first appends the record's derived rule(s) to the matching
+    allowlist, so future identical recipients/commands skip the queue."""
+    if always_allow:
+        path = _approval_path(ident)
+        try:
+            rec = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            rec = None
+        if isinstance(rec, dict) and rec.get("status") == "pending":
+            _append_allow_rules(
+                str(rec.get("channel") or ""), _allow_rules_for(rec, body_override)
+            )
     return _decide(ident, "approved", body_override=body_override)
 
 
@@ -1049,6 +1149,8 @@ def list_send_capabilities() -> list[dict]:
             # The sidebar's allowlist editor rides along on this row; the
             # hub's etc/ watch rebroadcasts it whenever config.yaml changes.
             row["allowlist"] = config.bash_allowlist()
+        elif flag in ("imessage_send", "whatsapp_send", "email_send"):
+            row["allowlist"] = config.send_allowlist(flag.removesuffix("_send"))
         out.append(row)
     return out
 
@@ -1098,6 +1200,28 @@ def bash_allowlist_update(add: str | None = None, remove: str | None = None) -> 
                 rules.append(rule)
         updated = config.set_bash_allowlist(rules)
     return {"allowlist": updated}
+
+
+def send_allowlist_update(
+    channel: str, add: str | None = None, remove: str | None = None
+) -> dict:
+    """Add and/or remove one recipient rule for a send channel, returning the
+    full updated list. Like the bash twin, no kernel reload needed: drivers
+    read config.yaml live per send, and the hub's etc/ watch rebroadcasts
+    send_capabilities (whose send rows carry their lists)."""
+    with _send_mode_lock:
+        rules = config.send_allowlist(channel)
+        if remove is not None:
+            target = remove.strip()
+            rules = [r for r in rules if r != target]
+        if add is not None:
+            rule = add.strip()
+            if not rule:
+                raise ValueError("allowlist rule must be non-empty")
+            if rule not in rules:
+                rules.append(rule)
+        updated = config.set_send_allowlist(channel, rules)
+    return {"channel": channel, "allowlist": updated}
 
 
 def run_shell(pid: int, cmd: str) -> dict:

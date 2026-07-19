@@ -638,6 +638,65 @@ def set_bash_allowlist(rules: list[str], path: Path | None = None) -> list[str]:
     return clean
 
 
+# Channels that can carry a recipient allowlist (`send_allowlist:` keys).
+SEND_ALLOWLIST_CHANNELS = ("imessage", "whatsapp", "email")
+
+
+def send_allowlist(channel: str, path: Path | None = None) -> list[str]:
+    """Owner recipient rules a send driver consults in `ask` mode —
+    top-level `send_allowlist:` map in config.yaml, keyed by channel.
+    Tolerant like bash_allowlist: missing/broken file, malformed map, or
+    unknown channel reads as empty (nothing auto-allowed), never an error."""
+    if channel not in SEND_ALLOWLIST_CHANNELS:
+        return []
+    p = path or CONFIG_PATH
+    try:
+        data = _load_yaml(p)
+    except ConfigError:
+        return []
+    table = data.get("send_allowlist") if isinstance(data, dict) else None
+    rules = table.get(channel) if isinstance(table, dict) else None
+    if not isinstance(rules, list):
+        return []
+    return [r.strip() for r in rules if isinstance(r, str) and r.strip()]
+
+
+def set_send_allowlist(
+    channel: str, rules: list[str], path: Path | None = None
+) -> list[str]:
+    """Write one channel's `send_allowlist:` list and return it (deduped,
+    order kept). Strict like set_bash_allowlist: unknown channel or a
+    non-string/blank rule raises. An empty list removes the channel key;
+    an empty map removes `send_allowlist:` entirely. Atomic (tmp + rename)."""
+    if channel not in SEND_ALLOWLIST_CHANNELS:
+        raise ValueError(f"unknown send_allowlist channel: {channel!r}")
+    clean: list[str] = []
+    for r in rules:
+        if not isinstance(r, str) or not r.strip():
+            raise ValueError(f"allowlist rule must be a non-empty string: {r!r}")
+        r = r.strip()
+        if r not in clean:
+            clean.append(r)
+    p = path or CONFIG_PATH
+    data = _load_yaml(p) if p.exists() else {}
+    table = data.get("send_allowlist")
+    if not isinstance(table, dict):
+        table = {}
+    if clean:
+        table[channel] = clean
+    else:
+        table.pop(channel, None)
+    if table:
+        data["send_allowlist"] = table
+    else:
+        data.pop("send_allowlist", None)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.rename(p)
+    return clean
+
+
 def set_pai_model(name: str, provider: str, model: str, path: Path | None = None) -> dict[str, str]:
     """Write `provider:`/`model:` on one fleet entry and return them.
 

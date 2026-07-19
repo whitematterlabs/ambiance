@@ -50,8 +50,12 @@ does not match, and in ask mode a non-match costs one approval click.
   or the chat id — allowlisting a group chat = allowlisting its chat id.
 - **whatsapp**: rule matches the resolved JID or bare phone.
 - **email**: rule is an exact address (case-insensitive) or a domain
-  wildcard `*@domain.com`. EVERY recipient across to+cc+bcc must match a
-  rule, else the send asks.
+  wildcard `*@domain.com` (exact domain, no subdomains). EVERY recipient
+  across to+cc+bcc must match a rule, else the send asks.
+- **email replies never bypass**: Mail's scripted `reply` addresses the
+  parent's From/Reply-To, which the driver cannot see at gate time — a
+  draft with `in_reply_to` always asks, and the modal offers no
+  always-allow rule for it (a rule derived from the draft would be a lie).
 - No resolvable handle, empty allowlist, parse doubt → queue for approval.
 - The allowlist is consulted ONLY in `ask` mode (moot in `yes`; nothing
   sends in `no`) — same rule as bash.
@@ -83,13 +87,18 @@ Drivers already import `boot.config` for the live mode read; they gain
 
 ## Console
 
-- **Approval modal**: new button labeled `Approve & always allow
+- **Approval modal**: one-click button labeled `Approve & always allow
   "{allowed_item}"` where `allowed_item` is the exact derived rule:
-  - imessage/whatsapp → the recipient handle / chat id
-  - email → all recipient addresses being added (comma-joined in the label)
-  - bash → the full command as a prefix rule (exact tokens; deliberately
-    narrow — the owner broadens it in the sidebar editor if wanted)
-  The button appends the rule(s) then approves the record in one action.
+  - imessage/whatsapp → the recipient handle / chat id / JID, resolved
+    from the thread's meta.yaml server-side (`allow_rules` rides on each
+    pending record; unresolvable thread → no button)
+  - email → all recipient addresses being added (comma-joined in the
+    label; replies → no button)
+  - bash → the full (possibly owner-edited) command as one exact prefix
+    rule (deliberately narrow — the owner broadens it in the sidebar
+    editor if wanted; this replaces the old two-step editable-rule flow)
+  `POST /api/approve {always_allow: true}` appends the rule(s) server-side
+  before flipping the record, so a raced timeout still lands the rule.
 - **Backend**: `/api/send-allowlist` (add/remove per channel), mirroring
   `/api/bash-allowlist`; capability rows in the sidebar carry their
   channel's allowlist the way the bash row already does
