@@ -138,7 +138,22 @@ Live-machine migration (one-time, owner-run):
 2. `rsync -aX ~/.pai/ /pai/` (cross-volume, real copy).
 3. Restart kernel, verify `kernel.log` shows root `/pai`.
 
-### 6. Follow-on (explicitly out of scope here)
+### 6. Owner-data access (drivers) — unchanged
+
+Nothing about `/pai` changes how the system reads iMessages, Mail,
+calendar, etc. Drivers are deliberately amphibious: their *code* lives
+at `/pai/usr/lib/drivers/<name>/`, but their *processes* run as the
+owner in host space, with the owner's TCC grants (FDA for
+`~/Library/Messages/chat.db`, keychain via `HOME=REAL_HOME`, AX in the
+owner's session). A driver reads the host surface, normalizes, and
+writes the on-disk shape it owns inside `/pai` (events, archives under
+`/pai/var/lib/...`). The PAI never touches `chat.db`; it reads the
+driver's shape inside its own world. TCC keys off the process and its
+grants, not where the binary's data lives, so the mount move is
+invisible to it. The fence, when it comes, wraps PAI shells only,
+never drivers.
+
+### 7. Follow-on (explicitly out of scope here)
 
 - **sandbox-exec write-fence** on PAI shells: allow default, deny
   `file-write*` outside `/pai`, `/tmp`, `/var/folders`. Layers under
@@ -168,5 +183,5 @@ Live-machine migration (one-time, owner-run):
    reading prompts that spell a root they are not running under.
    `{{PAI_ROOT}}` templating at prompt-load keeps those coherent for
    one cheap substitution. Leaning templating.
-2. Cutover timing for the live machine: provision `/pai` and migrate
-   when the branches merge, or run the v3fs branches live first?
+
+(Long-lived experimental branch; merge back to main is a non-goal.)
