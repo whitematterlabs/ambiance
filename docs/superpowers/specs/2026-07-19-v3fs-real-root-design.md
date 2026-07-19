@@ -76,7 +76,30 @@ path.
   the sealed read-only snapshot, so writes fail with EROFS instead of
   silently landing on the boot volume.
 
-### 2. Path semantics
+### 2. Ownership binding
+
+Under `~/.pai` ownership was implicit in location: the root lived
+inside the owner's home. `/pai` is machine-global, so the binding
+inverts: the root declares its owner instead of the owner containing
+the root.
+
+- The kernel already resolves the owner independently of location:
+  `real_home()` (`paths.py:20`) is the pwd entry for the kernel
+  process's uid, ignoring per-PAI `$HOME` overrides. Whoever boots the
+  kernel is the owner; `REAL_HOME` for drivers derives from that.
+  Nothing here changes.
+- Provisioning stamps the owner into the root: the volume root is
+  owned by the provisioning account, `chmod 700`. That is both the
+  declaration and the enforcement; a second local user gets EACCES at
+  `/pai` itself.
+- Boot assertion: kernel refuses to start if its uid does not own the
+  volume root. Makes "wrong user started it" a one-line error instead
+  of a half-written state.
+- One `/pai` per machine, one owner per `/pai`. Multi-user Macs with
+  multiple PAI owners are out of scope (beta golden path); nothing in
+  the layout precludes revisiting with per-user roots later.
+
+### 3. Path semantics
 
 - `PAI_ROOT` resolution order: env override (tests, dev roots), then
   `/pai`. v3fs requires the mount; `~/.pai` is what pre-v3fs installs
@@ -89,7 +112,7 @@ path.
 - Tests are unaffected mechanically: `PAI_ROOT=<tmpdir>` keeps working
   since nothing assumes the illusion anymore.
 
-### 3. Kernel changes
+### 4. Kernel changes
 
 Small and mostly subtractive:
 
@@ -106,7 +129,7 @@ Small and mostly subtractive:
 - `stitch.py`: unchanged mechanics, now emits `/pai`-rooted symlinks.
 - `entry.py` chdir-to-root behavior unchanged.
 
-### 4. Registry sweep
+### 5. Registry sweep
 
 Lands on a matching `v3fs` branch in `~/Projects/pairegistry/`, merged
 and deployed together with this one.
@@ -118,7 +141,7 @@ and deployed together with this one.
   with `{{PAI_ROOT}}` or `$HOME`-relative forms. Seed prompts
   (`root.md`, `pai_default.md`, `capability-escalation.md`) included.
 
-### 5. Provisioning and migration
+### 6. Provisioning and migration
 
 Beta scope: golden path only, perfect conditions assumed. No fallback
 mode, no degraded operation.
@@ -138,7 +161,7 @@ Live-machine migration (one-time, owner-run):
 2. `rsync -aX ~/.pai/ /pai/` (cross-volume, real copy).
 3. Restart kernel, verify `kernel.log` shows root `/pai`.
 
-### 6. Owner-data access (drivers) — unchanged
+### 7. Owner-data access (drivers) — unchanged
 
 Nothing about `/pai` changes how the system reads iMessages, Mail,
 calendar, etc. Drivers are deliberately amphibious: their *code* lives
@@ -153,7 +176,7 @@ grants, not where the binary's data lives, so the mount move is
 invisible to it. The fence, when it comes, wraps PAI shells only,
 never drivers.
 
-### 7. Follow-on (explicitly out of scope here)
+### 8. Follow-on (explicitly out of scope here)
 
 - **sandbox-exec write-fence** on PAI shells: allow default, deny
   `file-write*` outside `/pai`, `/tmp`, `/var/folders`. Layers under
