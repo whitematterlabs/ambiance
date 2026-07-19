@@ -106,9 +106,11 @@ One final `subagent:response` per spawn, sent with
 `bin/subagent done --result result.md` after writing
 `$PAI_RESULT_DIR/result.md`. The result markdown
 includes the final URL, the answer, and any key verbatim quotes. On a
-hard block (login wall, captcha, dark site) the subagent still writes a
-failure report and completes — the parent gets closure either way and
-does not retry.
+human-clearable wall (login, captcha, 2FA) the subagent asks via
+`subagent reply` and waits — the owner can clear it in the visible
+Chrome — resuming once told to continue. Only a dead end (dark site,
+owner said stop) ends with a failure report and `done --result` — the
+parent gets closure either way and does not retry.
 
 ---
 
