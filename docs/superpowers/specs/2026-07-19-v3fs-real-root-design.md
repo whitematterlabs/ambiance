@@ -62,20 +62,19 @@ path.
 
 ### 1. Storage and mount
 
-- `/etc/synthetic.conf` entry `pai` creates an empty mount-point dir at
-  `/` (SIP-compatible, one reboot).
-- APFS volume `pai` in the internal container, mounted at `/pai` via an
-  `/etc/fstab` UUID entry (`rw`, `nobrowse` to keep it out of Finder).
-- `diskutil enableOwnership` on the volume (ownership is sometimes
-  ignored on freshly added volumes), volume root `chmod 700`, owned by
-  the owner account.
-- APFS quota at volume creation (default proposal: 64G) so a runaway
-  PAI cannot fill the disk.
-- **Fail-loud when unmounted:** an unmounted `/pai` is an empty dir on
+- APFS volume `pai` in the internal container. Not a partition:
+  volumes share the container's free-space pool, so creation is
+  instant, allocates nothing, and is reversible with one `diskutil`
+  command.
+- `/etc/synthetic.conf` entry `pai` creates the empty mount-point dir
+  at `/` (SIP-compatible, one reboot).
+- Mounted at `/pai` via an `/etc/fstab` UUID entry (`rw`, `nobrowse`
+  to keep it out of Finder).
+- `diskutil enableOwnership` + volume root `chmod 700`, owned by the
+  owner account.
+- Nice property for free: when unmounted, `/pai` is an empty dir on
   the sealed read-only snapshot, so writes fail with EROFS instead of
-  silently landing on the boot volume. The kernel additionally refuses
-  to boot when `/pai` exists but is not a mountpoint (unless `PAI_ROOT`
-  is explicitly overridden).
+  silently landing on the boot volume.
 
 ### 2. Path semantics
 
@@ -121,28 +120,23 @@ and deployed together with this one.
 
 ### 5. Provisioning and migration
 
+Beta scope: golden path only, perfect conditions assumed. No fallback
+mode, no degraded operation.
+
 `paifs-init` grows an idempotent provision step (invoked by
 `install.sh`):
 
-1. Volume exists? Else `diskutil apfs addVolume ... -quota`.
-2. `synthetic.conf` line present? Else append (sudo) and flag that a
-   reboot is needed before the mount can appear.
+1. Volume exists? Else `diskutil apfs addVolume`.
+2. `synthetic.conf` line present? Else append (sudo); reboot once
+   before the mount can appear.
 3. `fstab` UUID entry present? Else append.
 4. `enableOwnership` + `chmod 700`.
-5. If any step needs sudo/reboot and the owner declines, abort with
-   instructions; v3fs does not run without the mount.
 
 Live-machine migration (one-time, owner-run):
 
 1. Stop the kernel. Provision volume, reboot, confirm `/pai` mounted.
 2. `rsync -aX ~/.pai/ /pai/` (cross-volume, real copy).
-3. Leave `~/.pai` as a symlink to `/pai` for one release window so
-   anything that hardcoded the old path keeps working; grep logs for
-   stragglers before removing it.
-4. Restart kernel, verify `kernel.log` shows root `/pai`.
-5. **Verify Time Machine includes the `pai` volume.** New volumes are
-   not necessarily in the backup set, and there is precedent for losing
-   data to a re-provision (the 38k-message mail backfill).
+3. Restart kernel, verify `kernel.log` shows root `/pai`.
 
 ### 6. Follow-on (explicitly out of scope here)
 
@@ -155,16 +149,12 @@ Live-machine migration (one-time, owner-run):
 
 ## Risks
 
-- **OS upgrades**: `synthetic.conf` and `fstab` persist across normal
-  updates; verify after major upgrades. `paifs-init` re-run heals both.
-- **Backup inclusion** is the single largest data-loss risk; step 5
-  above is mandatory, not advisory.
-- **Per-machine ritual**: sudo plus one reboot per machine. Owned by
-  `install.sh`, with legacy fallback.
 - **Registry drift**: the sweep must land together with the kernel
   change, or prompts will spell paths the shell no longer translates.
-  This is the riskiest coupling in the cutover; do it on one branch and
-  deploy as one release.
+  This is the riskiest coupling in the cutover; paired `v3fs` branches,
+  deployed as one release.
+- **Backup**: check Time Machine includes the new volume after
+  provisioning (one checkbox; the mail-backfill wipe is precedent).
 - **claudecode-backend PAIs** bypass `bash_tool` (and the bash gate)
   today, so they never saw the rewriter; literal paths make their
   behavior consistent with everyone else's rather than accidentally
@@ -172,12 +162,11 @@ Live-machine migration (one-time, owner-run):
 
 ## Open questions
 
-1. Quota default: 64G? Owner-configurable at install?
-2. Registry path spelling: since v3fs guarantees the root is `/pai`,
+1. Registry path spelling: since v3fs guarantees the root is `/pai`,
    registry prompts/skills could hardcode `/pai/...` literally (no
    templating at all). The cost is dev/test roots (`PAI_ROOT=<tmpdir>`)
    reading prompts that spell a root they are not running under.
    `{{PAI_ROOT}}` templating at prompt-load keeps those coherent for
    one cheap substitution. Leaning templating.
-3. Cutover timing for the live machine: provision `/pai` and migrate
+2. Cutover timing for the live machine: provision `/pai` and migrate
    when the branches merge, or run the v3fs branches live first?
