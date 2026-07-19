@@ -6,16 +6,17 @@ Subagents differ from one-shot ephemerals in two ways:
   2. Termination is explicit: the standard exit is `bin/subagent done --result`,
      which emits a final `subagent:response` pointing at the durable report
      *and* resolves the child's proc as completed in that same call.
-     The legacy `reply --done` path remains compatible. The parent may also call
+     The parent may also call
      `bin/subagent kill --slug X` to abort a child early. Self-kill is
      not allowed — kill is parent-only.
 
 Two messaging kinds are tested:
-  - parent→child rides generic `pai_message` (same as any peer IPC). The
-    spawn kickoff is just the parent's first such IPC.
-  - child→parent uses `subagent:response` (via `bin/subagent reply`), so
-    the parent can recognize "this is from one of my own subagents" at a
-    glance.
+  - parent→child and child→parent chatter rides generic `pai_message`
+    (same as any peer IPC — children use `send-message --to $PAI_PARENT`).
+    The spawn kickoff is just the parent's first such IPC.
+  - `subagent:response` is completion-only: emitted by `bin/subagent done`
+    (or synthesized by the kernel), so the parent can recognize "one of my
+    own subagents finished" at a glance.
 
 send-message ACK semantics (delivery verification) are exercised here
 too: the kernel writes a per-msg ack/dropped file under /run/pai/acks/.
@@ -137,47 +138,6 @@ def test_spawn_rejects_shell_mangled_budget_prompt(
     assert "single quotes" in captured.err
 
 
-def test_reply_done_emits_response_and_resolves(
-    live_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    P.spawn_pai(pid=1, slug="root", description="parent")
-    monkeypatch.setenv("PAI_PID", "1")
-    sub_bin.main(["spawn", "--slug", "scratch", "--prompt", "go"])
-    [child_slug] = [s for s in P.list_procs() if s.startswith("scratch-")]
-    child_pid = P.read_spec(child_slug)["pid"]
-
-    # Drop the kickoff event.
-    for e in P.EVENTS_DIR.iterdir():
-        e.unlink()
-
-    # Child invokes `reply --done`.
-    monkeypatch.setenv("PAI_PID", str(child_pid))
-    monkeypatch.setenv("PAI_PARENT", "1")
-    monkeypatch.setenv("PAI_SLUG", child_slug)
-    rc = sub_bin.main(["reply", "--done", "--content", "final answer"])
-    assert rc == 0
-
-    # The proc is now reaped (ephemeral subagent + completed status).
-    assert child_slug not in P.list_procs()
-
-    # Two events emitted in order: subagent:response then proc_resolved.
-    events = _events(P.EVENTS_DIR)
-    assert len(events) == 2
-    resp, resolved = events
-    assert resp["kind"] == "subagent:response"
-    assert resp["target_pid"] == 1
-    assert resp["sender_pid"] == child_pid
-    assert resp["text"] == "final answer"
-    assert resp.get("done") is True
-    assert resolved["kind"] == "proc_resolved"
-    assert resolved["slug"] == child_slug
-    assert resolved["status"] == "completed"
-    # The `subagent:response` above is the parent's notification, so the
-    # proc_resolved event resolves quietly: no `parent` pid means the kernel
-    # won't fire a redundant "proc completed" nudge right behind the response.
-    assert "parent" not in resolved
-
-
 def test_done_result_emits_pointer_and_resolves(
     live_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -217,27 +177,6 @@ def test_done_result_emits_pointer_and_resolves(
     assert resolved["slug"] == child_slug
     assert resolved["status"] == "completed"
     assert "parent" not in resolved
-
-
-def test_reply_done_uses_live_slug_when_env_slug_is_stale(
-    live_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    child_slug = "child-real"
-    child_pid = _spawn_parent_child(child_slug=child_slug)
-
-    monkeypatch.setenv("PAI_PID", str(child_pid))
-    monkeypatch.setenv("PAI_PARENT", "1")
-    monkeypatch.setenv("PAI_SLUG", "child-old")
-    rc = sub_bin.main(["reply", "--done", "--content", "final answer"])
-    assert rc == 0
-
-    captured = capsys.readouterr()
-    assert "PAI_SLUG='child-old'" in captured.err
-    assert "child-real" in captured.err
-    assert child_slug not in P.list_procs()
-    resp, resolved = _events(P.EVENTS_DIR)
-    assert resp["kind"] == "subagent:response"
-    assert resolved["slug"] == child_slug
 
 
 def test_done_uses_live_slug_when_env_slug_is_stale(
@@ -752,28 +691,6 @@ def test_spawn_refuses_slug_that_implies_omitted_package(
     assert "--package browse" in capsys.readouterr().err
 
 
-def test_reply_without_done_does_not_resolve(
-    live_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    P.spawn_pai(pid=1, slug="root", description="parent")
-    monkeypatch.setenv("PAI_PID", "1")
-    sub_bin.main(["spawn", "--slug", "scratch", "--prompt", "go"])
-    [child_slug] = [s for s in P.list_procs() if s.startswith("scratch-")]
-    child_pid = P.read_spec(child_slug)["pid"]
-
-    for e in P.EVENTS_DIR.iterdir():
-        e.unlink()
-
-    monkeypatch.setenv("PAI_PID", str(child_pid))
-    monkeypatch.setenv("PAI_PARENT", "1")
-    monkeypatch.delenv("PAI_SLUG", raising=False)
-    assert sub_bin.main(["reply", "--content", "still working"]) == 0
-    assert P.read_status(child_slug) == "running"
-    [resp] = _events(P.EVENTS_DIR)
-    assert resp["kind"] == "subagent:response"
-    assert "done" not in resp
-
-
 def test_kill_rejects_self_kill(live_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The subagent itself can no longer use `kill` to self-terminate.
     P.spawn_pai(pid=1, slug="root", description="parent")
@@ -901,12 +818,12 @@ def test_send_message_to_stale_pid_drops(
     assert "9999" in captured.err
 
 
-def test_reply_requires_parent_env(live_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Calling `subagent reply` without $PAI_PARENT (i.e., from a top-level PAI
-    # that has no parent) is an error — only subagents can reply.
+def test_done_requires_parent_env(live_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Calling `subagent done` without $PAI_PARENT (i.e., from a top-level PAI
+    # that has no parent) is an error — only subagents can finish this way.
     monkeypatch.setenv("PAI_PID", "1")
     monkeypatch.delenv("PAI_PARENT", raising=False)
-    rc = sub_bin.main(["reply", "--content", "no one to reply to"])
+    rc = sub_bin.main(["done", "--result", "result.md"])
     assert rc == 1
     assert not list(P.EVENTS_DIR.iterdir())
 

@@ -4,17 +4,16 @@
 Usage:
     subagent list                                         # installed packages you can spawn with --package
     subagent spawn --slug NAME --prompt '...'             # fork a subagent, return its pid
-    subagent reply --content "..."                        # (child only) intermediate update to parent
-    subagent reply --done --content "..."                 # (child only) final reply; kernel reaps the child
     subagent done --result result.md                      # (child only) finish with durable parent-workspace result
     subagent kill --slug NAME                             # (parent only) abort a child you spawned
 
 Subagents are persistent: they stay alive across turns and do not
 auto-resolve after answering the initial prompt. The kickoff prompt is
 just a normal `pai_message` IPC — same channel used for parent→child
-follow-ups. Children talk back to the parent via `subagent reply`,
-which emits `subagent:response` events so the parent can distinguish
-"one of my own children is talking" from a generic peer message.
+follow-ups. Children talk back the same way: `send-message --to
+$PAI_PARENT` carries questions and intermediate updates. The only
+subagent-specific channel is the final `subagent done`, which emits a
+`subagent:response` completion event pointing at the durable result.
 
 Parents do NOT need to instruct the subagent on how to reply or how to
 finish — every spawned subagent automatically gets a subagent-mode block
@@ -324,7 +323,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     return 0
 
 
-def _read_child_reply_env(
+def _read_child_env(
     command: str,
     *,
     require_slug: bool = False,
@@ -387,7 +386,8 @@ def _ensure_can_finish(slug: str) -> bool:
     if own_spec.get("suicide_allowed") is False:
         print(
             f"error: {slug!r} was spawned with --suicide-allowed no and cannot "
-            f"finish itself. Send results with `bin/subagent reply --content ...` "
+            f"finish itself. Send results with `bin/send-message --to $PAI_PARENT "
+            f"--content ...` "
             f"(point at files you saved under $PAI_RESULT_DIR) and end your turn; "
             f"you stay alive for follow-up work until the parent kills you.",
             file=sys.stderr,
@@ -522,34 +522,8 @@ def _absolutize_result_refs(result_abs: Path) -> None:
             pass
 
 
-def cmd_reply(args: argparse.Namespace) -> int:
-    env = _read_child_reply_env("reply", require_slug=True)
-    if env is None:
-        return 1
-    sender_pid, parent_pid, child_slug = env
-
-    if args.done and not _ensure_can_finish(child_slug):
-        return 1
-
-    _emit_parent_response(
-        sender_pid=sender_pid,
-        parent_pid=parent_pid,
-        text=args.content,
-        done=args.done,
-    )
-
-    if args.done:
-        if not _resolve_done(child_slug):
-            return 1
-        print(f"replied to parent pid={parent_pid} (done)")
-        return 0
-
-    print(f"replied to parent pid={parent_pid}")
-    return 0
-
-
 def cmd_done(args: argparse.Namespace) -> int:
-    env = _read_child_reply_env("done", require_slug=True)
+    env = _read_child_env("done", require_slug=True)
     if env is None:
         return 1
     sender_pid, parent_pid, child_slug = env
@@ -738,8 +712,8 @@ def main(argv: list[str] | None = None) -> int:
         help="spawn a persistent subagent",
         description=(
             "Spawn a subagent. --prompt should describe the task only — the "
-            "subagent already knows to send intermediate updates via "
-            "`bin/subagent reply` and to finish via `bin/subagent done --result result.md`, "
+            "subagent already knows to raise questions via `bin/send-message "
+            "--to $PAI_PARENT` and to finish via `bin/subagent done --result result.md`, "
             "so you don't need to spell that out. As the parent, you can call "
             "`bin/subagent kill` to abort a child early."
         ),
@@ -770,26 +744,14 @@ def main(argv: list[str] | None = None) -> int:
         choices=["yes", "no"],
         default="yes",
         help=(
-            "whether the child may end itself via `done`/`reply --done` "
+            "whether the child may end itself via `done` "
             "(default: yes). With `no` the child stays alive after finishing "
-            "a task — results arrive via `reply` — until you `subagent kill` "
+            "a task — results arrive as messages — until you `subagent kill` "
             "it. Use for long-lived helpers you keep steering (e.g. under "
             "overclock)."
         ),
     )
     sp.set_defaults(func=cmd_spawn)
-
-    rp = sub.add_parser(
-        "reply",
-        help="(child only) send a subagent:response to your parent (use --done for the final reply)",
-    )
-    rp.add_argument("--content", required=True, help="message text")
-    rp.add_argument(
-        "--done",
-        action="store_true",
-        help="terminating reply: emit the response and resolve own proc as completed",
-    )
-    rp.set_defaults(func=cmd_reply)
 
     dp = sub.add_parser(
         "done",

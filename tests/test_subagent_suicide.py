@@ -1,8 +1,8 @@
 """`subagent spawn --suicide-allowed no` — the child cannot end itself.
 
 The flag lands in the child spec as `suicide_allowed: False` (absent means
-the default: may end itself). Enforced at both self-finish choke points
-(`subagent done`, `subagent reply --done`) and by the kernel's plain-reply
+the default: may end itself). Enforced at the self-finish choke point
+(`subagent done`) and by the kernel's plain-reply
 fallback, which relays instead of auto-finishing. Only the parent's
 `subagent kill` reaps such a child.
 """
@@ -75,18 +75,10 @@ def _spawn_no_suicide_child(child_slug: str = "worker-child") -> int:
     return 7
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["done", "--result", "result.md"],
-        ["reply", "--content", "all wrapped up", "--done"],
-    ],
-)
 def test_self_finish_denied(
     live_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    argv: list[str],
 ) -> None:
     child_slug = "worker-child"
     child_pid = _spawn_no_suicide_child(child_slug)
@@ -94,29 +86,12 @@ def test_self_finish_denied(
     monkeypatch.setenv("PAI_PARENT", "1")
     monkeypatch.setenv("PAI_SLUG", child_slug)
 
-    rc = sub_bin.main(argv)
+    rc = sub_bin.main(["done", "--result", "result.md"])
     assert rc == 1
     assert "--suicide-allowed no" in capsys.readouterr().err
     # Still alive, nothing reached the parent.
     assert child_slug in P.list_procs()
     assert not [e for e in _events(P.EVENTS_DIR) if e.get("kind") == "subagent:response"]
-
-
-def test_plain_reply_still_works(
-    live_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    child_slug = "worker-child"
-    child_pid = _spawn_no_suicide_child(child_slug)
-    monkeypatch.setenv("PAI_PID", str(child_pid))
-    monkeypatch.setenv("PAI_PARENT", "1")
-    monkeypatch.setenv("PAI_SLUG", child_slug)
-
-    rc = sub_bin.main(["reply", "--content", "progress: half done"])
-    assert rc == 0
-    assert child_slug in P.list_procs()
-    [resp] = [e for e in _events(P.EVENTS_DIR) if e.get("kind") == "subagent:response"]
-    assert resp["text"] == "progress: half done"
-    assert "done" not in resp
 
 
 def test_kernel_plain_reply_relays_instead_of_auto_finishing(

@@ -95,7 +95,7 @@ def _is_ad_hoc_subagent(spec: dict) -> bool:
 def _proc_already_resolved(slug: str) -> bool:
     """True if the proc was resolved/reaped *during* its own turn.
 
-    A subagent's standard exit (`bin/subagent done` / `reply --done`) and a
+    A subagent's standard exit (`bin/subagent done`) and a
     parent `subagent kill` both resolve the child's proc — and reap it — from
     inside the turn that's now ending. The kernel's post-turn exit (auto-finish
     fallback + the ephemeral resolve) reads `pai_spec` captured at turn *start*,
