@@ -79,16 +79,14 @@ path.
 
 ### 2. Path semantics
 
-- `PAI_ROOT` resolution order: env override, then `/pai` if it is a
-  mountpoint, then legacy `~/.pai`.
+- `PAI_ROOT` resolution order: env override (tests, dev roots), then
+  `/pai`. v3fs requires the mount; `~/.pai` is what pre-v3fs installs
+  run, not a mode of v3fs.
 - All PAI-facing paths are literal under `PAI_ROOT`. `HOME` is set to
   the real `/pai/home/<slug>`; `~` works in a bare shell.
 - Delete `rewrite_fhs_paths`, `rewrite_fhs_path`, and their call sites
   (`bash_tool.py`, `shell_tool.py`, file tools). The bash tool becomes
   an actual TTY again (restores the literal-TTY dogma).
-- Legacy mode (`~/.pai`, no volume) still works because paths are
-  literal everywhere: they are just longer and leak the owner username
-  into PAI-facing text. Acceptable as a fallback, not the recommendation.
 - Tests are unaffected mechanically: `PAI_ROOT=<tmpdir>` keeps working
   since nothing assumes the illusion anymore.
 
@@ -111,6 +109,9 @@ Small and mostly subtractive:
 
 ### 4. Registry sweep
 
+Lands on a matching `v3fs` branch in `~/Projects/pairegistry/`, merged
+and deployed together with this one.
+
 - Update the PAI-facing-paths rule: "spell literal `PAI_ROOT` paths (or
   `$HOME`-relative); never the FHS-illusion `/home/...`, `/usr/...`".
 - Sweep `~/Projects/pairegistry/` prompts and skills for illusion
@@ -128,8 +129,8 @@ Small and mostly subtractive:
    reboot is needed before the mount can appear.
 3. `fstab` UUID entry present? Else append.
 4. `enableOwnership` + `chmod 700`.
-5. If any step needs sudo/reboot and the owner declines, fall back to
-   legacy `~/.pai` mode and say so.
+5. If any step needs sudo/reboot and the owner declines, abort with
+   instructions; v3fs does not run without the mount.
 
 Live-machine migration (one-time, owner-run):
 
@@ -172,8 +173,11 @@ Live-machine migration (one-time, owner-run):
 ## Open questions
 
 1. Quota default: 64G? Owner-configurable at install?
-2. Legacy `~/.pai` mode: supported indefinitely, or one release window
-   then hard-require the volume on macOS?
-3. `{{PAI_ROOT}}` templating vs pushing prompts toward `$HOME`-relative
-   spellings only; the latter is simpler but not every path is under a
-   PAI home.
+2. Registry path spelling: since v3fs guarantees the root is `/pai`,
+   registry prompts/skills could hardcode `/pai/...` literally (no
+   templating at all). The cost is dev/test roots (`PAI_ROOT=<tmpdir>`)
+   reading prompts that spell a root they are not running under.
+   `{{PAI_ROOT}}` templating at prompt-load keeps those coherent for
+   one cheap substitution. Leaning templating.
+3. Cutover timing for the live machine: provision `/pai` and migrate
+   when the branches merge, or run the v3fs branches live first?
