@@ -169,8 +169,12 @@ driver. Internal supervision is the PAI's job, not kernelPAI's.
 │   ├── drivers/<name>/events.yaml
 │   └── prompts/           per-install prompt overrides
 ├── home/<pai>/            per-PAI workspace — stitched symlink tree
-│   ├── memory/
-│   │   ├── shared         → /var/lib/memory/
+│   ├── memory/            shared content un-nested at top level
+│   │   ├── people         → /var/lib/memory/people/
+│   │   ├── topics         → /var/lib/memory/topics/
+│   │   ├── projects       → /var/lib/memory/projects/
+│   │   ├── journal        → /var/lib/memory/journal/
+│   │   ├── MEMORY.md      → /var/lib/memory/MEMORY.md
 │   │   ├── private        → /var/lib/instances/<pai>/memory/private/
 │   │   ├── skills         → /usr/lib/skills/
 │   │   └── doc            → /usr/share/doc/
@@ -575,7 +579,8 @@ yaml file, not a dated directory tree.
   consolidation run (current truth); Facts/Timeline/Decisions are append-only
   dated bullets (history). `last_updated:` frontmatter is the freshness signal.
 - **Links**: `[[slug]]` inline (bare slug resolves people → projects → topics).
-  Backlinks are not stored — grep them: `rg "\[\[<slug>\]\]" memory/`.
+  Backlinks are not stored — grep them: `rg -L "\[\[<slug>\]\]" memory/`
+  (`-L` because the home-view memory dirs are symlinks rg skips by default).
 - **Journals are reconstructed retroactively** by `librarian` at 3am: it
   reads the prior day's comms archives (messages/email) and writes the episodic
   record itself, then threads durable episodes into the people/project files.
@@ -585,8 +590,13 @@ The earlier dated-directory shape (`topics/<topic>/<date>/summary.md`,
 `journal/<date>/notes.md`) was never implemented — the runtime has always been
 flat. This section now documents the flat reality.
 
-PAIs see this through `/home/<pai>/memory/shared/ → /var/lib/memory/`.
-Writes through the symlink mutate ground truth — no overlay, no
+PAIs see this **un-nested** at `/home/<pai>/memory/`: stitch links every
+top-level entry of `/var/lib/memory/` (people/, topics/, projects/,
+journal/, MEMORY.md) directly under `memory/`, next to the per-PAI
+`private/`, `skills/`, and `doc/` views. There is no `memory/shared/`
+nesting (removed 2026-07-19) and no top-level `$PAI_ROOT/memory` —
+shared memory is only ever `/var/lib/memory/`, reached through the home
+view. Writes through the links mutate ground truth — no overlay, no
 copy-on-write. When privileged-write enforcement lands, denial happens
 at policy, not at filesystem.
 

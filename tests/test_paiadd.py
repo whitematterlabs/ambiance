@@ -19,7 +19,8 @@ def fhs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "etc",
         "usr/lib/pais",
         "var/lib/instances",
-        "var/lib/memory",
+        "var/lib/memory/people",
+        "var/lib/memory/topics",
         "usr/lib/skills",
         "home",
         "root",
@@ -64,7 +65,11 @@ def test_add_creates_instance_and_config(fhs: Path, monkeypatch: pytest.MonkeyPa
     assert (instance / "inbox").is_dir()
 
     home = fhs / "home" / "email-pai"
-    assert (home / "memory" / "shared").is_symlink()
+    # Shared memory is un-nested: each top-level entry of var/lib/memory
+    # links directly under memory/; the legacy memory/shared link is gone.
+    assert (home / "memory" / "people").is_symlink()
+    assert (home / "memory" / "topics").is_symlink()
+    assert not (home / "memory" / "shared").exists()
     # memory/skills is now a directory of per-skill symlinks (filtered by
     # `visible_to:`), not a single symlink to /usr/lib/skills/.
     assert (home / "memory" / "skills").is_dir()

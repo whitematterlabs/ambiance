@@ -29,12 +29,17 @@ owner says to keep private); lands only in this PAI's private memory.
 
 ### Read
 
-- Topic: `cat memory/{private,shared}/topics/<slug>.md`.
-- Person: `cat memory/shared/people/<slug>/profile.md` (living rollup:
+Memory lives at `memory/` in your home (`/home/<you>/memory/`) — never at
+the runtime root. Shared content sits at the top level (`people/`, `topics/`,
+`projects/`, `journal/`, `MEMORY.md`); `memory/private/` is yours alone.
+
+- Topic: `cat memory/topics/<slug>.md` (private: `memory/private/topics/<slug>.md`).
+- Person: `cat memory/people/<slug>/profile.md` (living rollup:
   Summary, dated Facts, follow-ups; `about.yaml` is just the identity stub).
-- Project: `cat memory/shared/projects/<slug>/project.md`.
-- Backlinks aren't stored — grep them: `rg "\[\[<slug>\]\]" memory/`
+- Project: `cat memory/projects/<slug>/project.md`.
+- Backlinks aren't stored — grep them: `rg -L "\[\[<slug>\]\]" memory/`
   (`[[slug]]` cross-links run people → projects → topics).
-- Everything: `rg <term> memory/`.
+- Everything: `rg -L <term> memory/` — always pass `-L`: the memory dirs are
+  symlinks and rg skips them silently without it.
 - `remember '<question>'` when the owner asks for recall and index/local
   search isn't enough — read-only lookup to `librarian`; answer returns async.

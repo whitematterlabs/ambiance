@@ -24,13 +24,20 @@ def _gc(now: float) -> None:
         _pending.pop(k, None)
 
 
+def _norm(text: str) -> str:
+    # Outbound registers the day-file form (single line, ` ↵ ` markers);
+    # the chat.db echo carries the delivered form (real newlines). Flatten
+    # both the same way messages._append_day_file does so they key equal.
+    return text.replace("\r\n", "\n").replace("\n", " ↵ ").rstrip()
+
+
 def register(slug: str, text: str) -> None:
     now = time.monotonic()
     _gc(now)
-    _pending[(slug, text)] = now
+    _pending[(slug, _norm(text))] = now
 
 
 def consume(slug: str, text: str) -> bool:
     now = time.monotonic()
     _gc(now)
-    return _pending.pop((slug, text), None) is not None
+    return _pending.pop((slug, _norm(text)), None) is not None

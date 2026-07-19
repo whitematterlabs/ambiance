@@ -82,6 +82,7 @@ SKELETON: tuple[str, ...] = (
     "var/lib/doc/built",
     "var/lib/memory/people",
     "var/lib/memory/topics",
+    "var/lib/memory/projects",
     "var/lib/memory/journal",
     "var/lib/instances",
     "var/lib/packages",

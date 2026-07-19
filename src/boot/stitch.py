@@ -96,6 +96,29 @@ def _merge_real_dir_into(src: Path, dst: Path) -> bool:
     return clean
 
 
+# Per-PAI views under home/memory/ — these names win any collision with a
+# top-level entry of the shared tree.
+_MEMORY_RESERVED = {"private", "doc", "skills", "shared"}
+
+
+def _shared_memory_links(mem_under_root: Path) -> tuple[tuple[str, Path], ...]:
+    """Shared memory is un-nested: every top-level entry of /var/lib/memory
+    (people/, topics/, projects/, journal/, MEMORY.md, ...) links directly
+    under home/memory/. The category skeleton is seeded by paifs-init, so a
+    fresh install still exposes the canonical dirs and writes through the
+    links land in the shared tree, never in the home."""
+    shared_root = paths.PAI_ROOT / mem_under_root
+    try:
+        entries = sorted(shared_root.iterdir())
+    except FileNotFoundError:
+        return ()
+    return tuple(
+        (f"memory/{entry.name}", mem_under_root / entry.name)
+        for entry in entries
+        if entry.name not in _MEMORY_RESERVED and not entry.name.startswith(".")
+    )
+
+
 def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
     # Symlink targets are relative so the home tree is portable if PAI_ROOT moves.
     # Computed against the link's *physical* parent (resolve()) so links that
@@ -112,9 +135,16 @@ def _stitch_links(home: Path, instance: Path, extra_links: tuple = ()) -> None:
         ("inbox", inst_under_root / "inbox"),
         ("workspace", inst_under_root / "workspace"),
         ("memory/private", inst_under_root / "memory" / "private"),
-        ("memory/shared", mem_under_root),
         ("memory/doc", doc_under_root),
+        *_shared_memory_links(mem_under_root),
     )
+    # Legacy nesting: shared memory used to sit behind a single
+    # `memory/shared` symlink; it is now un-nested (people/, topics/, ...
+    # link directly under memory/). Drop the old link so stale references
+    # fail loudly instead of resolving to a second view of the same tree.
+    legacy_shared = home / "memory" / "shared"
+    if legacy_shared.is_symlink():
+        legacy_shared.unlink()
     # Prune stale top-level symlinks the kernel no longer manages (e.g. the
     # universal `communication` link that bundle-aware homes drop). We only
     # touch symlinks, never real dirs or files.

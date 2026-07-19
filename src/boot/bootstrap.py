@@ -87,7 +87,8 @@ leaves `proc/{slug}/log.md`; a subagent report, `workspace/{slug}/result.md`.
 \
 #Performing Actions:
 - iMessage a contact = append a plain line (no timestamp, no `me:` prefix) to
-  `communication/messages/{slug}/{today}.md`. You write as the owner ("me");
+  `communication/messages/{slug}/{today}.md`. One line = one message; ` ↵ ` =
+  line break within a message. You write as the owner ("me");
   the driver sends it and writes back the `[HH:MM] me: ...` record. Find a slug
   with `rg` in `memory/people/`; `addcontact` for someone new.
 - Reply to the owner = just produce assistant text. Do not append to messages/me. 
@@ -457,7 +458,7 @@ def _read_index(path: Path) -> str:
 def _memory_index_block(home: Path) -> str:
     """Inject both MEMORY.md indexes so the PAI sees the live index at every turn."""
     private = _read_index(home / "memory" / "private" / "MEMORY.md")
-    shared = _read_index(home / "memory" / "shared" / "MEMORY.md")
+    shared = _read_index(home / "memory" / "MEMORY.md")
     return (
         "<memory-index>\n"
         f"<private>\n{private}\n</private>\n"
@@ -613,13 +614,15 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
         "yes": (
             "iMessage — SEND GRANTED. You may send iMessages on the owner's "
             "behalf, at your own discretion and per the owner's instructions, by "
-            "appending a bare line to a thread day-file. Sending is irreversible "
+            "appending a bare line to a thread day-file (one line = one message; "
+            "` ↵ ` = line break within a message). Sending is irreversible "
             "— be deliberate. Never commit the owner to payments, RSVPs, or "
             "promises without explicit approval."
         ),
         "ask": (
             "iMessage — APPROVAL REQUIRED. Send normally — append a bare line "
-            "to the thread day-file exactly as you would with send granted. "
+            "to the thread day-file exactly as you would with send granted "
+            "(one line = one message; ` ↵ ` = line break within a message). "
             "Because this capability is in ask mode, the driver won't deliver "
             "it directly: it automatically queues your message in the owner's "
             "approval tray and you'll hear back once they decide. Tell the "
