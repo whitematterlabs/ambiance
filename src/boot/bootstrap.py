@@ -636,22 +636,22 @@ _CAPABILITY_LINES: dict[str, dict[str, str]] = {
         "yes": (
             "WhatsApp — SEND GRANTED. You may send WhatsApp messages on the "
             "owner's behalf, at your own discretion and per the owner's "
-            "instructions, by appending a bare line to a thread day-file. "
+            "instructions, with `write-whatsapp` (one call = one message). "
             "Sending is irreversible — be deliberate. Never commit the owner to "
             "payments, RSVPs, or promises without explicit approval."
         ),
         "ask": (
-            "WhatsApp — APPROVAL REQUIRED. Send normally — append a bare line "
-            "to the thread day-file exactly as you would with send granted. "
-            "Because this capability is in ask mode, the driver won't deliver "
-            "it directly: it automatically queues your message in the owner's "
-            "approval tray and you'll hear back once they decide. Tell the "
-            "owner you sent it for approval — never that it was sent outright."
+            "WhatsApp — APPROVAL REQUIRED. Send normally with `write-whatsapp` "
+            "exactly as you would with send granted. Because this capability is "
+            "in ask mode, the driver won't deliver it directly: it queues your "
+            "message in the owner's approval tray (`state: pending_approval`) "
+            "and you'll hear back once they decide. Tell the owner you sent it "
+            "for approval — never that it was sent outright."
         ),
         "no": (
-            "WhatsApp — READ ONLY. You can read threads but cannot send. Outbound "
-            "is frozen: a bare line is consumed with a `kernel: send frozen` note "
-            "and never delivered. Don't attempt sends or claim one happened."
+            "WhatsApp — READ ONLY. You can read threads but cannot send. "
+            "Outbound is frozen: `write-whatsapp` reports `send_blocked` and "
+            "nothing is delivered. Don't attempt sends or claim one happened."
         ),
     },
     # Terse mode-state only — the how-to lives in the using-slack skill, not the
