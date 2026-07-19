@@ -4527,6 +4527,28 @@ button {
   cursor: default;
 }
 
+/* Allowlist editor dialog — "Allowed (n)" under a permission row opens it;
+   reuses the bash-allowlist-* rule/add styles inside a confirm-card shell. */
+.allowlist-dialog {
+  width: 420px;
+}
+
+.allowlist-hint {
+  font-size: 12px;
+}
+
+.allowlist-dialog-body {
+  margin-top: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.allowlist-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 0 4px;
+}
+
 /* Header badge — warm warn tint, reopens the modal while items stay pending. */
 .approval-badge {
   appearance: none;
