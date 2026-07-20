@@ -1,4 +1,0 @@
-name: testprompt1
-kind: prompt
-version: 0.1.0
-entrypoint: prompt.md

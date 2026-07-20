@@ -1,1 +1,0 @@
-/Users/arda/.pai/opt/paiman/pai_default/prompt.md

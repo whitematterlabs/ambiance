@@ -1,4 +1,0 @@
-name: testbin
-kind: bin
-version: 0.1.0
-entrypoint: bin/testbin.py
