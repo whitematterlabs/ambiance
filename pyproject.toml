@@ -1,70 +1,24 @@
 [project]
 name = "pai"
 version = "0.1.0"
-description = "PAI (Personal AI) — a local-first, always-on AI fleet runtime for macOS, backed by a plain-text filesystem."
+description = "PAI (Personal AI) — an always-on AI fleet runtime for Linux, backed by a plain-text filesystem."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.14"
 dependencies = [
     "anthropic>=0.40.0",
-    "croniter>=6.2.2",
-    "google-auth>=2.35",
-    "google-auth-oauthlib>=1.2",
-    # Kernel-supervised proxy that exposes a native Anthropic /v1/messages
-    # endpoint translating to OpenAI (boot/litellm_proxy.py). Kernel runtime
-    # infra spawned as a child — not a userspace package — so it belongs here.
-    "litellm[proxy]>=1.0",
+    "httpx>=0.27",
     "openai>=1.0",
-    "python-dotenv>=1.0",
-    "pyobjc-framework-Contacts>=10.0; sys_platform == 'darwin'",
-    "pyobjc-framework-EventKit>=10.0; sys_platform == 'darwin'",
-    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
-    "pillow>=10.0",
     "pyte>=0.8",
     "pyyaml>=6.0.3",
-    "requests>=2.32",
-    "textual>=0.80",
-    "watchdog>=6.0.0",
     "pytest>=8.0",
     "pytest-timeout>=2.3",
-    "pyobjc-framework-applicationservices>=12.2.1; sys_platform == 'darwin'",
-    "pyobjc-framework-fsevents>=12.2.1; sys_platform == 'darwin'",
-    "pyobjc-framework-coreaudio>=12.2.1; sys_platform == 'darwin'",
 ]
-
-[project.scripts]
-addcontact = "bin.addcontact:main"
-addemail = "bin.addemail:main"
-cal = "bin.cal:main"
-clear = "bin.clear:main"
-compact = "bin.compact:main"
-dashboard = "bin.dashboard:main"
-edit-file = "bin.edit_file:main"
-imessage-backfill = "bin.imessage_backfill:main"
-init = "boot.init:main"
-send-message = "bin.send_message:main"
-emit-event = "sbin.emit_event:main"
-pairelease = "sbin.pairelease:main"
-migrate = "sbin.migrate:main"
-reboot = "sbin.reboot:main"
-reset = "sbin.reset:main"
-paiadd = "bin.paiadd:main"
-paicron = "bin.paicron:main"
-paictl = "bin.paictl:main"
-paiclone = "bin.paiclone:main"
-paidel = "bin.paidel:main"
-paifs-init = "bin.paifs_init:main"
-paiman = "bin.paiman:main"
-paisetup = "sbin.paisetup:main"
-pai = "bin.pai:main"
-ps = "bin.ps:main"
-resolve-contact = "bin.resolve_contact:main"
-subagent = "bin.subagent:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent", "src/boot", "src/sbin", "src/bin", "src/usr/libexec/web/pai_web"]
+packages = ["src/agent"]

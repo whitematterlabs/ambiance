@@ -4,8 +4,14 @@
 > splits three ways: **systemd** (supervision), **`src/agent/`**
 > (member-plane runtime, Python), **`src/broker/`** (privileged residue,
 > Rust — compiled, single static binary). This file is the disposition
-> map: where every `boot/` module goes. `boot/` is deleted when the last
-> row is carried.
+> map: where every `boot/` module goes.
+>
+> **2026-07-20: the monolith is burned.** `src/boot/` (and all of v3 —
+> bins, sbin, web console, v3 tests and docs) was deleted from the
+> `linux` branch. Every "dead" row below is done. The remaining
+> "port later" rows (scheduler→timerfd, subagents, skills, claudecode
+> backend) now port **from git history on `main`** — there is no live
+> `src/boot/` to read from on this branch.
 
 ## Order of work
 
