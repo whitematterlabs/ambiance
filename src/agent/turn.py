@@ -88,13 +88,51 @@ def _is_transient(exc: BaseException) -> bool:
 
 
 class Engine:
-    def __init__(self, user: str, entry: dict):
+    def __init__(
+        self,
+        user: str,
+        entry: dict,
+        *,
+        home: Optional[Path] = None,
+        state_dir: Optional[Path] = None,
+    ):
         self.user = user
         self.entry = entry
-        self.home = paths.home(user)
-        self.state_dir = paths.state(user)
+        self.home = home or paths.home(user)
+        self.state_dir = state_dir or paths.state(user)
         self.history_path = self.state_dir / "session" / "messages.jsonl"
         self._last_compacted = 0.0
+
+    # -- wire format -------------------------------------------------------
+
+    @property
+    def _wire_path(self) -> Path:
+        return self.history_path.parent / "wire"
+
+    def ensure_wire(self) -> None:
+        """History is stored in its backend's native shape; switching a
+        member across wire families (anthropic ↔ openai) makes the stored
+        history unreplayable. Archive and reseed rather than translate —
+        compaction summaries are plain text and carry across wires anyway."""
+        current = llm.wire_for(self.entry.get("provider"))
+        try:
+            stored = self._wire_path.read_text().strip()
+        except OSError:
+            stored = ""
+        if stored and stored != current and self.load_history():
+            archived = self._archive("wireswitch")
+            self._reseed(
+                f"[provider wire changed {stored} → {current}; prior "
+                f"conversation archived — continue from your memory files]"
+            )
+            print(
+                f"agent: wire switch {stored} → {current} — history archived "
+                f"to {archived}",
+                flush=True,
+            )
+        if stored != current:
+            self._wire_path.parent.mkdir(parents=True, exist_ok=True)
+            self._wire_path.write_text(current + "\n")
 
     # -- history -----------------------------------------------------------
 
@@ -143,6 +181,7 @@ class Engine:
     # -- compaction --------------------------------------------------------
 
     async def maybe_compact(self) -> None:
+        self.ensure_wire()
         last_window = tokens.read_last_window(self.state_dir)
         if last_window is None:
             return
@@ -192,6 +231,7 @@ class Engine:
         compact_turn: bool = False,
     ) -> Optional[str]:
         """Run one turn; returns the reply text (None on cancellation)."""
+        self.ensure_wire()
         system = prompt.build_system_prompt(self.user, self.entry)
         user_turn = prompt.build_user_turn(reason, bodies)
         history = self.load_history()

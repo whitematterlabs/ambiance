@@ -28,7 +28,7 @@
 | `recovery/`, `debugger.py` | dead | runtime is sealed; crash recovery is systemd's |
 | `events.py`, `routing.py` | dead | wake_on routing dies; delivery = file into `/var/spool/pai/<member>/in/` |
 | `nudge.py` | port | `agent/turn.py` — session jsonl, compaction (soft/hard/overflow), transient retry. Fleet/subagent/overclock/onboarding paths deferred |
-| `llm.py` | port | `agent/llm.py` — tool loop, prompt cache, direct providers (anthropic/deepseek/zai); proxied providers dropped until a direct path exists |
+| `llm.py` | port | `agent/llm.py` dispatch + `agent/backends/{anthropic,openai}.py` — one module per wire format, no translation layer; history lives in its backend's native shape (wire switch = compact-and-reseed). Dropping litellm un-deferred openrouter (OpenAI-wire native, now direct) |
 | `bootstrap.py` | port (lean) | `agent/prompt.py` — base persona + `~/prompt/` overlay + user turn |
 | `config.py` | port (lean) | `agent/config.py` — read own member entry; fleet reconcile + capability projection die (systemd / broker) |
 | `stitch.py` | dead | the member's real home IS the home; no symlink view. Skills visibility filtering deferred |
