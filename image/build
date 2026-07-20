@@ -1,0 +1,66 @@
+#!/bin/sh
+# Build the PAI box image (FILESYSTEM_v4 §8). Run as root on the Linux
+# VM; needs cargo, uv, and mkosi on PATH. Output:
+#
+#     /var/lib/pai-image/out/pai        (directory format)
+#     boot it:  systemd-nspawn -bD /var/lib/pai-image/out/pai
+#
+# Staging, cache, and output live on builder-local disk — the repo may
+# sit on a shared filesystem (OrbStack virtiofs) that can't hold real
+# image ownership. The python payload is staged at its FINAL absolute
+# paths: a mount namespace bind-mounts staging/usr/lib/pai over
+# /usr/lib/pai while uv lays the interpreter and venv, so pyvenv.cfg
+# and every symlink are already correct on the built box. Nothing on
+# the builder is touched.
+set -eu
+
+[ "$(uname -s)" = Linux ] || { echo "image/build: Linux only — run on the VM" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || { echo "image/build: run as root" >&2; exit 1; }
+for tool in cargo uv mkosi unshare; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "image/build: $tool not on PATH" >&2; exit 1; }
+done
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo=$(dirname -- "$here")
+work=/var/lib/pai-image
+stage="$work/staging"
+
+rm -rf "$stage"
+
+# Broker — single release binary.
+cargo build --release --manifest-path "$repo/src/broker/Cargo.toml"
+install -D -m 0755 "$repo/src/broker/target/release/pai-broker" \
+    "$stage/usr/lib/pai/bin/pai-broker"
+
+# System plane from the repo tree: units + preset, sysusers, tmpfiles,
+# provisioning, docs, /etc/pai seeds.
+install -d "$stage/usr/lib" "$stage/usr/lib/pai/prompts" "$stage/usr/share/doc/pai" "$stage/etc/pai"
+cp -a "$repo/src/usr/lib/systemd" "$repo/src/usr/lib/sysusers.d" \
+      "$repo/src/usr/lib/tmpfiles.d" "$stage/usr/lib/"
+install -D -m 0755 "$repo/src/usr/libexec/provision-member" \
+    "$stage/usr/lib/pai/libexec/provision-member"
+install -m 0644 "$repo"/src/usr/share/doc/*.md "$stage/usr/share/doc/pai/"
+install -m 0644 "$repo/src/etc/pai/config.yaml" "$stage/etc/pai/config.yaml"
+install -m 0600 "$repo/src/etc/pai/env" "$stage/etc/pai/env"
+
+# Python runtime + agent, laid down at real paths inside the namespace.
+install -d "$stage/usr/lib/pai" /usr/lib/pai
+STAGE="$stage" REPO="$repo" unshare -m sh -eu -c '
+    mount --bind "$STAGE/usr/lib/pai" /usr/lib/pai
+    export UV_PYTHON_INSTALL_DIR=/usr/lib/pai/python
+    uv python install 3.14
+    set -- /usr/lib/pai/python/cpython-3.14.*-*/bin/python3.14
+    uv venv --python "$1" /usr/lib/pai/venv
+    uv pip install --python /usr/lib/pai/venv/bin/python "$REPO"
+    /usr/lib/pai/venv/bin/python -m compileall -q \
+        /usr/lib/pai/venv/lib/python3.14/site-packages
+'
+
+# Assemble the image.
+cd "$here"
+mkosi --force \
+    --extra-tree "$stage" \
+    --output-dir "$work/out" \
+    --cache-dir "$work/cache" \
+    build
+echo "image/build: done — boot it with: systemd-nspawn -bD $work/out/pai"

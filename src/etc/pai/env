@@ -1,0 +1,8 @@
+# /etc/pai/env — provider API keys, team-shared at v4.0 (read by systemd
+# via EnvironmentFile= before privileges drop; keep this file 0600 root).
+# Per-member egress credentials move behind the broker with the first
+# integration.
+#
+# ANTHROPIC_API_KEY=
+# OPENAI_API_KEY=
+# OPENROUTER_API_KEY=

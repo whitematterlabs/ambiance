@@ -253,5 +253,10 @@ end-to-end — a spool message delivered as another member wakes the
 agent, is consumed to `cur/`, and the broker answers `fleet` over
 `broker.sock`. The v3 monolith was deleted from this branch the same
 day; the remaining rows (scheduler→timerfd, subagents, skills,
-claudecode backend, console, image build) port from `main`'s git
-history, sequenced in `MIGRATION_v4.md`, not this spec.
+console) port from `main`'s git history, sequenced in
+`MIGRATION_v4.md`, not this spec. The claudecode backend is dead, not
+deferred — pure-VPS branch, nothing local to drive (2026-07-20). The
+image build landed the same day (`image/`, mkosi): a directory-format
+image verified under systemd-nspawn — broker live at first boot,
+`useradd`+`enable` onboarding, spool wake — with the VPS disk profile
+(kernel/bootloader) still to layer on.

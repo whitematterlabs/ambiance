@@ -16,4 +16,9 @@ wheels/
 # Rust
 /src/broker/target/
 
+# Image build artifacts (image/build)
+/image/.staging/
+/image/out/
+/image/.cache/
+
 .gstack/

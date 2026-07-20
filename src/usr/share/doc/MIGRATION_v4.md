@@ -9,16 +9,22 @@
 > **2026-07-20: the monolith is burned.** `src/boot/` (and all of v3 —
 > bins, sbin, web console, v3 tests and docs) was deleted from the
 > `linux` branch. Every "dead" row below is done. The remaining
-> "port later" rows (scheduler→timerfd, subagents, skills, claudecode
-> backend) now port **from git history on `main`** — there is no live
-> `src/boot/` to read from on this branch.
+> "port later" rows (scheduler→timerfd, subagents, skills) now port
+> **from git history on `main`** — there is no live `src/boot/` to
+> read from on this branch. The claudecode backend was abandoned
+> 2026-07-20: this branch is pure VPS, there is no local Claude Code
+> install to drive.
 
 ## Order of work
 
 1. Seed (this map, package/crate/unit skeletons). ✔
-2. Agent loop — `src/agent/`, `python -m agent`.
-3. systemd units — `pai@.service`, `pai-broker.service`, tmpfiles/sysusers.
-4. Rust broker — dormant at v4.0 (socket, policy load, audit append).
+2. Agent loop — `src/agent/`, `python -m agent`. ✔
+3. systemd units — `pai@.service`, `pai-broker.service`, tmpfiles/sysusers. ✔
+4. Rust broker — dormant at v4.0 (socket, policy load, audit append). ✔
+5. Image build — `image/` (mkosi + `image/build`): stock noble + payload
+   overlay, staged at final absolute paths; nspawn-verified 2026-07-20
+   (broker + member agent live at first boot). VPS disk profile
+   (kernel/bootloader) still pending. ✔
 
 ## Disposition map
 
@@ -44,7 +50,7 @@
 | `truncate.py`, `tokens.py`, `image_refs.py` | port | `agent/` — state under `~/.local/state/pai/` |
 | `inject.py` | port (rethought) | mid-turn inbox arrivals drain at tool boundaries straight from the spool |
 | `timers.py` | port later | scheduled tasks onto the loop's timerfd |
-| `claude_backend.py` | port later | claudecode turn executor, post-core |
+| `claude_backend.py` | dead | abandoned 2026-07-20 — pure-VPS branch, no local Claude Code install to drive; direct-SDK backends only |
 | `outbound_echo.py`, `skills.py` | port later | with drivers / skills stitching |
 
 ## v4.0 message convention

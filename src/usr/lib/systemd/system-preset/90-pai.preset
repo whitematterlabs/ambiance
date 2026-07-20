@@ -1,0 +1,3 @@
+# The broker is resident from first boot; pai@<member> instances are
+# enabled per-member at onboarding, never preset.
+enable pai-broker.service

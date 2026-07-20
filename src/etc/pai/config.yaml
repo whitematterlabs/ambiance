@@ -1,0 +1,17 @@
+# /etc/pai/config.yaml — per-member settings + capability policy.
+# Root-owned team policy; each agent reads only its own members.<user>
+# entry. Onboarding a member is Unix-native:
+#
+#     useradd -m -G org <member> && systemctl enable --now pai@<member>
+#
+# then (optionally) add an entry here. A provisioned Unix user with a
+# unit is a valid member — absent entries boot on defaults.
+#
+# members:
+#   john:
+#     provider: anthropic          # anthropic | openai | openrouter
+#     model: claude-sonnet-4-6
+#     prompt: member.md            # in /usr/lib/pai/prompts/, or absolute
+#     compact_threshold: 150000
+#     hard_compact_threshold: 400000
+members: {}

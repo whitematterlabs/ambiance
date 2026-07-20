@@ -1,0 +1,7 @@
+#!/bin/sh
+# Enable the broker at build time. The shipped preset
+# (usr/lib/systemd/system-preset/90-pai.preset) says the same thing
+# declaratively; doing it here makes the image correct even when a boot
+# skips first-boot preset application.
+set -eu
+systemctl --root="$BUILDROOT" enable pai-broker.service
