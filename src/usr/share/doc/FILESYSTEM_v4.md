@@ -89,8 +89,8 @@ systemd (PID 1)
 │      opens /pai/run/broker.sock; owns /pai/var/log/audit.log
 │      v4.0: dormant but resident (fleet view, audit)
 ├── caddy.service         uid=caddy
-│      serves the static console PWA (one bundle — vite is dev-only)
-│      PAM login → web session bound to a Unix account
+│      serves the console app (signed UI bundle — vite is dev-only)
+│      SSO login (box is an OIDC/SAML SP) → session maps to a Unix account
 │      routes  /api/me/*    → session user's agent socket
 │              /api/fleet/* → broker.sock (group adm only)
 └── pai@john.service      uid=john  slice user-john.slice, MemoryMax=
@@ -107,7 +107,7 @@ systemd (PID 1)
 What wakes john — three edges, nothing polls:
 
 ```
-browser ──PAM login──▶ caddy ──/api/me──▶ john/api.sock ──▶ turn
+browser ──SSO login──▶ caddy ──/api/me──▶ john/api.sock ──▶ turn
 member  ──file write──▶ spool/john/in/ ──inotify──▶ turn
 schedule ──timerfd expiry (agent's own) ──▶ turn
 ```
@@ -155,7 +155,7 @@ is empty at v4.0 (integrations deferred) but the slot survives.
 | `/pai/var/lib/memory/deals/<slug>/` | `root:deal-<slug>` | 2770 | intra-team wall: group membership = access |
 | `/pai/var/spool/communication/` | `root:org` | 2770 | shared comms archive; per-member `in/` dirs |
 | `/pai/var/log/` | `root:adm` | 0750 | append-only; broker + console read via `adm` |
-| `/pai/run/<member>/api.sock` | `<member>:<member>` | 0700 dir | the member's console API; caddy connects post-PAM |
+| `/pai/run/<member>/api.sock` | `<member>:<member>` | 0700 dir | the member's console API; caddy connects post-auth |
 | `/pai/run/broker.sock` | `pai-broker:adm` | 0660 | fleet view + approvals; `adm` members only |
 
 Notes:
@@ -191,16 +191,30 @@ uids, and process-per-member *is* the security model.
 
 ## The console
 
-One static PWA bundle (built once; vite exists only in dev), served by
-caddy. The Cockpit pattern:
+Everything serves from the box — the vendor's servers are in no path:
+not data, not auth, not UI. Only signed updates come from outside.
 
-- **Login is PAM** — the web session authenticates as a real Unix
-  account. No parallel user database.
+- **The UI is a product, deployed as a bundle.** Built and designed
+  like any modern app; it ships as a signed static bundle on its own
+  release-channel cadence (`pai update --ui` — new files, no process
+  restarts, no image rebuild). caddy serves it. vite exists only in
+  dev. The box is otherwise headless: caddy + an authenticated API.
+- **Login is enterprise SSO, terminated on the box.** The box is a
+  standard OIDC/SAML service provider; Okta/Azure AD redirects to the
+  box's callback URL, like any on-prem enterprise app. The session
+  maps to a Unix account — the identity chain is SSO identity → Unix
+  uid, and DAC does the enforcement. No parallel user database. PAM
+  survives as break-glass: ssh to your own box works with the IdP
+  down.
 - **Member views** are served by the member's *own agent process* over
   its unix socket; caddy routes the authenticated session there.
   Cross-member isolation is DAC, not app-level authz.
 - **The fleet view** (and, post-integration, pending approvals) is the
   broker's socket, reachable only by `adm` sessions.
+- **No central control plane.** A box registry / single-pane
+  multi-box surface is deferred until a customer with many boxes asks;
+  billing and marketing live on an ordinary website that never touches
+  the product.
 
 ## Dropped from v3
 
@@ -238,6 +252,6 @@ full FHS zero-errors; **the whole test suite passes (900/900)**; the
 kernel boots and reconciles the fleet. The port is not a rewrite. The
 work, in order: extract the member-plane agent runtime from `/boot/`
 and delete the supervisor; systemd units (`pai@`, broker skeleton,
-caddy); principal model (useradd + ownership map + PAM console
+caddy); principal model (useradd + ownership map + SSO console
 login); image build. Sequencing lives in the migration plan, not this
 spec.
