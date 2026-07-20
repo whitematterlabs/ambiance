@@ -11,7 +11,7 @@ from __future__ import annotations
 import errno as _errno
 from typing import Optional
 
-from ._file_common import FileToolResult, resolve_tool_path
+from ._file_common import FhsPathError, FileToolResult, resolve_tool_path
 from .image_refs import _EXT_TO_MEDIA
 from .truncate import DEFAULT_MAX_BYTES, format_size, truncate_head
 
@@ -66,7 +66,10 @@ def run(tool_input: dict, env: Optional[dict] = None) -> FileToolResult:
     path_raw = tool_input.get("path")
     if not path_raw or not isinstance(path_raw, str):
         return FileToolResult("read tool: `path` is required", is_error=True)
-    target = resolve_tool_path(path_raw, env)
+    try:
+        target = resolve_tool_path(path_raw, env)
+    except FhsPathError as e:
+        return FileToolResult(str(e), is_error=True)
 
     media = _EXT_TO_MEDIA.get(target.suffix.lower())
     if media:

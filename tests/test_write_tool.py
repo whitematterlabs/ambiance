@@ -33,10 +33,11 @@ def test_overwrites_existing(home: Path) -> None:
     assert f.read_text() == "new"
 
 
-def test_fhs_absolute_path(home: Path) -> None:
-    r = write_tool.run({"path": "/tmp/out.txt", "content": "x"})
-    assert not r.is_error
-    assert (PA.PAI_ROOT / "tmp" / "out.txt").read_text() == "x"
+def test_fhs_illusion_spelling_rejected(home: Path) -> None:
+    r = write_tool.run({"path": "/home/pai/out.txt", "content": "x"})
+    assert r.is_error
+    assert f"{PA.PAI_ROOT}/home/pai/out.txt" in r.text
+    assert not (home / "out.txt").exists()
 
 
 def test_byte_count_message(home: Path) -> None:

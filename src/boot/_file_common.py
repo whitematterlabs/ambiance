@@ -1,10 +1,10 @@
 """Shared bits for the file tools (`read`, `edit`, `write`).
 
-Path resolution mirrors the shell tools' chroot-like view: `~` is the PAI's
-home, absolute paths with an FHS first segment resolve under PAI_ROOT
-(existence-guarded, same tri-state as the shell rewrite), other absolute
-paths are real host paths, and relative paths resolve against the PAI's home
-(where each fresh `bash` call also starts).
+Path resolution: `~` is the PAI's home, absolute paths are real host paths,
+and relative paths resolve against the PAI's home (where each fresh `bash`
+call also starts). Deprecated FHS-illusion spellings (absolute paths that
+only mean something under PAI_ROOT) are rejected with a real-path hint —
+never silently translated — mirroring the shell tools.
 """
 
 from __future__ import annotations
@@ -16,13 +16,17 @@ from pathlib import Path
 from typing import Optional
 
 from . import paths, stitch
-from ._shell_common import rewrite_fhs_path
+from ._shell_common import classify_fhs_path, log_fhs_reject
 
 
 @dataclass
 class FileToolResult:
     text: str
     is_error: bool = False
+
+
+class FhsPathError(ValueError):
+    """A tool path used a deprecated FHS-illusion spelling; message is the hint."""
 
 
 def resolve_tool_path(raw: str, env: Optional[dict]) -> Path:
@@ -39,7 +43,14 @@ def resolve_tool_path(raw: str, env: Optional[dict]) -> Path:
     if raw.startswith("~/"):
         return Path(home) / raw[2:]
     if raw.startswith("/"):
-        return Path(rewrite_fhs_path(raw, str(paths.PAI_ROOT)))
+        real = classify_fhs_path(raw, str(paths.PAI_ROOT))
+        if real is not None:
+            log_fhs_reject(raw_slug or "pai", [(raw, real)])
+            raise FhsPathError(
+                f"{raw} does not exist on this host. FHS-style paths are "
+                f"no longer translated — use the real path: {real}"
+            )
+        return Path(raw)
     return Path(home) / raw
 
 

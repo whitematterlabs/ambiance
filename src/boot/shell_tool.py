@@ -44,7 +44,12 @@ from typing import Optional
 import pyte
 
 from . import stitch
-from ._shell_common import ShellResult, rewrite_fhs_paths
+from ._shell_common import (
+    ShellResult,
+    fhs_reject_message,
+    find_fhs_spellings,
+    log_fhs_reject,
+)
 from .paths import PAI_ROOT, build_pai_path
 from .processes import HOME_DIR
 
@@ -675,5 +680,12 @@ async def run(
 
     if keys:
         return await _send_keys_via_session(sess, keys, wait_ms)
-    rewritten = rewrite_fhs_paths(command, str(PAI_ROOT))
-    return await _exec_via_session(sess, rewritten, timeout=timeout_s)
+    hits = find_fhs_spellings(command, str(PAI_ROOT))
+    if hits:
+        log_fhs_reject(slug, hits)
+        return ShellResult(
+            stdout="",
+            stderr="bash tool: " + fhs_reject_message(hits),
+            exit_code=-1,
+        )
+    return await _exec_via_session(sess, command, timeout=timeout_s)

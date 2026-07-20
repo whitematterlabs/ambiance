@@ -85,13 +85,13 @@ def test_image_returns_markdown_ref(home: Path) -> None:
     assert r.text == f"Read image file [image/png]\n![]({img})"
 
 
-def test_fhs_absolute_resolves_under_pai_root(home: Path) -> None:
+def test_fhs_illusion_spelling_rejected(home: Path) -> None:
     root = PA.PAI_ROOT
     (root / "tmp").mkdir()
     (root / "tmp" / "spill.log").write_text("spilled")
     r = read_tool.run({"path": "/tmp/spill.log"})
-    assert not r.is_error
-    assert r.text == "spilled"
+    assert r.is_error
+    assert f"{root}/tmp/spill.log" in r.text
 
 
 def test_tilde_resolves_to_home(home: Path) -> None:

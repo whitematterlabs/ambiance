@@ -1,7 +1,9 @@
 """Shared bits between the two shell tools (`bash`, `shell`).
 
-`ShellResult` is the common return shape; `rewrite_fhs_paths` rewrites
-leading-slash FHS paths (`/etc`, `/usr`, ...) to live under PAI's root.
+`ShellResult` is the common return shape; `classify_fhs_path` /
+`find_fhs_spellings` detect deprecated FHS-illusion spellings (`/etc`,
+`/usr`, ...) so callers can reject them with a real-path hint. Nothing
+here mutates a command or path.
 """
 
 from __future__ import annotations
@@ -30,55 +32,85 @@ _FHS_PATTERN = re.compile(
 )
 
 
-def rewrite_fhs_paths(command: str, root: str) -> str:
-    """Rewrite leading-slash FHS paths to live under PAI's root `root`.
-
-    A PAI sees a chroot-like FHS view where `/` maps to PAI_ROOT, so `/usr/...`
-    in a command means `<root>/usr/...`. But the same syntax also names real
-    host paths a PAI legitimately reads off the system and echoes back —
-    `/opt/homebrew/bin/node`, `/tmp/...`, a `/var/folders/...` macOS tempdir.
-    Blindly prefixing PAI_ROOT corrupts those (2026-07-08: it turned a correct
-    `/opt/homebrew/bin/node` into `<root>/opt/homebrew/bin/node`, a nonexistent
-    path that crash-looped a supervised service ~220×/s for 45 minutes).
-
-    So the rewrite is existence-guarded: rewrite to the PAI-view path when that
-    path actually exists; leave a real host path alone when *it* exists and the
-    PAI-view one does not; and for a path that exists neither way (a file about
-    to be created), default to the PAI-view path so `/tmp/out`, `/home/<pai>/x`
-    etc. keep their chroot semantics.
-    """
-    def _sub(m: re.Match) -> str:
-        full = m.group(1) + (m.group(2) or "")
-        pai_path = f"{root}{full}"
-        if os.path.lexists(pai_path):
-            return pai_path
-        if os.path.lexists(full):
-            return full
-        return pai_path
-
-    return _FHS_PATTERN.sub(_sub, command)
+def _match_depth(path: str, base: str) -> int:
+    """How many leading components of `path` exist under `base` ('' = host)."""
+    depth = 0
+    cur = base
+    for seg in (s for s in path.split("/") if s):
+        cur = f"{cur}/{seg}"
+        if not os.path.lexists(cur):
+            break
+        depth += 1
+    return depth
 
 
-def rewrite_fhs_path(path: str, root: str) -> str:
-    """Single-path variant of `rewrite_fhs_paths` for the file tools.
+def classify_fhs_path(path: str, root: str) -> Optional[str]:
+    """The real path under `root` if `path` is an FHS-illusion spelling, else None.
 
-    The input is one whole path, not a command line, so no regex tokenizing —
-    `_PATH_TAIL` would mis-split a bare path containing `:` or `,`. Same
-    existence-guarded tri-state: PAI-view exists → PAI-view; else host exists
-    → host; else default to the PAI-view (a file about to be created).
-    Non-FHS absolute paths and relative paths are returned unchanged.
+    PAIs historically saw a chroot-like view where `/` mapped to PAI_ROOT;
+    the shims that silently translated those spellings are gone (they
+    mutated commands in flight and once corrupted a real host path,
+    2026-07-08). A spelling is illusory when it resolves deeper under
+    PAI_ROOT than on the host. Host full-path existence always wins, and
+    ancestor-depth ties go to the host, so real host commands are never
+    blocked — only paths that would ENOENT on the host but mean something
+    in the PAI's world get refused (with the real path in the hint).
     """
     if not path.startswith("/"):
-        return path
-    first_seg = path.split("/", 2)[1]
+        return None
+    first_seg = path.split("/", 2)[1] if "/" in path[1:] else path[1:]
     if first_seg not in _FHS_SLOTS:
-        return path
-    pai_path = f"{root}{path}"
-    if os.path.lexists(pai_path):
-        return pai_path
+        return None
     if os.path.lexists(path):
-        return path
-    return pai_path
+        return None
+    if _match_depth(path, root) > _match_depth(path, ""):
+        return f"{root}{path}"
+    return None
+
+
+def find_fhs_spellings(command: str, root: str) -> list[tuple[str, str]]:
+    """Scan a command line for FHS-illusion spellings; never mutates.
+
+    Returns ordered, deduped (token, real_path) pairs using the same
+    tokenizer the old rewriter used.
+    """
+    hits: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for m in _FHS_PATTERN.finditer(command):
+        token = m.group(1) + (m.group(2) or "")
+        if token in seen:
+            continue
+        real = classify_fhs_path(token, root)
+        if real is not None:
+            seen.add(token)
+            hits.append((token, real))
+    return hits
+
+
+def fhs_reject_message(hits: list[tuple[str, str]]) -> str:
+    lines = [
+        "path does not exist on this host. FHS-style paths are no longer "
+        "translated — use the real path:"
+    ]
+    lines += [f"  {token} -> {real}" for token, real in hits]
+    return "\n".join(lines)
+
+
+def log_fhs_reject(slug: str, hits: list[tuple[str, str]]) -> None:
+    """One kernel.log line + one per-PAI log line per hit.
+
+    Grep surface: `rg fhs-reject` over kernel.log finds fleet-wide
+    offenders (per-PAI proc dirs get reaped for subagents; kernel.log
+    survives).
+    """
+    from . import processes as P  # lazy: keep this module import-light
+
+    for token, real in hits:
+        print(f"[kernel] fhs-reject slug={slug} {token} -> {real}", flush=True)
+        try:
+            P.append_log(slug, f"[fhs-reject] {token} -> {real}")
+        except Exception:
+            pass
 
 
 @dataclass

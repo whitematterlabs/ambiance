@@ -160,16 +160,16 @@ def test_cancel_kills_whole_process_tree(tmp_path: Path):
     ), "grandchild survived cancellation"
 
 
-def test_fhs_rewrite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """`/etc/foo` should rewrite to `$PAI_ROOT/etc/foo`."""
+def test_fhs_illusion_rejected_with_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """`/etc/foo` that only exists under PAI_ROOT is refused, never rewritten."""
     fake_root = tmp_path / "fake_pai_root"
     (fake_root / "etc").mkdir(parents=True)
     (fake_root / "etc" / "marker").write_text("present\n")
     monkeypatch.setattr(bash_tool, "PAI_ROOT", fake_root, raising=True)
 
     res = _run(bash_tool.run({"command": "cat /etc/marker", "cwd": str(tmp_path)}))
-    assert res.exit_code == 0
-    assert res.stdout.strip() == "present"
+    assert res.exit_code == -1
+    assert f"{fake_root}/etc/marker" in res.stderr
 
 
 def test_host_ps_wins_in_user_shell_path(tmp_path: Path):

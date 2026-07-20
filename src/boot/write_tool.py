@@ -5,7 +5,12 @@ from __future__ import annotations
 import errno as _errno
 from typing import Optional
 
-from ._file_common import FileToolResult, atomic_write, resolve_tool_path
+from ._file_common import (
+    FhsPathError,
+    FileToolResult,
+    atomic_write,
+    resolve_tool_path,
+)
 
 TOOL_NAME = "write"
 TOOL_DESCRIPTION = (
@@ -48,7 +53,10 @@ def run(tool_input: dict, env: Optional[dict] = None) -> FileToolResult:
     if not isinstance(content, str):
         return FileToolResult("write tool: `content` is required", is_error=True)
 
-    target = resolve_tool_path(path_raw, env)
+    try:
+        target = resolve_tool_path(path_raw, env)
+    except FhsPathError as e:
+        return FileToolResult(str(e), is_error=True)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         atomic_write(target, content)

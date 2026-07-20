@@ -17,7 +17,12 @@ from pathlib import Path
 from typing import Optional
 
 from . import stitch
-from ._shell_common import ShellResult, rewrite_fhs_paths
+from ._shell_common import (
+    ShellResult,
+    fhs_reject_message,
+    find_fhs_spellings,
+    log_fhs_reject,
+)
 from .paths import PAI_ROOT, build_pai_path
 from .processes import HOME_DIR
 
@@ -150,11 +155,18 @@ async def run(
 
     proc_env = _build_env(env)
 
-    rewritten = rewrite_fhs_paths(command, str(PAI_ROOT))
+    hits = find_fhs_spellings(command, str(PAI_ROOT))
+    if hits:
+        log_fhs_reject(raw_slug or "pai", hits)
+        return ShellResult(
+            stdout="",
+            stderr="bash tool: " + fhs_reject_message(hits),
+            exit_code=-1,
+        )
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "bash", "-c", rewritten,
+            "bash", "-c", command,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

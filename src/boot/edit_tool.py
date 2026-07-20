@@ -13,7 +13,12 @@ import errno as _errno
 import json
 from typing import Optional
 
-from ._file_common import FileToolResult, atomic_write, resolve_tool_path
+from ._file_common import (
+    FhsPathError,
+    FileToolResult,
+    atomic_write,
+    resolve_tool_path,
+)
 
 TOOL_NAME = "edit"
 TOOL_DESCRIPTION = (
@@ -202,7 +207,10 @@ def run(tool_input: dict, env: Optional[dict] = None) -> FileToolResult:
             is_error=True,
         )
 
-    target = resolve_tool_path(path_raw, env)
+    try:
+        target = resolve_tool_path(path_raw, env)
+    except FhsPathError as e:
+        return FileToolResult(str(e), is_error=True)
     try:
         # newline="" keeps CRLF intact — universal-newline mode would
         # translate it to LF before _detect_line_ending can see it.
