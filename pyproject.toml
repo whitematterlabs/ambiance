@@ -17,9 +17,9 @@ dependencies = [
     "litellm[proxy]>=1.0",
     "openai>=1.0",
     "python-dotenv>=1.0",
-    "pyobjc-framework-Contacts>=10.0",
-    "pyobjc-framework-EventKit>=10.0",
-    "pyobjc-framework-Quartz>=10.0",
+    "pyobjc-framework-Contacts>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-EventKit>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
     "pillow>=10.0",
     "pyte>=0.8",
     "pyyaml>=6.0.3",
@@ -28,9 +28,9 @@ dependencies = [
     "watchdog>=6.0.0",
     "pytest>=8.0",
     "pytest-timeout>=2.3",
-    "pyobjc-framework-applicationservices>=12.2.1",
-    "pyobjc-framework-fsevents>=12.2.1",
-    "pyobjc-framework-coreaudio>=12.2.1",
+    "pyobjc-framework-applicationservices>=12.2.1; sys_platform == 'darwin'",
+    "pyobjc-framework-fsevents>=12.2.1; sys_platform == 'darwin'",
+    "pyobjc-framework-coreaudio>=12.2.1; sys_platform == 'darwin'",
 ]
 
 [project.scripts]
