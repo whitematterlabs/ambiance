@@ -18,6 +18,7 @@ from pathlib import Path
 ETC = Path("/etc/pai")
 CONFIG = ETC / "config.yaml"  # per-member settings + capability policy
 USR_LIB = Path("/usr/lib/pai")  # sealed release tree: venv + this package
+PROMPTS = USR_LIB / "prompts"  # root-owned base personas
 VAR_LIB = Path("/var/lib/pai")
 MEMORY = VAR_LIB / "memory"  # team hivemind (root:org, setgid)
 DEALS = MEMORY / "deals"  # walled subtrees (root:deal-<slug>)
