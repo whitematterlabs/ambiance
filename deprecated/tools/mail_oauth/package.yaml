@@ -1,0 +1,26 @@
+kind: tool
+name: mail-oauth
+description: |
+  OAuth2 device-flow helper for IMAP/SMTP XOAUTH2. Used by the maildir
+  driver: mbsync and msmtp shell out to `pai-mail-oauth get <address>`
+  for a fresh access token. One-time consent via `pai-mail-oauth setup`.
+
+# What this bundle installs at the system level. paiman's tool installer
+# will read this and wire shims/binaries.
+provides:
+  bins:
+    - pai-mail-oauth
+
+# Runtime dependencies. Currently provided by the host pyproject — when
+# tool bundles get their own venv resolution, paiman will read this.
+requires:
+  python: ">=3.11"
+  pip:
+    - requests>=2.32
+    - pyyaml>=6.0
+
+# Where this bundle's per-installation state lives. Read by helper.py via
+# boot.paths; documented here so future paiman dep-checks know the surface.
+state:
+  secrets: /etc/secrets/mail/<address>/{refresh_token,oauth_provider}
+  cache: /sys/drivers/maildir/oauth/<address>.json

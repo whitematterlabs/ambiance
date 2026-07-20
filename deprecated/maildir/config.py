@@ -1,0 +1,263 @@
+"""Account roster + generated mbsync/msmtp config rendering.
+
+`/etc/mail/accounts.yaml` is the source of truth for which mail accounts
+exist. We render `/etc/mail/mbsyncrc` and `/etc/mail/msmtprc` from it on
+every driver start (and on `kernel:reload_config`); the generated files
+are not hand-edited.
+
+Schema (accounts.yaml):
+
+    accounts:
+      - address: arda@example.com         # required; canonical account id
+        provider: gmail | icloud | outlook | generic
+        auth_method: password | xoauth2   # default: password
+        # Provider-specific overrides (only needed for `generic`):
+        imap_host: imap.example.com
+        imap_port: 993
+        smtp_host: smtp.example.com
+        smtp_port: 465
+        # Optional folder name overrides:
+        sent_folder: Sent                 # default per-provider
+
+Per-provider defaults are baked in below. Secrets live at
+`/etc/secrets/mail/<address>/{password,refresh_token,...}` — never in
+accounts.yaml.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+import yaml
+
+from boot import paths
+
+
+# Per-provider IMAP/SMTP endpoints. `generic` is configured per-account.
+PROVIDERS: dict[str, dict] = {
+    "gmail": {
+        "imap_host": "imap.gmail.com",
+        "imap_port": 993,
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 465,
+        "sent_folder": "[Gmail]/Sent Mail",
+    },
+    "icloud": {
+        "imap_host": "imap.mail.me.com",
+        "imap_port": 993,
+        "smtp_host": "smtp.mail.me.com",
+        "smtp_port": 587,
+        "sent_folder": "Sent Messages",
+    },
+    "outlook": {
+        "imap_host": "outlook.office365.com",
+        "imap_port": 993,
+        "smtp_host": "smtp.office365.com",
+        "smtp_port": 587,
+        "sent_folder": "Sent",
+    },
+}
+
+
+class ConfigError(Exception):
+    pass
+
+
+@dataclass
+class Account:
+    address: str
+    provider: str
+    auth_method: str = "password"
+    imap_host: str = ""
+    imap_port: int = 993
+    smtp_host: str = ""
+    smtp_port: int = 587
+    sent_folder: str = "Sent"
+    # Slug used in mbsync channel names + Maildir path. Address is canonical
+    # but contains '@' which mbsync handles fine; we use it verbatim.
+    extras: dict = field(default_factory=dict)
+
+    @property
+    def maildir(self) -> Path:
+        return paths.var_mail() / self.address
+
+    @property
+    def secret_dir(self) -> Path:
+        return paths.etc_secrets() / "mail" / self.address
+
+    @property
+    def password_file(self) -> Path:
+        return self.secret_dir / "password"
+
+
+def _accounts_path() -> Path:
+    return paths.etc_mail() / "accounts.yaml"
+
+
+def load_accounts() -> list[Account]:
+    """Read `/etc/mail/accounts.yaml`. Returns [] if missing — driver idle."""
+    path = _accounts_path()
+    if not path.exists():
+        return []
+    with path.open() as f:
+        data = yaml.safe_load(f) or {}
+    raw = data.get("accounts") or []
+    out: list[Account] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise ConfigError(f"accounts.yaml entry not a mapping: {entry!r}")
+        address = entry.get("address")
+        provider = entry.get("provider")
+        if not address or not provider:
+            raise ConfigError(f"account missing address/provider: {entry!r}")
+        defaults = PROVIDERS.get(provider, {}) if provider != "generic" else {}
+        merged = {**defaults, **{k: v for k, v in entry.items() if v is not None}}
+        out.append(Account(
+            address=address,
+            provider=provider,
+            auth_method=merged.get("auth_method", "password"),
+            imap_host=merged.get("imap_host", ""),
+            imap_port=int(merged.get("imap_port", 993)),
+            smtp_host=merged.get("smtp_host", ""),
+            smtp_port=int(merged.get("smtp_port", 587)),
+            sent_folder=merged.get("sent_folder", "Sent"),
+        ))
+    return out
+
+
+def _pass_cmd(account: Account) -> str:
+    """Shell command mbsync/msmtp invokes to fetch a credential.
+
+    Single-quoted: avoid shell expansion of the path.
+    """
+    if account.auth_method == "password":
+        return f"cat '{account.password_file}'"
+    if account.auth_method == "xoauth2":
+        # `pai-mail-oauth get` reads the cached access token, refreshes it
+        # against the IdP if expired, and prints it to stdout. Both mbsync
+        # (PassCmd) and msmtp (passwordeval) consume it the same way.
+        # One-time consent: `pai-mail-oauth setup <address> --provider <p>`.
+        return f"pai-mail-oauth get '{account.address}'"
+    raise ConfigError(f"unknown auth_method: {account.auth_method!r}")
+
+
+def render_mbsyncrc(accounts: list[Account]) -> str:
+    """Render the full `/etc/mail/mbsyncrc`. One Account/Store/Channel/Group
+    per account. `mbsync <address>` syncs that account; `mbsync -a` syncs all.
+    """
+    blocks: list[str] = [
+        "# Generated by drivers/email/maildir/config.py — do not hand-edit.",
+        "# Source: /etc/mail/accounts.yaml",
+        "",
+    ]
+    for a in accounts:
+        pass_cmd = _pass_cmd(a)
+        auth = "AuthMechs LOGIN" if a.auth_method == "password" else "AuthMechs XOAUTH2"
+        blocks.append(f"""\
+IMAPAccount {a.address}
+Host {a.imap_host}
+Port {a.imap_port}
+User {a.address}
+PassCmd "{pass_cmd}"
+{auth}
+TLSType IMAPS
+TLSVersions +1.2 +1.3
+
+IMAPStore {a.address}-remote
+Account {a.address}
+
+MaildirStore {a.address}-local
+SubFolders Verbatim
+Path {a.maildir}/
+Inbox {a.maildir}/INBOX
+
+Channel {a.address}
+Far :{a.address}-remote:
+Near :{a.address}-local:
+Patterns "INBOX" "{a.sent_folder}"
+Create Both
+Expunge Both
+SyncState *
+""")
+    return "\n".join(blocks)
+
+
+def render_msmtprc(accounts: list[Account]) -> str:
+    """Render the full `/etc/mail/msmtprc`. One account block each; the
+    first account is also marked `default`.
+    """
+    blocks: list[str] = [
+        "# Generated by drivers/email/maildir/config.py — do not hand-edit.",
+        "# Source: /etc/mail/accounts.yaml",
+        "",
+        "defaults",
+        "auth on",
+        "tls on",
+        "tls_starttls on",
+        "logfile ~/.pai/var/log/msmtp.log",
+        "",
+    ]
+    for i, a in enumerate(accounts):
+        pass_cmd = _pass_cmd(a)
+        # Port 465 = SMTPS (implicit TLS), port 587 = STARTTLS.
+        starttls = "off" if a.smtp_port == 465 else "on"
+        tls_wrap = "on" if a.smtp_port == 465 else "off"
+        auth = "login" if a.auth_method == "password" else "xoauth2"
+        blocks.append(f"""\
+account {a.address}
+host {a.smtp_host}
+port {a.smtp_port}
+from {a.address}
+user {a.address}
+auth {auth}
+passwordeval "{pass_cmd}"
+tls_starttls {starttls}
+tls_wrapper {tls_wrap}
+""")
+    if accounts:
+        blocks.append(f"account default : {accounts[0].address}")
+    return "\n".join(blocks)
+
+
+def render_imapnotify(account: Account) -> dict:
+    """Return a goimapnotify config dict for one account. Caller serializes
+    to JSON at /etc/mail/imapnotify-<account>.json.
+
+    On NEW mail, run mbsync for this account's channel.
+    """
+    return {
+        "host": account.imap_host,
+        "port": account.imap_port,
+        "tls": True,
+        "tlsOptions": {"rejectUnauthorized": True},
+        "username": account.address,
+        "passwordCmd": _pass_cmd(account),
+        "xoauth2": account.auth_method == "xoauth2",
+        "boxes": [
+            {
+                "mailbox": "INBOX",
+                "onNewMail": f"mbsync -c {paths.etc_mail()}/mbsyncrc {account.address}",
+                "onNewMailPost": "",
+            }
+        ],
+    }
+
+
+def write_generated(accounts: list[Account]) -> tuple[Path, Path]:
+    """Render and atomically write mbsyncrc + msmtprc. Idempotent."""
+    etc = paths.etc_mail()
+    etc.mkdir(parents=True, exist_ok=True)
+    mbsyncrc = etc / "mbsyncrc"
+    msmtprc = etc / "msmtprc"
+    _atomic_write(mbsyncrc, render_mbsyncrc(accounts))
+    _atomic_write(msmtprc, render_msmtprc(accounts))
+    msmtprc.chmod(0o600)
+    return mbsyncrc, msmtprc
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)

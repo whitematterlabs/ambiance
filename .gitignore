@@ -1,7 +1,7 @@
 # macOS Finder metadata
 .DS_Store
 
-# Python-generated files
+# Python
 __pycache__/
 *.py[oc]
 build/
@@ -13,28 +13,7 @@ wheels/
 .env
 .env.local
 
-# FHS slots — runtime state lives at $PAI_ROOT (default ~/.pai). These
-# only appear at the repo root if someone runs paifs-init in-tree.
-/boot/
-/bin/
-/home/
-/mnt/
-/opt/
-/proc/
-/root/
-/run/
-/sbin/
-/sys/
-/tmp/
-/usr/
-/var/
-
-# Abandoned IMAP/maildir driver work — kept locally for reference, not shipped.
-/deprecated/
-
-# Per-owner / per-environment files — not shipped.
-/src/etc/owner.md
-/src/usr/share/doc/built/
+# Rust
+/src/broker/target/
 
 .gstack/
-/src/broker/target/

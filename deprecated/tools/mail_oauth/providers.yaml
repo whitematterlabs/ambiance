@@ -1,0 +1,42 @@
+# OAuth2 IdP table. Each entry covers one identity provider; the maildir
+# `accounts.yaml` provider field maps to a key here:
+#
+#   gmail   → google
+#   outlook → microsoft
+#
+# client_id / client_secret are PUBLIC values lifted from Thunderbird's
+# source tree. They are not credentials — they identify Thunderbird as the
+# requesting client. Google's flow requires the secret to be passed even
+# for public clients; it is not actually treated as a secret.
+#
+# scopes are the IMAP+SMTP scopes the access token must carry.
+
+providers:
+  google:
+    auth_endpoint: https://accounts.google.com/o/oauth2/v2/auth
+    token_endpoint: https://oauth2.googleapis.com/token
+    client_id: 406964657835-aq8lmia8j95dhl1a2bvharmfk3t1hgqj.apps.googleusercontent.com
+    client_secret: kSmqreRr0qwBWJgbf5Y-PjSU
+    # Google requires access_type=offline + prompt=consent to reliably
+    # return a refresh_token on the first consent.
+    extra_auth_params:
+      access_type: offline
+      prompt: consent
+    scopes:
+      - https://mail.google.com/
+
+  microsoft:
+    auth_endpoint: https://login.microsoftonline.com/common/oauth2/v2.0/authorize
+    token_endpoint: https://login.microsoftonline.com/common/oauth2/v2.0/token
+    # Thunderbird's MS Graph client.
+    client_id: 9e5f94bc-e8a4-4e73-b8be-63364c29d753
+    client_secret: ""
+    scopes:
+      - https://outlook.office.com/IMAP.AccessAsUser.All
+      - https://outlook.office.com/SMTP.Send
+      - offline_access
+
+# accounts.yaml `provider:` → providers.yaml key.
+provider_alias:
+  gmail: google
+  outlook: microsoft

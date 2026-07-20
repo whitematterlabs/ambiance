@@ -9,15 +9,19 @@
 
 ## What changed from v3
 
-1. **The host is Linux; one team = one box.** The runtime roots at
-   `/pai/` on a VPS owned by a single team (an IB desk, a fund team),
-   or at `/` when packaged as a container image. v3's "no `/pai/`
-   nesting" rule dies with the macOS host it served. The box boundary
-   is the hard information barrier — separate machine, disk, network
-   identity per team. Unix groups handle only the softer intra-team
-   walls. macOS is no longer the runtime — it returns later, if at
-   all, as an *edge peripheral* (a driver relaying Mac-only surfaces
-   like iMessage to the box).
+1. **The host is Linux; one team = one box; the OS FHS is the FHS.**
+   The box is a VPS owned by a single team (an IB desk, a fund team).
+   There is no runtime root, no PAI_ROOT, no prefix env var — decided
+   2026-07-20. System paths are namespaced under a `pai/` segment the
+   way any daemon's are (postfix style): `/etc/pai`, `/usr/lib/pai`,
+   `/var/lib/pai`, `/var/spool/pai`, `/run/pai`, `/var/log/pai`.
+   Member state lives plainly in the member's real home, where DAC
+   already enforces the boundary. The box boundary is the hard
+   information barrier — separate machine, disk, network identity per
+   team. Unix groups handle only the softer intra-team walls. macOS is
+   no longer the runtime — it returns later, if at all, as an *edge
+   peripheral* (a driver relaying Mac-only surfaces like iMessage to
+   the box).
 2. **Principals are team members, enforced by Unix — and we do not
    wrap what Linux provides.** Every member is a real Unix user; their
    PAI, its subagents, and its children run as the member's uid.
@@ -25,7 +29,7 @@
    there is no `paiadd`. Deal walls are `groupadd` / `gpasswd`; a
    member leaving a deal is `gpasswd -d`, an audit event a compliance
    officer can read. Membership and lifecycle are Unix-native;
-   `/pai/etc/config.yaml` keeps only what Unix has no slot for
+   `/etc/pai/config.yaml` keeps only what Unix has no slot for
    (per-member model, provider, prompt ref, capability policy).
 3. **The kernel dissolves.** v3's `/boot/` monolith fused a
    supervisor with the agent runtime. v4 has no resident kernel
@@ -37,7 +41,7 @@
    - **Agent-shaped** (turn loop, tool execution, LLM calls, retries,
      provider fallback, compaction, mid-turn injection, subagent
      spawn/reap, scheduled-task timers, inbox watching) →
-     **member-plane agent runtime** at `/pai/usr/lib/agent/`, one
+     **member-plane agent runtime** at `/usr/lib/pai/`, one
      sealed root-owned copy, instantiated per member as the member's
      uid. None of this ever needed privilege.
    - **The privileged residue** (approvals, audit log, egress
@@ -61,7 +65,7 @@
 5. **The runtime is sealed; no self-healing.** Nothing patches itself
    and re-execs (`sbin/reboot`'s self-patch path is removed). Crash
    recovery is `Restart=on-failure`. Updates are `pai update`: a
-   sha-gated atomic swap of the release symlink under `/pai/usr/`,
+   sha-gated atomic swap of the release symlink under `/usr/lib/pai/`,
    then `systemctl restart 'pai@*' pai-broker`. Self-scripting — the
    moat — lives entirely in member-plane userspace, jailed by DAC.
    Python remains the language of all userspace permanently (it is
@@ -75,18 +79,19 @@
    is the OS parking and unparking the process; no daemon of ours
    routes events. v3's FSEvents scar tissue (one-watch-per-path) has
    no Linux analogue.
-8. **Install is image-based.** A built image lays the FHS down;
-   `paifs-init` becomes the image build step; `pai update` is the
-   atomic release swap. One team = one image instance = one box.
+8. **Install is image-based.** A built image lays the tree down
+   (tmpfiles + sysusers ship the skeleton; v3's `paifs-init` is gone);
+   `pai update` is the atomic release swap. One team = one image
+   instance = one box.
 
 ## Boot map (one member, `john`)
 
 ```
 systemd (PID 1)
-├── [local-fs]            /pai laid down by the image; nothing to provision
+├── [local-fs]            pai/ system dirs laid down by the image + tmpfiles
 ├── pai-broker.service    uid=pai-broker  groups=adm,org
-│      loads capability policy from /pai/etc/config.yaml
-│      opens /pai/run/broker.sock; owns /pai/var/log/audit.log
+│      loads capability policy from /etc/pai/config.yaml
+│      opens /run/pai/broker.sock; owns /var/log/pai/audit.log
 │      v4.0: dormant but resident (fleet view, audit)
 ├── caddy.service         uid=caddy
 │      serves the console app (signed UI bundle — vite is dev-only)
@@ -95,10 +100,10 @@ systemd (PID 1)
 │              /api/fleet/* → broker.sock (group adm only)
 └── pai@john.service      uid=john  slice user-john.slice, MemoryMax=
        Restart=on-failure
-       ExecStart: /pai/usr/lib/venv/bin/python -m agent
+       ExecStart: /usr/lib/pai/venv/bin/python -m agent
        boots unprivileged: reads its config.yaml entry, stitches
-       base persona + /pai/home/john/prompt/ overlay, opens inotify
-       on its inbox spool + /pai/run/john/api.sock, then sleeps
+       base persona + /home/john/prompt/ overlay, opens inotify
+       on its inbox spool + /run/pai/john/api.sock, then sleeps
        (tickless — blocked on epoll)
        └── per-turn children, all uid=john: bash session, subagents
            (reaped by the agent; invisible to systemd)
@@ -120,43 +125,38 @@ pai-broker ──inotify──▶ policy check ──ask──▶ console modal 
 broker sends (it alone holds the credential) ──▶ audit.log
 ```
 
-## Top-level tree (delta view)
+## Top-level tree (the pai/ slots in the real FHS)
 
 ```
-/pai/                          PAI_ROOT on the team box ("/" in container packaging)
-├── sbin/                      root-only tools; init (container packaging PID 1)
-├── bin/ → usr/bin/            member-callable tools
-├── etc/                       root:root; config.yaml — per-member settings + capability policy
-├── home/<member>/             the member's PAI home — <member>:<member> 0700
-├── proc/, run/, sys/, tmp/    as v3; /pai/run/ also holds broker.sock + per-member api.sock
-├── usr/
-│   ├── lib/agent/             member-plane agent runtime (the extracted monolith)
-│   ├── lib/skills|pais|venv/  as v3
-│   └── share/                 as v3
-└── var/
-    ├── lib/memory/            team shared memory — root:org 2775 (setgid)
-    ├── lib/memory/deals/<slug>/   walled: root:deal-<slug> 2770
-    ├── lib/instances/<member>/    <member>:<member> 0700 — sacred, private
-    └── log|spool|cache/       as v3; audit.log root:adm; spool inboxes group-mediated
+/etc/pai/                      root:root; config.yaml — per-member settings + capability policy; env
+/usr/lib/pai/                  sealed release tree: venv/, bin/ (pai-broker), libexec/, prompts/
+/home/<member>/                the member's PAI home — <member>:<member> 0700
+│                              memory/, prompt/ overlay, .local/state/pai/ (session, cursors)
+/var/lib/pai/
+├── memory/                    team shared memory — root:org 2775 (setgid)
+└── memory/deals/<slug>/       walled: root:deal-<slug> 2770
+/var/spool/pai/<member>/       inbox: tmp/ + in/ (org-deliverable) + cur/ (private)
+/run/pai/                      broker.sock + per-member run dirs (api.sock slot)
+/var/log/pai/                  audit.log — broker-owned, adm reads
 ```
 
-`/boot/` has no v4 slot: there is no kernel image to hold. `/pai/usr/lib/drivers/`
-is empty at v4.0 (integrations deferred) but the slot survives.
+`/boot/` has no v4 slot: there is no kernel image to hold. There is no
+v3 `instances/` slot either — the member's real home *is* the instance.
+A drivers slot returns with the first integration.
 
 ## Ownership map (the enforcement table)
 
 | Path | Owner | Mode | Meaning |
 |---|---|---|---|
-| `/pai/sbin/`, `/pai/etc/` | `root:root` | 0755 / files 0644 | members read, only root writes |
-| `/pai/usr/` | `root:root` | 0755 | sealed release tree; updates land via atomic swap, not edits |
-| `/pai/home/<member>/` | `<member>:<member>` | 0700 | nobody else's PAI can read it — the compliance sentence |
-| `/pai/var/lib/instances/<member>/` | `<member>:<member>` | 0700 | private memory, workspace, session |
-| `/pai/var/lib/memory/` | `root:org` | 2775 | team hivemind: all members read/write, setgid keeps group |
-| `/pai/var/lib/memory/deals/<slug>/` | `root:deal-<slug>` | 2770 | intra-team wall: group membership = access |
-| `/pai/var/spool/communication/` | `root:org` | 2770 | shared comms archive; per-member `in/` dirs |
-| `/pai/var/log/` | `root:adm` | 0750 | append-only; broker + console read via `adm` |
-| `/pai/run/<member>/api.sock` | `<member>:<member>` | 0700 dir | the member's console API; caddy connects post-auth |
-| `/pai/run/broker.sock` | `pai-broker:adm` | 0660 | fleet view + approvals; `adm` members only |
+| `/etc/pai/` | `root:root` | 0755 / files 0644 | members read, only root writes |
+| `/usr/lib/pai/` | `root:root` | 0755 | sealed release tree; updates land via atomic swap, not edits |
+| `/home/<member>/` | `<member>:<member>` | 0700 | nobody else's PAI can read it — the compliance sentence; memory, workspace, session all inside |
+| `/var/lib/pai/memory/` | `root:org` | 2775 | team hivemind: all members read/write, setgid keeps group |
+| `/var/lib/pai/memory/deals/<slug>/` | `root:deal-<slug>` | 2770 | intra-team wall: group membership = access |
+| `/var/spool/pai/<member>/` | `<member>:org` | 0750 | inbox root; `tmp/` + `in/` are `3770` (any org member delivers, sticky bit stops tampering), `cur/` is `0700` |
+| `/var/log/pai/` | `pai-broker:adm` | 0750 | append-only; broker writes audit.log, console reads via `adm` |
+| `/run/pai/<member>/api.sock` | `<member>:<member>` | 0700 dir | the member's console API; caddy connects post-auth |
+| `/run/pai/broker.sock` | `pai-broker:adm` | 0660 | fleet view + approvals; `adm` members only |
 
 Notes:
 - **uids**: system users (`pai-broker`, `caddy`) in the distro's system
@@ -247,12 +247,11 @@ not data, not auth, not UI. Only signed updates come from outside.
 
 ## Migration reality (empirical, 2026-07-20)
 
-Measured on Ubuntu noble/arm64 (OrbStack VM `pai-linux`): `uv sync`
-clean once pyobjc deps went darwin-only; `paifs-init` provisions the
-full FHS zero-errors; **the whole test suite passes (900/900)**; the
-kernel boots and reconciles the fleet. The port is not a rewrite. The
-work, in order: extract the member-plane agent runtime from `/boot/`
-and delete the supervisor; systemd units (`pai@`, broker skeleton,
-caddy); principal model (useradd + ownership map + SSO console
-login); image build. Sequencing lives in the migration plan, not this
-spec.
+Verified live on Ubuntu noble/arm64 (OrbStack VM `pai-linux`): the
+agent runtime, `pai@`/`pai-broker` units, and Rust broker run
+end-to-end — a spool message delivered as another member wakes the
+agent, is consumed to `cur/`, and the broker answers `fleet` over
+`broker.sock`. The v3 monolith was deleted from this branch the same
+day; the remaining rows (scheduler→timerfd, subagents, skills,
+claudecode backend, console, image build) port from `main`'s git
+history, sequenced in `MIGRATION_v4.md`, not this spec.

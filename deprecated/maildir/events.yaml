@@ -1,0 +1,44 @@
+# Event spec for the maildir driver.
+#
+# `kind` is the routing key — match against `wake_on:` in etc/config.yaml.
+# `raw_kind` is what `_handle_event_file` switches on in src/boot/main.py.
+
+driver: maildir
+description: Inbound and outbound email via mbsync + goimapnotify + msmtp.
+
+events:
+  - kind: email:new
+    description: A new RFC 5322 file landed in a Maildir new/ folder. May be
+      inbound (mbsync pulled it from server INBOX) or outbound (mbsync pulled
+      a Sent folder copy, e.g. mail sent from another client).
+    emitted_by: src/drivers/email/maildir/inbound.py
+    raw_kind: new_email
+    payload:
+      account: string         # email address that owns the account
+      thread_slug: string
+      subject: string
+      from: string
+      direction: string       # "inbound" | "outbound"
+      path: string            # relative path to the canonical yaml
+
+  - kind: email:backlog
+    description: Kernel just booted and found Maildir files that landed while
+      it was offline. Coalesced into a single nudge instead of N.
+    emitted_by: src/drivers/email/maildir/inbound.py
+    raw_kind: email_backlog
+    payload:
+      since: string
+      accounts:
+        - account: string
+          count: int
+          last_subject: string
+      total: int
+
+  - kind: email:send_failed
+    description: PAI wrote a draft yaml but msmtp could not deliver it.
+    emitted_by: src/drivers/email/maildir/outbound.py
+    raw_kind: send_failed
+    payload:
+      account: string
+      path: string
+      reason: string
