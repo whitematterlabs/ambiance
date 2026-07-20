@@ -240,9 +240,10 @@ not data, not auth, not UI. Only signed updates come from outside.
 - Mac edge peripheral (iMessage relay driver).
 - Shared team PAIs with group principals.
 - Socket-activation elastic mode (spec'd above, unbuilt).
-- A compiled (Go) rewrite — rescoped: with no resident root daemon,
-  the only candidate is the broker, and only if a security review
-  demands it. Python userspace is permanent.
+- ~~A compiled (Go) rewrite~~ — decided 2026-07-20: the broker is
+  **Rust from birth** (single static binary, no runtime, deterministic
+  secret handling; the fanotify/FUSE successor lives in the same
+  component). Python userspace is permanent.
 
 ## Migration reality (empirical, 2026-07-20)
 
