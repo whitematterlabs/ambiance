@@ -1,0 +1,18 @@
+# The privileged residue — approvals, audit, fleet view. Dormant at v4.0
+# (no egress until the first integration) but resident: it owns the audit
+# log and answers the fleet socket. Single static Rust binary.
+
+[Unit]
+Description=PAI broker
+After=local-fs.target
+
+[Service]
+User=pai-broker
+SupplementaryGroups=adm org
+ExecStart=/usr/lib/pai/bin/pai-broker
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

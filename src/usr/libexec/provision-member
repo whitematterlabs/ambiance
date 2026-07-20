@@ -1,0 +1,16 @@
+#!/bin/sh
+# Root-side per-member provisioning, run by pai@%i ExecStartPre=+.
+# Idempotent. Lays the member's spool per the v4 message convention:
+#   tmp/  staging — org members write here, then rename into in/
+#   in/   unread — the agent's inotify wake edge
+#   cur/  consumed — private to the member
+# setgid+sticky on tmp/ and in/: any org member can deliver, nobody can
+# delete or rename another sender's file.
+set -eu
+member="$1"
+spool="/var/spool/pai/$member"
+
+install -d -o "$member" -g org -m 3770 "$spool/tmp" "$spool/in"
+install -d -o "$member" -g "$member" -m 0700 "$spool/cur"
+chown "$member":org "$spool"
+chmod 0750 "$spool"

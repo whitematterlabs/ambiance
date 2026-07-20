@@ -1,0 +1,32 @@
+# One member's PAI. Onboarding is:  useradd <m> && systemctl enable --now pai@<m>
+# Supervision-shaped kernel duties live here: restart backoff, storm guard,
+# memory cap, log transport (journald). The unit supervises ONE process; the
+# agent reaps its own turn children.
+
+[Unit]
+Description=PAI agent for member %i
+After=network-online.target
+Wants=network-online.target
+# Storm guard: 5 strikes in 5 minutes and the unit stays down until
+# `systemctl reset-failed pai@%i` — the v3 supervisor's crash-loop cap.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+User=%i
+WorkingDirectory=~
+# Root-side first-start provisioning ("+" = run privileged): spool dirs +
+# ownership for %i. Idempotent, cheap on every start.
+ExecStartPre=+/usr/lib/pai/libexec/provision-member %i
+ExecStart=/usr/lib/pai/venv/bin/python -m agent
+Restart=on-failure
+RestartSec=2
+# Provider API keys (team-shared at v4.0; per-member egress moves behind the
+# broker with the first integration).
+EnvironmentFile=-/etc/pai/env
+Slice=pai.slice
+MemoryMax=1G
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
